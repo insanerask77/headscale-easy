@@ -1,0 +1,52 @@
+name: 🐛 Bug report
+description: Something does not work as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time! Please remove secrets (keys, passwords, domains you want private) from anything you paste.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to Machines
+        2. Click …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Headscale Easy version
+      description: Shown at the bottom of the console's sidebar.
+      placeholder: v1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: ssl
+    attributes:
+      label: HTTPS mode (SSL_MODE)
+      options: [letsencrypt, selfsigned, front, none]
+  - type: dropdown
+    id: auth
+    attributes:
+      label: Sign-in (AUTH_PROVIDER)
+      options: [authentik, external, none]
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, `docker version`, browser if it is a UI issue.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Output of `make health` and `docker compose logs --tail 100 <service>`.
+      render: text

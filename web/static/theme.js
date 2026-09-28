@@ -1,9 +1,9 @@
-// Se carga en <head>, antes de pintar, para no parpadear al cambiar de tema.
-// Orden: lo que el usuario eligió (botón o Ajustes → Apariencia) > lo que
-// dice el navegador > oscuro (preferido cuando el navegador no indica nada).
+// Loaded in <head>, before painting, so the theme never flickers.
+// Order: the user's choice > the browser's preference > dark (the default
+// when the browser says nothing).
 (function () {
   var saved = null;
-  try { saved = localStorage.getItem("mivpn-theme"); } catch (e) {}
+  try { saved = localStorage.getItem("hse-theme"); } catch (e) {}
   var light = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
   document.documentElement.dataset.theme = saved || (light ? "light" : "dark");
 })();

@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 48" width="340" height="48" role="img" aria-label="Headscale Dashboard">
-  <!-- Rejilla de 3x3 puntos con estética Tailscale; los oscuros forman una H -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 48" width="340" height="48" role="img" aria-label="Headscale Easy">
+  <!-- 3x3 dot grid in the Tailscale style; the solid dots draw an H -->
   <g>
     <circle cx="8"  cy="8"  r="6" fill="#f2f0ef"/>
     <circle cx="24" cy="8"  r="6" fill="#4a4745"/>
@@ -12,6 +12,6 @@
     <circle cx="40" cy="40" r="6" fill="#f2f0ef"/>
   </g>
   <text x="62" y="33" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="25" letter-spacing="-0.4">
-    <tspan font-weight="700" fill="#f2f0ef">Headscale</tspan><tspan font-weight="400" fill="#a8a29e"> Dashboard</tspan>
+    <tspan font-weight="700" fill="#f2f0ef">Headscale</tspan><tspan font-weight="400" fill="#a8a29e"> Easy</tspan>
   </text>
 </svg>

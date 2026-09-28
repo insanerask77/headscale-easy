@@ -1,22 +1,26 @@
-"""Acceso a Headscale para el portal Mi VPN.
+"""Data access for Headscale Easy.
 
-Tres fuentes, todas de sólo lectura salvo la API:
+Three sources, all read-only except the API:
 
-  - API REST v1 (con la API key): nodos, usuarios, claves y todas las
-    operaciones de escritura.
-  - Base de datos SQLite, montada en sólo lectura: el Hostinfo que envía cada
-    cliente (SO, versión de Tailscale, relay DERP, endpoints), que la API v1
-    no expone. Si no está disponible (p. ej. Headscale con PostgreSQL), esas
-    columnas simplemente se muestran vacías.
-  - config.yaml, montado en sólo lectura: la configuración DNS de la tailnet.
+  - Headscale REST API v1 (with the API key): nodes, users, keys, policy and
+    every write operation.
+  - Headscale's SQLite database, mounted read-only: the Hostinfo each client
+    reports (OS, Tailscale version, DERP relay, endpoints), which API v1 does
+    not expose. If it is unavailable (e.g. Headscale on PostgreSQL) those
+    columns are simply shown empty.
+  - Headscale's config.yaml: the tailnet DNS settings. The web UI rewrites
+    only the marked dns: block (see apply_dns).
 """
 
 from __future__ import annotations
 
+import http.client
+import ipaddress
 import json
 import logging
 import os
 import re
+import socket
 import sqlite3
 import ssl
 import threading
@@ -25,15 +29,17 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-log = logging.getLogger("mi-vpn")
+from i18n import _
+
+log = logging.getLogger("headscale-easy")
 
 HEADSCALE_URL = os.environ.get("HEADSCALE_URL", "http://headscale:8080").rstrip("/")
 HEADSCALE_API_KEY = os.environ["HEADSCALE_API_KEY"]
-HEADSCALE_OIDC_ISSUER = os.environ["HEADSCALE_OIDC_ISSUER"]
+HEADSCALE_OIDC_ISSUER = os.environ.get("HEADSCALE_OIDC_ISSUER", "")
 HEADSCALE_DB = os.environ.get("HEADSCALE_DB", "/headscale/db.sqlite")
 HEADSCALE_CONFIG = os.environ.get("HEADSCALE_CONFIG", "/etc/headscale/config.yaml")
 
-# Con SSL_MODE=selfsigned: CA de Caddy para validar la URL pública de Authentik
+# With a self-signed certificate: Caddy's CA, to verify the public OIDC issuer
 EXTRA_CA_FILE = os.environ.get("EXTRA_CA_FILE", "")
 
 
@@ -56,7 +62,7 @@ def http_json(method: str, url: str, *, headers: dict | None = None, body: bytes
 
 
 # -----------------------------------------------------------------------------
-# API REST v1
+# REST API v1
 # -----------------------------------------------------------------------------
 
 def api(method: str, path: str, body: dict | None = None) -> dict:
@@ -67,38 +73,71 @@ def api(method: str, path: str, body: dict | None = None) -> dict:
     return http_json(method, f"{HEADSCALE_URL}/api/v1{path}", headers=headers, body=data)
 
 
-def user_for_sub(sub: str) -> dict | None:
-    """Usuario de Headscale del dueño de la sesión, o None si todavía no ha
-    registrado ningún dispositivo (Headscale lo crea en ese primer login).
+def api_error(exc: Exception) -> str:
+    """Readable message from a Headscale API error."""
+    if isinstance(exc, urllib.error.HTTPError):
+        try:
+            body = json.loads(exc.read() or b"{}")
+            return body.get("message") or body.get("error") or str(exc)
+        except (ValueError, OSError):
+            return str(exc)
+    return str(exc)
 
-    Headscale guarda providerId = <issuer sin '/' final>/<sub>, y el 'sub' de
-    Authentik (sub_mode=hashed_user_id) es igual en todos sus proveedores: la
-    coincidencia es exacta y no depende de nombres que otro pudiera reutilizar.
+
+def user_for_sub(sub: str) -> dict | None:
+    """The Headscale user behind an OIDC session, or None if they never
+    registered a device (Headscale creates the user on that first login).
+
+    Headscale stores providerId = <issuer without trailing '/'>/<sub>. The web
+    UI signs in against the same identity provider, so the match is exact and
+    does not depend on names someone else could reuse.
     """
+    if not HEADSCALE_OIDC_ISSUER or not sub:
+        return None
     expected = HEADSCALE_OIDC_ISSUER.rstrip("/") + "/" + sub.lstrip("/")
-    for user in api("GET", "/user").get("users", []):
+    for user in all_users():
         if user.get("providerId") == expected:
             return user
     return None
 
 
+def all_users() -> list[dict]:
+    return api("GET", "/user").get("users", [])
+
+
+def all_nodes() -> list[dict]:
+    return api("GET", "/node").get("nodes", [])
+
+
 def user_nodes(user: dict) -> list[dict]:
     nodes = api("GET", "/node?" + urllib.parse.urlencode({"user": user["name"]})).get("nodes", [])
-    # El filtro por nombre lo hace Headscale; se revalida por id por si hubiera
-    # dos usuarios con el mismo nombre (uno de CLI y otro de OIDC).
+    # Headscale filters by name; re-check by id in case two users share a name
+    # (a local one and an OIDC one).
     return [n for n in nodes if str(n.get("user", {}).get("id")) == str(user["id"])]
 
 
+def get_node(node_id: str) -> dict | None:
+    if not str(node_id).isdigit():
+        return None
+    try:
+        return api("GET", f"/node/{node_id}").get("node")
+    except urllib.error.HTTPError:
+        return None
+
+
 def owned_node(user: dict | None, node_id: str) -> dict | None:
-    """El nodo, sólo si pertenece al usuario. Toda operación pasa por aquí."""
+    """The node, only if it belongs to the user."""
     if not user or not str(node_id).isdigit():
         return None
     return next((n for n in user_nodes(user) if str(n.get("id")) == str(node_id)), None)
 
 
+def all_keys() -> list[dict]:
+    return api("GET", "/preauthkey").get("preAuthKeys", [])
+
+
 def user_keys(user: dict) -> list[dict]:
-    keys = api("GET", "/preauthkey").get("preAuthKeys", [])
-    return [k for k in keys if str((k.get("user") or {}).get("id")) == str(user["id"])]
+    return [k for k in all_keys() if str((k.get("user") or {}).get("id")) == str(user["id"])]
 
 
 def owned_key(user: dict | None, key_id: str) -> dict | None:
@@ -107,15 +146,34 @@ def owned_key(user: dict | None, key_id: str) -> dict | None:
     return next((k for k in user_keys(user) if str(k.get("id")) == str(key_id)), None)
 
 
+def get_policy() -> dict:
+    """{'policy': str, 'updatedAt': str}; empty policy if there is none yet."""
+    try:
+        return api("GET", "/policy")
+    except urllib.error.HTTPError:
+        return {"policy": "", "updatedAt": ""}
+
+
+def api_keys() -> list[dict]:
+    return api("GET", "/apikey").get("apiKeys", [])
+
+
+def own_api_key_prefix() -> str:
+    """Prefix of the API key used by the web UI itself (must not be expired)."""
+    parts = HEADSCALE_API_KEY.split("-")
+    # hskey-api-<prefix>-<secret>
+    return parts[2] if len(parts) >= 4 else ""
+
+
 # -----------------------------------------------------------------------------
-# Base de datos (sólo lectura): Hostinfo, endpoints
+# Database (read-only): Hostinfo and endpoints
 # -----------------------------------------------------------------------------
 
 def host_details(node_ids: list[str]) -> dict[str, dict]:
-    """{node_id: {"hostinfo": {...}, "endpoints": [...]}} para esos nodos.
+    """{node_id: {"hostinfo": {...}, "endpoints": [...]}} for those nodes.
 
-    Headscale usa SQLite en modo WAL, que admite lectores en otro proceso con
-    mode=ro mientras existan los ficheros -wal y -shm (Headscale los mantiene).
+    Headscale runs SQLite in WAL mode, which allows readers in another process
+    with mode=ro as long as the -wal and -shm files exist (Headscale keeps them).
     """
     if not node_ids or not os.path.isfile(HEADSCALE_DB):
         return {}
@@ -130,16 +188,13 @@ def host_details(node_ids: list[str]) -> dict[str, dict]:
         finally:
             con.close()
     except sqlite3.Error as exc:
-        log.warning("no se pudo leer el Hostinfo de la base de datos: %s", exc)
+        log.warning("could not read Hostinfo from the database: %s", exc)
         return {}
 
-    out = {}
-    for node_id, host_info, endpoints in rows:
-        out[str(node_id)] = {
-            "hostinfo": _loads(host_info, {}),
-            "endpoints": _loads(endpoints, []) or [],
-        }
-    return out
+    return {
+        str(node_id): {"hostinfo": _loads(host_info, {}), "endpoints": _loads(endpoints, []) or []}
+        for node_id, host_info, endpoints in rows
+    }
 
 
 def _loads(raw, default):
@@ -150,67 +205,7 @@ def _loads(raw, default):
 
 
 # -----------------------------------------------------------------------------
-# config.yaml (sólo lectura): DNS de la tailnet
-# -----------------------------------------------------------------------------
-
-def dns_config() -> dict:
-    """Lee la sección dns: de config.yaml.
-
-    No hay parser YAML en la biblioteca estándar y la sección tiene una forma
-    fija (la genera install.sh), así que basta con un lector de ese subconjunto:
-    claves escalares, listas con '- item' y listas en línea '[a, b]'.
-    """
-    result = {"magic_dns": None, "base_domain": "", "override_local_dns": True,
-              "nameservers": [], "search_domains": [], "split": {}}
-    try:
-        with open(HEADSCALE_CONFIG, encoding="utf-8") as fh:
-            lines = fh.read().splitlines()
-    except OSError:
-        return result
-
-    in_dns, path = False, []
-    for raw in lines:
-        line = raw.split(" #", 1)[0].rstrip() if not raw.lstrip().startswith("#") else ""
-        if not line.strip():
-            continue
-        indent = len(line) - len(line.lstrip())
-        text = line.strip()
-        if indent == 0:
-            in_dns = text == "dns:"
-            path = []
-            continue
-        if not in_dns:
-            continue
-        # Mantener la ruta de claves según la indentación (2 espacios)
-        level = indent // 2 - 1
-        path = path[:level]
-        if text.startswith("- "):
-            item = text[2:].strip().strip("\"'")
-            if path[-1:] == ["search_domains"]:
-                result["search_domains"].append(item)
-            elif path[-2:] == ["nameservers", "global"]:
-                result["nameservers"].append(item)
-            elif len(path) == 3 and path[:2] == ["nameservers", "split"]:
-                result["split"].setdefault(path[2], []).append(item)
-            continue
-        key, _, value = text.partition(":")
-        value = value.strip().strip("\"'")
-        path.append(key)
-        if key == "magic_dns":
-            result["magic_dns"] = value.lower() == "true"
-        elif key == "base_domain":
-            result["base_domain"] = value
-        elif key == "override_local_dns":
-            result["override_local_dns"] = value.lower() == "true"
-        elif key == "search_domains" and value.startswith("["):
-            result["search_domains"] = [v.strip().strip("\"'") for v in value.strip("[]").split(",") if v.strip()]
-        elif key == "global" and value.startswith("["):
-            result["nameservers"] += [v.strip().strip("\"'") for v in value.strip("[]").split(",") if v.strip()]
-    return result
-
-
-# -----------------------------------------------------------------------------
-# Datos externos cacheados: nombres de relays DERP y última versión estable
+# External data, cached: DERP relay names and the latest Tailscale release
 # -----------------------------------------------------------------------------
 
 _cache: dict[str, tuple[float, object]] = {}
@@ -225,20 +220,19 @@ def _cached(key: str, ttl: float, loader, fallback):
     try:
         value = loader()
     except (urllib.error.URLError, OSError, ValueError, KeyError) as exc:
-        log.info("sin %s (%s): se usa el valor por defecto", key, exc)
-        value = fallback
-        ttl = 300  # reintentar pronto
+        log.info("no %s (%s): using the fallback", key, exc)
+        value, ttl = fallback, 300  # retry soon
     with _cache_lock:
         _cache[key] = (time.time() + ttl, value)
     return value
 
 
 def derp_regions() -> dict[int, str]:
-    """{region_id: nombre} de los relays: el embebido de Headscale (de
-    config.yaml) y los públicos de Tailscale (si hay salida a internet)."""
+    """{region_id: name}: Headscale's embedded relay (from config.yaml) and
+    Tailscale's public ones (when there is Internet access)."""
     def load():
         data = http_json("GET", "https://controlplane.tailscale.com/derpmap/default", timeout=5)
-        return {int(k): v.get("RegionName", f"Región {k}") for k, v in data.get("Regions", {}).items()}
+        return {int(k): v.get("RegionName", f"Region {k}") for k, v in data.get("Regions", {}).items()}
 
     regions = dict(_cached("derpmap", 6 * 3600, load, {}))
     try:
@@ -254,75 +248,16 @@ def derp_regions() -> dict[int, str]:
 
 
 def latest_tailscale_version() -> str:
-    """Última versión estable de Tailscale, para avisar de actualizaciones."""
+    """Latest stable Tailscale release, to flag devices that need an update."""
     def load():
-        data = http_json("GET", "https://pkgs.tailscale.com/stable/?mode=json", timeout=5)
-        return data["TarballsVersion"]
+        return http_json("GET", "https://pkgs.tailscale.com/stable/?mode=json", timeout=5)["TarballsVersion"]
 
     return _cached("latest", 6 * 3600, load, "")
 
 
 # -----------------------------------------------------------------------------
-# Administración (sólo se llama con sesión de admin; app.py lo comprueba)
+# Docker (Unix socket, standard library only): validate and restart Headscale
 # -----------------------------------------------------------------------------
-
-def api_error(exc: Exception) -> str:
-    """Mensaje legible de un error de la API de Headscale."""
-    if isinstance(exc, urllib.error.HTTPError):
-        try:
-            body = json.loads(exc.read() or b"{}")
-            return body.get("message") or body.get("error") or str(exc)
-        except (ValueError, OSError):
-            return str(exc)
-    return str(exc)
-
-
-def all_users() -> list[dict]:
-    return api("GET", "/user").get("users", [])
-
-
-def all_nodes() -> list[dict]:
-    return api("GET", "/node").get("nodes", [])
-
-
-def get_node(node_id: str) -> dict | None:
-    if not str(node_id).isdigit():
-        return None
-    try:
-        return api("GET", f"/node/{node_id}").get("node")
-    except urllib.error.HTTPError:
-        return None
-
-
-def all_keys() -> list[dict]:
-    return api("GET", "/preauthkey").get("preAuthKeys", [])
-
-
-def get_policy() -> dict:
-    """{'policy': str, 'updatedAt': str}; policy vacío si aún no hay ninguna."""
-    try:
-        return api("GET", "/policy")
-    except urllib.error.HTTPError:
-        return {"policy": "", "updatedAt": ""}
-
-
-def api_keys() -> list[dict]:
-    return api("GET", "/apikey").get("apiKeys", [])
-
-
-def own_api_key_prefix() -> str:
-    """Prefijo de la API key que usa el propio portal (no se debe caducar)."""
-    parts = HEADSCALE_API_KEY.split("-")
-    # hskey-api-<prefijo>-<secreto>
-    return parts[2] if len(parts) >= 4 else ""
-
-
-# -----------------------------------------------------------------------------
-# Docker (socket Unix, sólo biblioteca estándar): reiniciar y probar Headscale
-# -----------------------------------------------------------------------------
-
-import http.client  # noqa: E402
-import socket  # noqa: E402
 
 DOCKER_SOCKET = os.environ.get("DOCKER_SOCKET", "/var/run/docker.sock")
 HEADSCALE_CONTAINER = os.environ.get("HEADSCALE_CONTAINER", "headscale")
@@ -360,8 +295,8 @@ def docker_available() -> bool:
 
 
 def headscale_configtest() -> tuple[bool, str]:
-    """Ejecuta 'headscale configtest' dentro del contenedor, que lee el mismo
-    config.yaml montado. Devuelve (ok, salida)."""
+    """Run 'headscale configtest' inside the container, which reads the same
+    mounted config.yaml. Returns (ok, output)."""
     status, raw = docker("POST", f"/containers/{HEADSCALE_CONTAINER}/exec", {
         "AttachStdout": True, "AttachStderr": True, "Tty": True,
         "Cmd": ["headscale", "configtest"],
@@ -372,39 +307,96 @@ def headscale_configtest() -> tuple[bool, str]:
     _, out = docker("POST", f"/exec/{exec_id}/start", {"Detach": False, "Tty": True}, timeout=90)
     _, info = docker("GET", f"/exec/{exec_id}/json")
     code = json.loads(info).get("ExitCode")
-    text = re.sub(r"\x1b\[[0-9;]*m", "", out.decode(errors="replace")).strip()
-    return code == 0, text
+    return code == 0, re.sub(r"\x1b\[[0-9;]*m", "", out.decode(errors="replace")).strip()
 
 
 def restart_headscale(wait: float = 120) -> bool:
-    """Reinicia Headscale y espera a que su healthcheck vuelva a 'healthy'."""
+    """Restart Headscale and wait for its healthcheck to report 'healthy'."""
     status, _ = docker("POST", f"/containers/{HEADSCALE_CONTAINER}/restart?t=10", timeout=60)
     if status != 204:
-        log.error("no se pudo reiniciar Headscale: HTTP %s", status)
+        log.error("could not restart Headscale: HTTP %s", status)
         return False
     deadline = time.time() + wait
     time.sleep(3)
     while time.time() < deadline:
         _, raw = docker("GET", f"/containers/{HEADSCALE_CONTAINER}/json")
-        state = json.loads(raw).get("State", {})
-        if (state.get("Health") or {}).get("Status") == "healthy":
+        if (json.loads(raw).get("State", {}).get("Health") or {}).get("Status") == "healthy":
             return True
         time.sleep(2)
     return False
 
 
 # -----------------------------------------------------------------------------
-# DNS editable: bloque delimitado en config.yaml
+# DNS: marked block in config.yaml
 # -----------------------------------------------------------------------------
-# install.sh escribe la sección dns: entre estos marcadores y, al regenerar la
-# configuración, conserva el bloque existente. Así lo que se cambie aquí no se
-# pierde al reejecutar el instalador.
+# install.sh writes the dns: section between these markers and keeps the
+# existing block when it regenerates the config, so changes made in the UI
+# survive a re-install.
 
-DNS_BEGIN = "# >>> dns: gestionado por Mi VPN (no edites entre estos marcadores a mano)"
+DNS_BEGIN = "# >>> dns: managed by Headscale Easy (do not edit between these markers)"
 DNS_END = "# <<< dns"
+# Marker written by earlier versions of the project
+LEGACY_DNS_BEGIN = "# >>> dns: gestionado por Mi VPN (no edites entre estos marcadores a mano)"
 
 _DOMAIN_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 _dns_lock = threading.Lock()
+
+
+def dns_config() -> dict:
+    """Read the dns: section of config.yaml.
+
+    There is no YAML parser in the standard library and the section has a fixed
+    shape (install.sh and this module write it), so a reader for that subset is
+    enough: scalar keys, '- item' lists and inline '[a, b]' lists.
+    """
+    result = {"magic_dns": None, "base_domain": "", "override_local_dns": True,
+              "nameservers": [], "search_domains": [], "split": {}}
+    try:
+        with open(HEADSCALE_CONFIG, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return result
+
+    in_dns, path = False, []
+    for raw in lines:
+        if raw.lstrip().startswith("#"):
+            continue
+        line = raw.split(" #", 1)[0].rstrip()
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip())
+        text = line.strip()
+        if indent == 0:
+            in_dns, path = text == "dns:", []
+            continue
+        if not in_dns:
+            continue
+        path = path[:indent // 2 - 1]  # key path from the indentation (2 spaces)
+        if text.startswith("- "):
+            item = text[2:].strip().strip("\"'")
+            if path[-1:] == ["search_domains"]:
+                result["search_domains"].append(item)
+            elif path[-2:] == ["nameservers", "global"]:
+                result["nameservers"].append(item)
+            elif len(path) == 3 and path[:2] == ["nameservers", "split"]:
+                result["split"].setdefault(path[2], []).append(item)
+            continue
+        key, _sep, value = text.partition(":")
+        value = value.strip().strip("\"'")
+        path.append(key)
+        inline = [v.strip().strip("\"'") for v in value.strip("[]").split(",") if v.strip()] \
+            if value.startswith("[") else None
+        if key == "magic_dns":
+            result["magic_dns"] = value.lower() == "true"
+        elif key == "base_domain":
+            result["base_domain"] = value
+        elif key == "override_local_dns":
+            result["override_local_dns"] = value.lower() == "true"
+        elif key == "search_domains" and inline is not None:
+            result["search_domains"] = inline
+        elif key == "global" and inline is not None:
+            result["nameservers"] += inline
+    return result
 
 
 def valid_domain(value: str) -> bool:
@@ -412,11 +404,10 @@ def valid_domain(value: str) -> bool:
 
 
 def valid_nameserver(value: str) -> bool:
-    """IP o resolvedor DoH (https://...)."""
+    """An IP address or a DoH resolver (https://...)."""
     if value.startswith("https://"):
         return bool(re.fullmatch(r"https://[\w.-]+(:\d+)?(/[\w./%-]*)?", value))
     try:
-        import ipaddress
         ipaddress.ip_address(value)
         return True
     except ValueError:
@@ -427,9 +418,7 @@ def render_dns_block(cfg: dict) -> str:
     def items(values, indent):
         return "".join(f"\n{' ' * indent}- {v}" for v in values) if values else " []"
 
-    split = ""
-    for domain, servers in cfg.get("split", {}).items():
-        split += f"\n      {domain}:{items(servers, 8)}"
+    split = "".join(f"\n      {domain}:{items(servers, 8)}" for domain, servers in cfg.get("split", {}).items())
     return "\n".join([
         DNS_BEGIN,
         "dns:",
@@ -438,35 +427,39 @@ def render_dns_block(cfg: dict) -> str:
         f"  override_local_dns: {'true' if cfg['override_local_dns'] else 'false'}",
         "  nameservers:",
         f"    global:{items(cfg['nameservers'], 6)}",
-        f"    split:{split if split else ' {}'}",
+        f"    split:{split or ' {}'}",
         f"  search_domains:{items(cfg['search_domains'], 4)}",
         "  extra_records: []",
         DNS_END,
     ])
 
 
+def dns_block_present(text: str) -> bool:
+    return (DNS_BEGIN in text or LEGACY_DNS_BEGIN in text) and DNS_END in text
+
+
 def replace_dns_block(text: str, block: str) -> str | None:
-    """Sustituye el bloque marcado. None si el fichero no tiene marcadores
-    (configuración anterior a este cambio: hay que reejecutar install.sh)."""
-    start, end = text.find(DNS_BEGIN), text.find(DNS_END)
+    """Replace the marked block. None if the file has no markers (a config
+    older than this feature: run install.sh once)."""
+    begin = DNS_BEGIN if DNS_BEGIN in text else LEGACY_DNS_BEGIN
+    start, end = text.find(begin), text.find(DNS_END)
     if start < 0 or end < start:
         return None
     return text[:start] + block + text[end + len(DNS_END):]
 
 
 def apply_dns(cfg: dict) -> tuple[bool, str]:
-    """Escribe el DNS, lo valida con 'headscale configtest' y reinicia
-    Headscale. Ante cualquier fallo restaura la configuración anterior."""
+    """Write the DNS block, validate it with 'headscale configtest' and restart
+    Headscale. On any failure the previous config is restored."""
     with _dns_lock:
         with open(HEADSCALE_CONFIG, encoding="utf-8") as fh:
             original = fh.read()
         updated = replace_dns_block(original, render_dns_block(cfg))
         if updated is None:
-            return False, ("config.yaml no tiene el bloque DNS gestionado. "
-                           "Reejecuta ./install.sh una vez para activarlo.")
+            return False, _("config.yaml has no managed DNS block. Run ./install.sh once to enable it.")
 
         def write(content: str):
-            # En sitio (no rename): el fichero es un bind mount de Docker
+            # In place (no rename): the file is a Docker bind mount
             with open(HEADSCALE_CONFIG, "w", encoding="utf-8") as fh:
                 fh.write(content)
 
@@ -474,10 +467,10 @@ def apply_dns(cfg: dict) -> tuple[bool, str]:
         ok, out = headscale_configtest()
         if not ok:
             write(original)
-            detail = out.splitlines()[-1] if out else "configuración no válida"
-            return False, f"Headscale rechazó la configuración: {detail}"
+            detail = out.splitlines()[-1] if out else _("invalid configuration")
+            return False, _("Headscale rejected the configuration: {detail}", detail=detail)
         if not restart_headscale():
             write(original)
             restart_headscale()
-            return False, "Headscale no arrancó con el nuevo DNS; se ha restaurado el anterior."
+            return False, _("Headscale did not start with the new DNS settings; the previous ones were restored.")
         return True, ""

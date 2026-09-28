@@ -1,0 +1,5 @@
+"""Project metadata shown in the UI."""
+
+VERSION = "1.0.0"
+PROJECT_URL = "https://github.com/insanerask77/headscale-easy"
+SPONSOR_URL = "https://buymeacoffee.com/insanerask"

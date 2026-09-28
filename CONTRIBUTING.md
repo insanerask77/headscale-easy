@@ -1,276 +1,107 @@
-# Contribuir a Headscale + Mi VPN Deployment
+# Contributing to Headscale Easy
 
-¡Gracias por tu interés en contribuir! Este documento proporciona guías para contribuir al proyecto.
+Thanks for helping! Headscale Easy is maintained by
+[Rafa Madolell](https://github.com/insanerask77) and every bug report,
+translation and pull request makes it better.
 
-## 🎯 Formas de Contribuir
+## Ways to help
 
-- 🐛 Reportar bugs
-- 💡 Sugerir nuevas características
-- 📝 Mejorar la documentación
-- 🔧 Enviar pull requests con fixes o mejoras
-- ⭐ Dar una estrella al proyecto si te resulta útil
+- 🐛 [Report a bug](https://github.com/insanerask77/headscale-easy/issues/new?template=bug_report.yml)
+- 💡 [Suggest a feature](https://github.com/insanerask77/headscale-easy/issues/new?template=feature_request.yml)
+- 🌍 [Translate the console](#translations)
+- 📝 Improve the documentation
+- 🔧 Send a pull request
+- ⭐ Star the repository and ☕ [buy me a coffee](https://buymeacoffee.com/insanerask)
 
-## 🐛 Reportar Bugs
+## Project layout
 
-Si encuentras un bug:
+```
+install.sh              Interactive installer (bash, English + Spanish)
+uninstall.sh            Uninstaller
+docker-compose.yml      The stack: headscale, caddy, web, authentik (profile)
+templates/              Files the installer renders with envsubst
+authentik/blueprints/   Authentik configuration (OIDC clients, groups, add-user flow)
+authentik/branding/     Authentik theme (CSS, logos)
+web/                    The web console (ghcr.io/insanerask77/headscale-easy)
+  app.py                HTTP server, routing, sessions, OIDC
+  headscale.py          Headscale REST API client, DNS config, Docker socket
+  pages.py              Machines, device, DNS, keys, settings pages
+  admin_pages.py        Users, policy editor, sign-in page
+  ui.py                 Layout, sidebar, icons, shared helpers
+  i18n.py, locales/     Translations
+  static/               CSS, JS, font, favicon
+scripts/                utils.sh (make targets), validate.sh, check_i18n.py
+docs/                   Documentation and screenshots
+```
 
-1. Verifica que no exista ya un [issue abierto](https://github.com/tu-usuario/tailscale-selfhosted/issues)
-2. Crea un nuevo issue con:
-   - Descripción clara del problema
-   - Pasos para reproducirlo
-   - Comportamiento esperado vs. comportamiento actual
-   - Output de:
-     ```bash
-     docker compose ps
-     docker compose logs
-     cat .env  # Sin secretos
-     ```
-   - Sistema operativo y versión de Docker
+## Principles
 
-## 💡 Sugerir Características
+- **Simple to run.** One command installs everything; re-running it is safe.
+  Never break existing installations: keep data, migrate settings.
+- **No dependencies in the console.** Python standard library only, plain
+  HTML/CSS/JS, no build step. It keeps the image tiny and the attack surface
+  small.
+- **Feels like Tailscale.** When adding a screen, look at how Tailscale's admin
+  console does it and follow the same wording and layout where Headscale
+  supports the feature.
+- **Secure by default.** Least privilege for containers, CSRF tokens on every
+  form, escape all output (`ui.esc`), members only ever touch their own devices.
 
-Para sugerir una nueva característica:
+## Development
 
-1. Verifica que no exista ya en [issues](https://github.com/tu-usuario/tailscale-selfhosted/issues)
-2. Crea un issue describiendo:
-   - El problema que resuelve
-   - Cómo lo implementarías
-   - Casos de uso
-   - Posible impacto en la configuración existente
+You need Docker and a running stack (`./install.sh` with `SSL_MODE=none` and a
+LAN IP or a name like `vpn.127.0.0.1.nip.io` is the quickest).
 
-## 🔧 Pull Requests
-
-### Proceso
-
-1. **Fork** el repositorio
-2. **Crea una rama** desde `main`:
-   ```bash
-   git checkout -b feature/mi-nueva-caracteristica
-   ```
-3. **Implementa tus cambios** siguiendo las guías de estilo
-4. **Prueba** tu código:
-   - Instalación desde cero
-   - Reconfiguración sobre instalación existente
-   - Casos edge (sin SSL, con OIDC, etc.)
-5. **Commit** tus cambios con mensajes descriptivos:
-   ```bash
-   git commit -m "feat: agregar soporte para PostgreSQL"
-   ```
-6. **Push** a tu fork:
-   ```bash
-   git push origin feature/mi-nueva-caracteristica
-   ```
-7. **Abre un Pull Request** describiendo:
-   - Qué cambia
-   - Por qué es necesario
-   - Cómo lo probaste
-
-### Guía de Estilo
-
-#### Bash Scripts
-
-- Usar `#!/usr/bin/env bash` como shebang
-- Usar `set -euo pipefail` para safety
-- Validar todos los inputs del usuario
-- Manejo explícito de errores
-- Funciones con nombres descriptivos en `snake_case`
-- Comentarios para lógica no obvia
-- Colores para output (ya definidos en install.sh)
-
-Ejemplo:
+Rebuild and restart the console after changing `web/`:
 
 ```bash
-validate_domain() {
-    local domain="$1"
-    
-    if [[ "$domain" =~ ^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$ ]]; then
-        return 0
-    fi
-    
-    print_error "Dominio inválido: $domain"
-    return 1
+docker compose up -d --build web
+docker compose logs -f web
+```
+
+Before opening a pull request:
+
+```bash
+make lint        # shellcheck, Python syntax, translation coverage
+make validate    # project structure and Compose file
+```
+
+To test the installer's output without deploying, answer **No** to "Deploy the
+stack now?": it writes `.env`, `headscale-config.yaml`, `Caddyfile` and
+`docker-compose.override.yml` and stops.
+
+## Translations
+
+UI strings are written in English in the code, wrapped in `_()` (or
+`ngettext()` for plurals). Each language is a JSON file in `web/locales/`
+mapping the English text to its translation:
+
+```json
+{
+  "Add device": "Añadir dispositivo",
+  "{n} machine": "{n} máquina",
+  "{n} machines": "{n} máquinas"
 }
 ```
 
-#### YAML/Docker Compose
+To add a language:
 
-- Indentación: 2 espacios
-- Comentarios descriptivos para secciones
-- Variables de entorno con `${VAR:-default}`
-- Healthchecks para todos los servicios
-- Security best practices (cap_drop, no-new-privileges)
+1. Copy `web/locales/es.json` to `web/locales/<code>.json` (ISO 639-1, e.g. `fr`)
+   and translate the values. Keep `{placeholders}` untouched.
+2. Add the code and its name to `LANGUAGES` in `web/i18n.py`.
+3. Run `python3 scripts/check_i18n.py`: it lists missing and unused strings.
 
-#### Documentación
+The installer's messages use `t "English" "Español"`; supporting a third
+language there is welcome too.
 
-- Markdown con GitHub Flavored Markdown
-- Ejemplos de código en bloques con syntax highlighting
-- Screenshots/diagramas cuando ayuden a clarificar
-- Links internos con anchors (`#seccion`)
+## Pull requests
 
-### Commits
+1. Fork and create a branch from `main` (`feat/…`, `fix/…`, `docs/…`).
+2. Keep changes focused; update docs and translations in the same PR.
+3. Use [Conventional Commits](https://www.conventionalcommits.org/)
+   (`feat: add tailnet lock page`, `fix(installer): …`).
+4. Describe what you tested. Screenshots help for UI changes.
+5. CI must pass.
 
-Usamos [Conventional Commits](https://www.conventionalcommits.org/):
-
-- `feat:` Nueva característica
-- `fix:` Corrección de bug
-- `docs:` Cambios en documentación
-- `style:` Formateo, espacios, etc. (sin cambios funcionales)
-- `refactor:` Refactorización sin cambiar funcionalidad
-- `test:` Agregar o corregir tests
-- `chore:` Mantenimiento, deps, etc.
-
-Ejemplos:
-
-```
-feat: agregar soporte para PostgreSQL como alternativa a SQLite
-fix: corregir validación de puertos en install.sh
-docs: mejorar sección de troubleshooting en README
-refactor: extraer lógica de validación a funciones separadas
-```
-
-## 🧪 Testing
-
-Antes de enviar un PR, prueba:
-
-### Instalación Limpia
-
-```bash
-# En una VM/contenedor limpio
-git clone <tu-fork>
-cd tailscale-selfhosted
-./install.sh
-
-# Probar diferentes combinaciones:
-# - Con SSL (Let's Encrypt y autofirmado)
-# - Sin SSL
-# - Con OIDC
-# - Sin OIDC
-```
-
-### Reconfiguración
-
-```bash
-# Sobre instalación existente
-./install.sh
-
-# Cambiar de HTTP a HTTPS
-# Cambiar puertos
-# Habilitar/deshabilitar OIDC
-```
-
-### Desinstalación
-
-```bash
-./uninstall.sh
-./uninstall.sh --purge
-```
-
-## 📋 Áreas Prioritarias
-
-Contribuciones especialmente bienvenidas en:
-
-1. **Soporte para más distros**
-   - Alpine Linux
-   - OpenSUSE
-   - Gentoo
-
-2. **Backends de base de datos**
-   - PostgreSQL
-   - MySQL/MariaDB
-
-3. **Opciones de despliegue**
-   - Kubernetes/Helm charts
-   - Terraform modules
-   - Ansible playbook
-
-4. **Monitoreo**
-   - Prometheus + Grafana stack
-   - Dashboards predefinidos
-   - Alertas
-
-5. **Alta disponibilidad**
-   - Múltiples instancias de Headscale
-   - Load balancing
-   - Failover automático
-
-6. **Migración**
-   - Script para migrar desde instalación manual
-   - Importar desde otros control planes
-
-7. **Testing**
-   - Tests automatizados para install.sh
-   - CI/CD pipeline
-   - Tests de integración
-
-## 🌍 Internacionalización
-
-Si quieres traducir la documentación o los mensajes del instalador:
-
-1. Crea directorio `i18n/<idioma>/`
-2. Traduce los archivos principales
-3. Actualiza install.sh para detectar locale
-4. Envía PR
-
-Idiomas prioritarios: inglés, español, francés, alemán
-
-## 📞 Preguntas
-
-Si tienes preguntas sobre cómo contribuir:
-
-- Abre un [issue de discusión](https://github.com/tu-usuario/tailscale-selfhosted/issues)
-- Busca en issues existentes
-- Contacta a los maintainers
-
-## 🎓 Recursos
-
-- [Headscale docs](https://headscale.net/)
-- [Headscale API](https://headscale.net/stable/ref/api/)
-- [Docker Compose docs](https://docs.docker.com/compose/)
-- [Caddy docs](https://caddyserver.com/docs/)
-- [Bash scripting guide](https://www.gnu.org/software/bash/manual/)
-
-## 📜 Código de Conducta
-
-### Nuestro Compromiso
-
-Este proyecto está comprometido con proporcionar una experiencia libre de acoso para todos, independientemente de:
-
-- Edad
-- Tamaño corporal
-- Discapacidad
-- Etnia
-- Identidad y expresión de género
-- Nivel de experiencia
-- Nacionalidad
-- Apariencia personal
-- Raza
-- Religión
-- Identidad y orientación sexual
-
-### Comportamiento Esperado
-
-- Usar lenguaje acogedor e inclusivo
-- Respetar puntos de vista diferentes
-- Aceptar críticas constructivas con gracia
-- Enfocarse en lo mejor para la comunidad
-- Mostrar empatía hacia otros miembros
-
-### Comportamiento Inaceptable
-
-- Comentarios despectivos, insultantes o discriminatorios
-- Trolling, insultos o ataques personales
-- Acoso público o privado
-- Publicar información privada sin permiso
-- Conducta que razonablemente podría considerarse inapropiada
-
-### Aplicación
-
-Los mantenedores del proyecto tienen el derecho de eliminar, editar o rechazar comentarios, commits, código, ediciones de wiki, issues y otras contribuciones que no estén alineadas con este Código de Conducta.
-
-## 📄 Licencia
-
-Al contribuir, aceptas que tus contribuciones se licencien bajo la misma licencia MIT que el proyecto.
-
----
-
-¡Gracias por hacer de este proyecto algo mejor! 🎉
+By contributing you agree your work is licensed under the [MIT License](LICENSE)
+and to follow the [Code of Conduct](CODE_OF_CONDUCT.md).

@@ -1,14 +1,17 @@
-// Mi VPN: interacción de la UI. Sin dependencias.
-
+// Headscale Easy — UI behaviour. No dependencies.
+// https://github.com/insanerask77/headscale-easy
 (function () {
   "use strict";
 
-  // ---- Tema -----------------------------------------------------------------
-  // Guardado: "dark" | "light"; sin guardar = seguir al sistema (ver theme.js).
+  var body = document.body;
+  var T = { copied: body.dataset.copied || "Copied", working: body.dataset.working || "Working" };
+
+  // ---- Theme -------------------------------------------------------------
+  // Saved: "dark" | "light"; nothing saved = follow the system (see theme.js).
   function applyTheme(choice) {
     try {
-      if (choice === "system") localStorage.removeItem("mivpn-theme");
-      else localStorage.setItem("mivpn-theme", choice);
+      if (choice === "system") localStorage.removeItem("hse-theme");
+      else localStorage.setItem("hse-theme", choice);
     } catch (e) {}
     var light = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
     document.documentElement.dataset.theme = choice === "system" ? (light ? "light" : "dark") : choice;
@@ -17,24 +20,23 @@
 
   function markThemeChoice() {
     var saved = null;
-    try { saved = localStorage.getItem("mivpn-theme"); } catch (e) {}
+    try { saved = localStorage.getItem("hse-theme"); } catch (e) {}
     document.querySelectorAll("[data-theme-set]").forEach(function (b) {
       b.classList.toggle("active", b.dataset.themeSet === (saved || "system"));
     });
   }
 
-  // Si se sigue al sistema, reaccionar a sus cambios en vivo
   if (window.matchMedia) {
     window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", function () {
       var saved = null;
-      try { saved = localStorage.getItem("mivpn-theme"); } catch (e) {}
+      try { saved = localStorage.getItem("hse-theme"); } catch (e) {}
       if (!saved) applyTheme("system");
     });
   }
 
-  // ---- Copiar ---------------------------------------------------------------
-  // navigator.clipboard sólo existe con HTTPS (o localhost): por HTTP se copia
-  // con un textarea temporal.
+  // ---- Copy ----------------------------------------------------------------
+  // navigator.clipboard only exists over HTTPS (or localhost); over HTTP a
+  // temporary textarea does the job.
   function copyText(text) {
     if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
     return new Promise(function (resolve, reject) {
@@ -43,11 +45,11 @@
       ta.setAttribute("readonly", "");
       ta.style.position = "fixed";
       ta.style.opacity = "0";
-      document.body.appendChild(ta);
+      body.appendChild(ta);
       ta.select();
       var ok = false;
       try { ok = document.execCommand("copy"); } catch (e) {}
-      document.body.removeChild(ta);
+      body.removeChild(ta);
       ok ? resolve() : reject();
     });
   }
@@ -56,20 +58,58 @@
     var t = document.createElement("div");
     t.className = "toast";
     t.textContent = text;
-    document.body.appendChild(t);
+    body.appendChild(t);
     setTimeout(function () { t.classList.add("out"); }, 1300);
     setTimeout(function () { t.remove(); }, 1700);
   }
 
-  // ---- Clics ----------------------------------------------------------------
+  // ---- Floating menus ----------------------------------------------------------
+  // A menu cannot be absolute inside a table cell: the table sits in a scroll
+  // container that would clip it. When it opens it is placed with
+  // position: fixed next to its button, below if it fits, above otherwise.
+  var GAP = 6, MARGIN = 8;
+
+  function placeMenu(d) {
+    var menu = d.querySelector(".dropdown-body");
+    var anchor = d.querySelector("summary");
+    if (!menu || !anchor || d.classList.contains("up")) return;
+    menu.classList.add("floating");
+    var a = anchor.getBoundingClientRect();
+    var w = menu.offsetWidth, h = menu.offsetHeight;
+    var vw = document.documentElement.clientWidth, vh = window.innerHeight;
+    var left = menu.classList.contains("right") ? a.right - w : a.left;
+    left = Math.max(MARGIN, Math.min(left, vw - w - MARGIN));
+    var top = a.bottom + GAP;
+    if (top + h > vh - MARGIN && a.top - GAP - h >= MARGIN) top = a.top - GAP - h;
+    top = Math.max(MARGIN, Math.min(top, vh - h - MARGIN));
+    menu.style.left = left + "px";
+    menu.style.top = top + "px";
+  }
+
+  function closeMenus(except) {
+    document.querySelectorAll("details.dropdown[open]").forEach(function (d) {
+      if (d !== except) d.removeAttribute("open");
+    });
+  }
+
+  document.addEventListener("toggle", function (ev) {
+    var d = ev.target;
+    if (!(d.matches && d.matches("details.dropdown")) || !d.open) return;
+    closeMenus(d);
+    placeMenu(d);
+  }, true);
+
+  window.addEventListener("scroll", function (ev) {
+    if (ev.target.closest && ev.target.closest(".dropdown-body")) return;
+    closeMenus();
+  }, true);
+  window.addEventListener("resize", function () { closeMenus(); });
+
+  // ---- Clicks --------------------------------------------------------------------
   document.addEventListener("click", function (ev) {
     var t = ev.target;
-
     var el = t.closest("[data-theme-toggle]");
-    if (el) {
-      applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
-      return;
-    }
+    if (el) { applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"); return; }
     el = t.closest("[data-theme-set]");
     if (el) { applyTheme(el.dataset.themeSet); return; }
 
@@ -77,26 +117,16 @@
     if (el) {
       ev.preventDefault();
       ev.stopPropagation();
-      copyText(el.dataset.copy).then(function () { toast("Copiado"); });
+      copyText(el.dataset.copy).then(function () { toast(T.copied); });
       closeMenus();
       return;
     }
 
     el = t.closest("[data-open]");
-    if (el) {
-      var dlg = document.getElementById(el.dataset.open);
-      closeMenus();
-      if (dlg) {
-        dlg.showModal();
-        var first = dlg.querySelector("input:not([type=hidden]), select");
-        if (first) { first.focus(); if (first.select) first.select(); }
-      }
-      return;
-    }
+    if (el) { openDialog(el.dataset.open); return; }
     el = t.closest("[data-close]");
     if (el) { el.closest("dialog").close(); return; }
-    // Clic en el fondo del diálogo: cerrar
-    if (t.tagName === "DIALOG") { t.close(); return; }
+    if (t.tagName === "DIALOG") { t.close(); return; }  // click on the backdrop
 
     el = t.closest("[data-tab]");
     if (el) {
@@ -106,147 +136,125 @@
       return;
     }
 
-    el = t.closest("[data-status-filter]");
+    el = t.closest("[data-f-clear]");
     if (el) {
-      el.parentNode.querySelectorAll("button").forEach(function (b) { b.classList.toggle("active", b === el); });
+      document.querySelectorAll("[data-f]").forEach(function (f) {
+        if (f.type === "checkbox") f.checked = false; else f.value = "";
+      });
       filterRows();
       return;
     }
 
-    // Fila de la tabla de dispositivos: abrir el detalle salvo si el clic fue
-    // en un control (enlace, botón, menú)
+    // A table row opens the machine unless the click was on a control
     var row = t.closest("tr[data-href]");
-    if (row && !t.closest("a, button, details, summary, input, form")) {
+    if (row && !t.closest("a, button, details, summary, input, form, select, label")) {
       window.location = row.dataset.href;
       return;
     }
 
-    // Cerrar menús desplegables al hacer clic fuera
     document.querySelectorAll("details.dropdown[open]").forEach(function (d) {
       if (!d.contains(t)) d.removeAttribute("open");
     });
   });
 
-  function closeMenus() {
-    document.querySelectorAll("details.dropdown[open]").forEach(function (d) { d.removeAttribute("open"); });
-  }
-
-  // ---- Menús flotantes ------------------------------------------------------
-  // El menú no puede ser absolute dentro de su celda: la tabla va en un
-  // contenedor con overflow (para desplazarla en móvil) que lo recortaría.
-  // Al abrirlo se coloca con position: fixed en coordenadas de pantalla, junto
-  // a su botón: por debajo si cabe, por encima si no, y sin salirse por los
-  // lados.
-  var GAP = 6, MARGIN = 8;
-
-  function placeMenu(d) {
-    var body = d.querySelector(".dropdown-body");
-    var anchor = d.querySelector("summary");
-    if (!body || !anchor) return;
-    body.classList.add("floating");
-    var a = anchor.getBoundingClientRect();
-    var w = body.offsetWidth, h = body.offsetHeight;
-    var vw = document.documentElement.clientWidth, vh = window.innerHeight;
-
-    var left = body.classList.contains("right") ? a.right - w : a.left;
-    left = Math.max(MARGIN, Math.min(left, vw - w - MARGIN));
-
-    var top = a.bottom + GAP;
-    if (top + h > vh - MARGIN && a.top - GAP - h >= MARGIN) top = a.top - GAP - h;
-    top = Math.max(MARGIN, Math.min(top, vh - h - MARGIN));
-
-    body.style.left = left + "px";
-    body.style.top = top + "px";
-  }
-
-  // Sólo un menú abierto a la vez, y colocado al abrirse
-  document.addEventListener("toggle", function (ev) {
-    var d = ev.target;
-    if (!(d.matches && d.matches("details.dropdown"))) return;
-    if (d.open) {
-      document.querySelectorAll("details.dropdown[open]").forEach(function (o) { if (o !== d) o.removeAttribute("open"); });
-      placeMenu(d);
-    }
-  }, true);
-
-  // Un menú fijo se quedaría flotando al desplazar la página: se cierra, como
-  // en la consola de Tailscale. Los desplazamientos dentro del propio menú no
-  // cuentan.
-  window.addEventListener("scroll", function (ev) {
-    if (ev.target.closest && ev.target.closest(".dropdown-body")) return;
+  function openDialog(id) {
+    var dlg = document.getElementById(id);
     closeMenus();
-  }, true);
-  window.addEventListener("resize", closeMenus);
+    if (!dlg) return;
+    dlg.showModal();
+    var first = dlg.querySelector("input:not([type=hidden]):not([type=checkbox]), select");
+    if (first) { first.focus(); if (first.select) first.select(); }
+  }
 
   document.addEventListener("keydown", function (ev) {
     if (ev.key === "Escape") closeMenus();
-    // "/" enfoca la búsqueda, como en la consola de Tailscale
+    // "/" focuses the search, like in the Tailscale console
     if (ev.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) {
       var s = document.querySelector("[data-filter]");
       if (s) { ev.preventDefault(); s.focus(); }
     }
+    // Tab in the policy editor indents instead of leaving the field
+    var ta = ev.target;
+    if (ev.key === "Tab" && ta.matches && ta.matches("[data-tab-indent]")) {
+      ev.preventDefault();
+      var start = ta.selectionStart;
+      ta.value = ta.value.slice(0, start) + "  " + ta.value.slice(ta.selectionEnd);
+      ta.selectionStart = ta.selectionEnd = start + 2;
+    }
   });
 
-  // ---- Búsqueda y filtro de dispositivos -------------------------------------
+  // ---- Search and filters ---------------------------------------------------------
+  function val(name) {
+    var f = document.querySelector('[data-f="' + name + '"]');
+    if (!f) return "";
+    return f.type === "checkbox" ? (f.checked ? "1" : "") : f.value;
+  }
+
   function filterRows() {
     var input = document.querySelector("[data-filter]");
     if (!input) return;
     var q = input.value.trim().toLowerCase();
-    var active = document.querySelector("[data-status-filter].active");
-    var status = active ? active.dataset.statusFilter : "all";
-    var ownerSel = document.querySelector("[data-owner-filter]");
-    var owner = ownerSel ? ownerSel.value : "";
+    var status = val("status"), owner = val("owner");
+    var flags = ["update", "routes", "expired"].filter(val);
     var shown = 0;
     document.querySelectorAll("tr[data-search]").forEach(function (r) {
       var ok = (!q || r.dataset.search.indexOf(q) !== -1) &&
-               (status === "all" || !r.dataset.status || r.dataset.status === status) &&
-               (!owner || r.dataset.owner === owner);
+               (!status || r.dataset.status === status) &&
+               (!owner || r.dataset.owner === owner) &&
+               flags.every(function (f) { return r.dataset[f] === "1"; });
       r.hidden = !ok;
       if (ok) shown++;
     });
     var empty = document.querySelector(".no-results");
     if (empty) empty.hidden = shown !== 0;
+    var pill = document.querySelector("[data-count]");
+    if (pill) pill.textContent = shown === 1 ? pill.dataset.one : pill.dataset.many.replace("{n}", shown);
+    var active = [status, owner].filter(Boolean).length + flags.length;
+    var badge = document.querySelector(".fcount");
+    if (badge) { badge.hidden = !active; badge.textContent = active; }
   }
+
   document.addEventListener("input", function (ev) {
     if (ev.target.matches("[data-filter]")) filterRows();
   });
   document.addEventListener("change", function (ev) {
-    if (ev.target.matches("[data-owner-filter]")) filterRows();
+    if (ev.target.matches("[data-f]")) filterRows();
   });
 
-  // Filtro por usuario desde la URL (?owner=<id>), p. ej. desde Usuarios
+  // Filter by owner from the URL (?owner=<id>), e.g. coming from Users
   (function () {
-    var sel = document.querySelector("[data-owner-filter]");
     var owner = new URLSearchParams(location.search).get("owner");
+    var sel = document.querySelector('[data-f="owner"]');
     if (sel && owner) { sel.value = owner; filterRows(); }
   })();
 
-  // Formularios lentos (guardar DNS reinicia Headscale): bloquear el botón y
-  // avisar de que está trabajando
+  // "#new" opens the matching dialog (e.g. Add device → Generate auth key)
+  if (location.hash === "#new") openDialog("new");
+
+  // Slow forms (saving DNS restarts Headscale): lock the button while working
   document.addEventListener("submit", function (ev) {
     var form = ev.target;
-    if (!form.dataset.busy) return;
+    if (!form.hasAttribute("data-busy")) return;
     form.querySelectorAll("button[type=submit]").forEach(function (b) {
       b.disabled = true;
-      b.textContent = form.dataset.busy + "…";
+      b.textContent = T.working + "…";
     });
   });
 
-  // Tab en el editor de ACL: sangrar en vez de saltar de campo
-  document.addEventListener("keydown", function (ev) {
-    var ta = ev.target;
-    if (ev.key !== "Tab" || !ta.matches || !ta.matches("[data-tab-indent]")) return;
-    ev.preventDefault();
-    var start = ta.selectionStart, end = ta.selectionEnd;
-    ta.value = ta.value.slice(0, start) + "  " + ta.value.slice(end);
-    ta.selectionStart = ta.selectionEnd = start + 2;
-  });
-
-  // ---- Fechas en hora local ---------------------------------------------------
-  var fmt = new Intl.DateTimeFormat(navigator.language || "es-ES", { dateStyle: "medium", timeStyle: "short" });
+  // ---- Dates in the viewer's timezone and language ----------------------------------
+  var lang = document.documentElement.lang || navigator.language;
+  var fmtLong = new Intl.DateTimeFormat(lang, { dateStyle: "medium", timeStyle: "short" });
+  var fmtShort = new Intl.DateTimeFormat(lang, { month: "short", day: "numeric" });
+  var fmtYear = new Intl.DateTimeFormat(lang, { dateStyle: "medium" });
   document.querySelectorAll("time[data-local]").forEach(function (el) {
     var d = new Date(el.getAttribute("datetime"));
-    if (!isNaN(d)) { el.title = el.textContent; el.textContent = fmt.format(d); }
+    if (isNaN(d)) return;
+    el.title = fmtLong.format(d);
+    if (el.dataset.local === "short") {
+      el.textContent = d.getFullYear() === new Date().getFullYear() ? fmtShort.format(d) : fmtYear.format(d);
+    } else {
+      el.textContent = fmtLong.format(d);
+    }
   });
 
   markThemeChoice();

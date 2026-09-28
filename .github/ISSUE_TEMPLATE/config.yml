@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Questions and ideas
+    url: https://github.com/insanerask77/headscale-easy/discussions
+    about: Ask for help or share how you use Headscale Easy.
+  - name: 🔒 Security vulnerability
+    url: https://github.com/insanerask77/headscale-easy/security/advisories/new
+    about: Report it privately, please.
+  - name: 📖 Headscale itself
+    url: https://github.com/juanfont/headscale/issues
+    about: Bugs in Headscale's control server belong there.
