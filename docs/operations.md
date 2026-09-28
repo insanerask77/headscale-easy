@@ -102,9 +102,6 @@ To restore on a new host: copy the repository and `.env`, restore the
 ./uninstall.sh --purge   # also delete volumes, configuration and ./data
 ```
 
-Versions that used Headplane left a `headplane-data` volume; delete it with
-`docker volume rm headplane-data` once you no longer need it.
-
 ## Troubleshooting
 
 **Headscale never becomes healthy (with OIDC).** It refuses to start until it

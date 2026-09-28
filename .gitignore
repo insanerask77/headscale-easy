@@ -6,8 +6,6 @@ Caddyfile
 docker-compose.override.yml
 caddy-root-ca.crt
 reverse-proxy/
-# Left by versions that used Headplane
-headplane-config.yaml
 
 # Runtime data and backups
 data/

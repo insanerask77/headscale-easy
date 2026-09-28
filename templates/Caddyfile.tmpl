@@ -24,9 +24,7 @@ ${CADDY_DOMAIN} {
 
 ${AUTHENTIK_ROUTE}
 
-    # Headscale Easy web UI at /admin (the same path as Tailscale's console).
-    # /mi-vpn was its path in earlier versions: redirect so old links work.
-    redir /mi-vpn* /admin/ 302
+    # Headscale Easy web UI at /admin (the same path as Tailscale's console)
     handle /admin* {
         reverse_proxy headscale-easy:8000 {
             header_up X-Real-IP {remote_host}

@@ -15,7 +15,6 @@
 #       headscale-easy  the web UI (the admin role comes from the groups)
 #   - The "Headscale Easy" theme and the add-user form
 #   - With GOOGLE_CLIENT_ID set: "Sign in with Google"
-#   - Removes what earlier versions of the project created (Headplane, Mi VPN)
 #
 # Values that change per install come from environment variables (!Env), so
 # this file is the same for every installation.
@@ -563,91 +562,3 @@ entries:
       order: 1
     attrs:
       group: !Find [authentik_core.group, [name, "authentik Admins"]]
-
-  # ---------------------------------------------------------------------------
-  # Clean-up of earlier versions (Headplane, "Mi VPN", Spanish add-user flow)
-  # ---------------------------------------------------------------------------
-  - model: authentik_core.application
-    state: absent
-    identifiers:
-      slug: headplane
-  - model: authentik_providers_oauth2.oauth2provider
-    state: absent
-    identifiers:
-      name: headplane
-  - model: authentik_providers_oauth2.scopemapping
-    state: absent
-    identifiers:
-      name: "Headplane: rol"
-  - model: authentik_core.group
-    state: absent
-    identifiers:
-      name: headplane-admins
-  - model: authentik_core.application
-    state: absent
-    identifiers:
-      slug: mi-vpn
-  - model: authentik_providers_oauth2.oauth2provider
-    state: absent
-    identifiers:
-      name: mi-vpn
-  - model: authentik_core.application
-    state: absent
-    identifiers:
-      slug: headscale-alta-usuario
-  - model: authentik_flows.flow
-    state: absent
-    identifiers:
-      slug: headscale-alta-usuario
-  - model: authentik_policies_expression.expressionpolicy
-    state: absent
-    identifiers:
-      name: headscale-alta-grupo
-  - model: authentik_stages_prompt.promptstage
-    state: absent
-    identifiers:
-      name: headscale-alta-prompt
-  - model: authentik_stages_prompt.promptstage
-    state: absent
-    identifiers:
-      name: headscale-alta-done
-  - model: authentik_stages_user_write.userwritestage
-    state: absent
-    identifiers:
-      name: headscale-alta-write
-  - model: authentik_stages_redirect.redirectstage
-    state: absent
-    identifiers:
-      name: headscale-alta-again
-  - model: authentik_policies_password.passwordpolicy
-    state: absent
-    identifiers:
-      name: "Headscale: contraseña de alta"
-  - model: authentik_stages_prompt.prompt
-    state: absent
-    identifiers:
-      name: headscale-alta-name
-  - model: authentik_stages_prompt.prompt
-    state: absent
-    identifiers:
-      name: headscale-alta-username
-  - model: authentik_stages_prompt.prompt
-    state: absent
-    identifiers:
-      name: headscale-alta-email
-  - model: authentik_stages_prompt.prompt
-    state: absent
-    identifiers:
-      name: headscale-alta-password
-  - model: authentik_stages_prompt.prompt
-    state: absent
-    identifiers:
-      name: headscale-alta-password-repeat
-  - model: authentik_stages_prompt.prompt
-    state: absent
-    identifiers:
-      name: headscale-alta-rol
-  - model: authentik_stages_prompt.prompt
-    state: absent
-    identifiers:
-      name: headscale-alta-done

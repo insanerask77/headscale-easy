@@ -336,9 +336,8 @@ configure_auth() {
     ENABLE_OIDC=$([[ "$AUTH_PROVIDER" == "none" ]] && echo "false" || echo "true")
 
     # With OIDC, the UI can also accept the Headscale API key as emergency
-    # admin access (if the provider is down). Older .env files called it
-    # HEADPLANE_API_KEY_LOGIN.
-    PORTAL_API_KEY_LOGIN="${PORTAL_API_KEY_LOGIN:-${HEADPLANE_API_KEY_LOGIN:-false}}"
+    # admin access (if the provider is down).
+    PORTAL_API_KEY_LOGIN="${PORTAL_API_KEY_LOGIN:-false}"
     if [[ "$ENABLE_OIDC" == "true" ]]; then
         echo ""
         print_info "$(t "The web UI can also accept the Headscale API key to sign in as admin (emergency access)." \
@@ -462,8 +461,8 @@ generate_secrets() {
     [[ -z "${AUTHENTIK_SECRET_KEY:-}" ]] && AUTHENTIK_SECRET_KEY=$(generate_secret 32)
     [[ -z "${AUTHENTIK_PG_PASS:-}" ]] && AUTHENTIK_PG_PASS=$(generate_secret 24)
     [[ -z "${AUTHENTIK_BOOTSTRAP_PASSWORD:-}" ]] && AUTHENTIK_BOOTSTRAP_PASSWORD=$(generate_secret 12)
-    # The web UI's own OIDC client ('mi-vpn' in earlier versions)
-    if [[ -z "${PORTAL_OIDC_CLIENT_SECRET:-}" || ! "${PORTAL_OIDC_CLIENT_ID:-}" =~ ^(mi-vpn|headscale-easy)$ ]]; then
+    # The web UI's own OIDC client
+    if [[ -z "${PORTAL_OIDC_CLIENT_SECRET:-}" || "${PORTAL_OIDC_CLIENT_ID:-}" != "headscale-easy" ]]; then
         PORTAL_OIDC_CLIENT_SECRET=$(generate_secret 32)
     fi
     PORTAL_OIDC_CLIENT_ID="headscale-easy"
@@ -605,13 +604,12 @@ EOF
 # changes survive. Otherwise the default one is written.
 dns_block() {
     local begin="# >>> dns: managed by Headscale Easy (do not edit between these markers)"
-    local legacy="# >>> dns: gestionado por Mi VPN (no edites entre estos marcadores a mano)"
     local end="# <<< dns"
     local current="$SCRIPT_DIR/headscale-config.yaml"
 
-    if [[ -f "$current" ]] && grep -qF -e "$begin" -e "$legacy" "$current"; then
-        awk -v b="$begin" -v l="$legacy" -v e="$end" '
-            $0 == b || $0 == l { on = 1; print b; next }
+    if [[ -f "$current" ]] && grep -qF "$begin" "$current"; then
+        awk -v b="$begin" -v e="$end" '
+            $0 == b { on = 1; print; next }
             on { print }
             on && $0 == e { exit }' "$current"
         return 0
@@ -724,9 +722,8 @@ generate_caddyfile() {
     # the prefix is not stripped. /authentik alone redirects so it does not
     # fall into Headscale's catch-all.
     redir /authentik /authentik/ 308
-    # Shortcut to the add-user form; /alta-usuario is kept for older links
+    # Shortcut to the add-user form
     redir /add-user /authentik/if/flow/headscale-easy-add-user/ 302
-    redir /alta-usuario /authentik/if/flow/headscale-easy-add-user/ 302
     handle /authentik/* {
         reverse_proxy authentik-server:9000 {
             header_up X-Real-IP {remote_host}
@@ -903,13 +900,9 @@ start_authentik_first() {
     exit 1
 }
 
-# Containers of components that are no longer used. Their data volumes are
+# Authentik after switching to another sign-in method. Its data volumes are
 # kept: nothing that cannot be recovered is deleted.
-remove_retired_containers() {
-    local c
-    for c in headplane mi-vpn; do   # web UIs of earlier versions
-        docker ps -a --format '{{.Names}}' | grep -qx "$c" && docker rm -f "$c" >/dev/null
-    done
+stop_unused_authentik() {
     if [[ "$AUTH_PROVIDER" != "authentik" ]] && docker ps -a --format '{{.Names}}' | grep -qE '^authentik-(server|worker|postgresql)$'; then
         print_info "$(t "Stopping Authentik (no longer used; its data is kept)..." "Deteniendo Authentik (ya no se usa; sus datos se conservan)...")"
         docker compose --profile authentik rm -sf authentik-server authentik-worker authentik-postgresql >/dev/null
@@ -1011,7 +1004,7 @@ EOFP
 
 deploy_stack() {
     print_header "$(t "STARTING THE STACK" "ARRANCANDO EL STACK")"
-    remove_retired_containers
+    stop_unused_authentik
     docker compose up -d
     # Caddyfile and UI settings may have changed: 'up' does not re-read files
     docker compose restart caddy web >/dev/null
