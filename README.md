@@ -1,13 +1,13 @@
-# Headscale + Headplane - Despliegue Todo-en-Uno
+# Headscale + Mi VPN - Despliegue Todo-en-Uno
 
 <div align="center">
 
 ![Headscale](https://img.shields.io/badge/Headscale-Latest-blue?logo=tailscale)
-![Headplane](https://img.shields.io/badge/Headplane-Latest-green)
+![Mi VPN](https://img.shields.io/badge/Panel-Mi%20VPN-green)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
-**Solución de despliegue automatizado para Headscale (control plane self-hosted compatible con Tailscale) + Headplane (UI web moderna)**
+**Solución de despliegue automatizado para Headscale (control plane self-hosted compatible con Tailscale) + Mi VPN (panel web con la estructura de la consola de Tailscale)**
 
 [Instalación Rápida](#-instalación-rápida) • [Características](#-características) • [Configuración](#-configuración) • [Uso](#-uso) • [Troubleshooting](#-troubleshooting)
 
@@ -26,6 +26,8 @@
   - [Quién pone el HTTPS](#quién-pone-el-https)
   - [Un proxy por delante](#un-proxy-por-delante)
 - [Uso](#-uso)
+  - [El panel Mi VPN](#el-panel-mi-vpn)
+  - [Login de usuarios con Authentik](#login-de-usuarios-con-authentik)
 - [Arquitectura](#-arquitectura)
 - [Reconfiguración](#-reconfiguración)
 - [Backup y Restauración](#-backup-y-restauración)
@@ -41,8 +43,9 @@
 Este proyecto proporciona un **instalador interactivo todo-en-uno** que despliega:
 
 - **[Headscale](https://github.com/juanfont/headscale)**: Control plane open-source compatible con Tailscale
-- **[Headplane](https://github.com/tale/headplane)**: Interfaz web moderna para gestionar Headscale
-- **[Caddy](https://caddyserver.com/)** (opcional): Reverse proxy con TLS automático
+- **Mi VPN** ([portal/](portal/)): panel web propio, con la estructura de la consola de Tailscale. Cada usuario gestiona sus dispositivos; los administradores, toda la VPN
+- **[Caddy](https://caddyserver.com/)**: Reverse proxy, con TLS automático si lo eliges
+- **[Authentik](https://goauthentik.io/)** (opcional): cuentas con usuario/contraseña y login con Google
 
 Todo funcional con **un solo comando** (`./install.sh`), sin necesidad de editar archivos de configuración manualmente.
 
@@ -50,7 +53,7 @@ Todo funcional con **un solo comando** (`./install.sh`), sin necesidad de editar
 
 ✅ **Cero configuración manual**: El instalador te guía paso a paso  
 ✅ **SSL automático**: Certificados Let's Encrypt o autofirmados  
-✅ **OIDC integrado**: Autenticación con Keycloak, Authentik, etc.  
+✅ **Login de usuarios**: Authentik integrado (usuario/contraseña y Google) u OIDC propio  
 ✅ **Idempotente**: Puedes reconfigurar sin perder datos  
 ✅ **Producción ready**: Configuración segura por defecto  
 
@@ -73,15 +76,15 @@ Todo funcional con **un solo comando** (`./install.sh`), sin necesidad de editar
 - ✅ Certificado autofirmado para redes privadas
 - ✅ Headers de seguridad (HSTS, X-Frame-Options, etc.)
 - ✅ Secretos generados automáticamente (nunca hardcodeados)
-- ✅ Autenticación OIDC opcional (Keycloak, Authentik, etc.)
+- ✅ Login con usuario/contraseña y Google vía Authentik integrado, u OIDC propio (Keycloak, etc.)
 - ✅ Contenedores con mínimos privilegios (cap_drop, security_opt)
 
 ### 🎨 Interfaz
 
-- ✅ UI web moderna (Headplane) para gestionar Headscale
-- ✅ Modo integrado: acceso completo a todas las funciones de Headscale
-- ✅ Gestión de usuarios, nodos, rutas, ACLs desde la web
-- ✅ Tema claro/oscuro automático
+- ✅ Panel web propio (Mi VPN) con la estructura de la consola de Tailscale
+- ✅ Usuarios: sólo ven y gestionan sus dispositivos y claves
+- ✅ Administradores: dispositivos, usuarios, rutas, tags, ACL, DNS y API keys
+- ✅ Tema claro/oscuro según el navegador
 
 ### 🛠️ Operación
 
@@ -116,7 +119,8 @@ Todo funcional con **un solo comando** (`./install.sh`), sin necesidad de editar
 
 ### Opcional
 
-- **OIDC Provider**: Keycloak, Authentik, Auth0, etc. (para autenticación centralizada)
+- **OIDC Provider**: no hace falta si eliges Authentik integrado; si no, Keycloak, Auth0, etc.
+- **RAM extra con Authentik**: ~1 GB (Authentik server + worker + PostgreSQL)
 
 ---
 
@@ -142,7 +146,9 @@ El instalador te preguntará:
   Ver [Quién pone el HTTPS](#quién-pone-el-https)
 - Puertos a usar (con defaults razonables)
 - Nombre de tu organización/tailnet
-- ¿Integrar OIDC? (opcional)
+- Cómo inician sesión los usuarios: sólo API key, Authentik integrado
+  (usuario/contraseña y Google) u OIDC propio.
+  Ver [Login de usuarios con Authentik](#login-de-usuarios-con-authentik)
 
 Al finalizar, los servicios estarán corriendo y listos para usar.
 
@@ -162,7 +168,6 @@ nano .env
 # 3. Generar configuraciones
 export $(cat .env | xargs)
 envsubst < templates/headscale-config.yaml.tmpl > headscale-config.yaml
-envsubst < templates/headplane-config.yaml.tmpl > headplane-config.yaml
 envsubst < templates/Caddyfile.tmpl > Caddyfile
 
 # 4. Levantar los servicios
@@ -182,16 +187,14 @@ docker compose up -d
 No hay modos que elegir. **Caddy arranca siempre** y enruta un único dominio:
 
 ```
-cliente ──▶ Caddy ─┬─▶ /       Headscale   (control plane)
-                   └─▶ /admin  Headplane   (interfaz web)
+cliente ──▶ Caddy ─┬─▶ /           Headscale   (control plane)
+                   ├─▶ /mi-vpn     Mi VPN      (panel web; /admin redirige aquí)
+                   └─▶ /authentik  Authentik   (sólo con AUTH_PROVIDER=authentik)
 ```
 
-Headscale y Headplane **no publican ningún puerto en el host**: sólo los
+Headscale y el panel **no publican ningún puerto en el host**: sólo los
 alcanza Caddy por la red interna de Docker. La única excepción es el UDP
 DERP/STUN (3478), que va directo porque ningún proxy HTTP lo transporta.
-
-La interfaz web se sirve siempre bajo **`/admin`**: el prefijo está compilado
-en la imagen de Headplane y no se puede quitar con un rewrite en el proxy.
 
 ### Quién pone el HTTPS
 
@@ -224,7 +227,7 @@ falta `auto_https off`. El instalador no ofrece Let's Encrypt si `DOMAIN` es
 una IP o `localhost`, porque el reto ACME no puede completarse para eso.
 
 > ⚠️ Con `SSL_MODE=none` el plano de control viaja en claro, incluidas las
-> pre-auth keys y la API key de Headplane. Úsalo sólo en una red de confianza.
+> pre-auth keys y las sesiones del panel. Úsalo sólo en una red de confianza.
 
 ### Un proxy por delante
 
@@ -239,12 +242,12 @@ snippet ya rellenado** en `reverse-proxy/`:
 | Caddy | `reverse-proxy/Caddyfile` — el bloque del Caddy de borde |
 
 ```
-cliente ──HTTPS──▶ NPM ──HTTP──▶ Caddy ─┬─▶ /       Headscale
-        (borde)                         └─▶ /admin  Headplane
+cliente ──HTTPS──▶ NPM ──HTTP──▶ Caddy ─┬─▶ /        Headscale
+        (borde)                         └─▶ /mi-vpn  Mi VPN
 ```
 
 Como Caddy ya enruta por ruta, **el proxy de delante tiene un solo destino**:
-`BACKEND_HOST:HTTP_PORT`. No necesita saber nada de `/admin` ni de CORS, y por
+`BACKEND_HOST:HTTP_PORT`. No necesita saber nada de `/mi-vpn` ni de CORS, y por
 eso el snippet es corto. Lo único que no puede faltar en cualquiera de ellos:
 
 - **Paso del `Upgrade`** (en NPM, la casilla *Websockets Support*). `/ts2021`,
@@ -275,15 +278,20 @@ El archivo `.env` (generado por `install.sh`) contiene todas las configuraciones
 | `DOMAIN` | Dominio o IP con el que se accede al stack | `vpn.midominio.com` |
 | `SSL_MODE` | Quién pone el HTTPS (ver tabla de arriba) | `letsencrypt`, `selfsigned`, `front`, `none` |
 | `SERVER_URL` | URL pública del control plane (`--login-server`) | `https://vpn.midominio.com` |
-| `HEADPLANE_PUBLIC_URL` | URL pública de la UI (la UI va en `/admin`) | `https://vpn.midominio.com` |
 | `URL_SCHEME` | Derivado de `SSL_MODE` | `https` o `http` |
 | `ACME_EMAIL` | Email para Let's Encrypt | `admin@midominio.com` |
 | `FRONT_PROXY` | Qué snippet generar (sólo con `SSL_MODE=front`) | `npm`, `nginx`, `traefik`, `caddy` |
 | `BACKEND_HOST` | IP de esta máquina vista desde el proxy | `192.168.1.10` |
 | `HTTP_PORT` / `HTTPS_PORT` | Puertos que publica Caddy | `80` / `443` |
 | `TAILNET_NAME` | Nombre de la organización | `myorg` |
-| `ENABLE_OIDC` | Habilitar autenticación OIDC | `true` o `false` |
+| `AUTH_PROVIDER` | Cómo inician sesión los usuarios | `none`, `authentik`, `external` |
+| `COMPOSE_PROFILES` | Servicios opcionales (lo deriva el instalador) | `authentik` o vacío |
+| `GOOGLE_CLIENT_ID` | Login con Google en Authentik (vacío = no) | `123-abc.apps.googleusercontent.com` |
+| `ENABLE_OIDC` | Habilitar OIDC (derivado de `AUTH_PROVIDER`) | `true` o `false` |
 | `OIDC_ISSUER_URL` | URL del proveedor OIDC | `https://auth.example.com/realms/master` |
+| `PORTAL_API_KEY_LOGIN` | El panel acepta también la API key (admins) | `true` o `false` |
+| `PORTAL_ADMIN_EMAILS` | Administradores con un proveedor OIDC propio | `jefe@midominio.com` |
+| `NETWORK_ISOLATION` | Cada usuario sólo alcanza sus dispositivos | `true` o `false` |
 
 Ver [.env.example](.env.example) para la lista completa de variables.
 
@@ -294,7 +302,7 @@ Ver [.env.example](.env.example) para la lista completa de variables.
 | 80 | TCP | Caddy | HTTP. Con certificado propio sólo hace el reto ACME y redirige a HTTPS; con `front` o `none` sirve el tráfico |
 | 443 | TCP/UDP | Caddy | HTTPS / HTTP/3. Sólo se publica si Caddy tiene el certificado |
 | 3478 | UDP | Headscale | DERP/STUN — **siempre directo, nunca vía proxy** |
-| 3000 | TCP | Headplane | Web UI — interno, no se publica |
+| 8000 | TCP | Mi VPN | Panel web — interno, no se publica |
 | 8080 | TCP | Headscale | API HTTP — interno, no se publica |
 | 50443 | TCP | Headscale | gRPC — interno |
 | 9090 | TCP | Headscale | Metrics — interno, opcional |
@@ -314,11 +322,12 @@ El instalador ya crea el **usuario administrador** y la **API key**, y muestra
 esta última por pantalla al terminar. Guárdala: Headscale sólo la revela en el
 momento de crearla.
 
-1. **Acceder a la UI web** y pegar la API key en el formulario de login:
+1. **Entrar en el panel**:
    ```
-   Abre en tu navegador: https://vpn.midominio.com/admin
+   Abre en tu navegador: https://vpn.midominio.com/mi-vpn/
    ```
-   > Headplane sirve la interfaz bajo `/admin`; la raíz (`/`) devuelve 404.
+   Con Authentik o un OIDC propio, inicia sesión con tu cuenta; sin OIDC, pega
+   la API key. Ver [El panel Mi VPN](#el-panel-mi-vpn).
 
 2. **Generar una clave de pre-autenticación**:
    ```bash
@@ -383,9 +392,9 @@ Hacerlo produce un error 500 confuso del tipo
 
 | Clave | Prefijo | Longitud | Para qué sirve |
 |---|---|---|---|
-| **API key** | `hskey-api-…` | 87 | Iniciar sesión en la UI de Headplane |
+| **API key** | `hskey-api-…` | 87 | Acceso de administrador a la API de Headscale (y al panel sin OIDC) |
 | **Pre-auth key** | `hskey-auth-…` | 88 | `tailscale up --authkey=…` |
-| **Auth ID** | `hskey-authreq-…` | 38 | Lo único que acepta el diálogo *Register Machine Key* de Headplane |
+| **Auth ID** | `hskey-authreq-…` | 38 | Registrar un dispositivo en el panel: Dispositivos → *Registrar con Auth ID* |
 
 El **Auth ID** no se genera con ningún comando: lo imprime `tailscale up` cuando
 lo lanzas **sin** `--authkey`:
@@ -395,32 +404,33 @@ tailscale up --login-server=https://vpn.midominio.com
 # -> To authenticate, visit: https://vpn.midominio.com/register/hskey-authreq-XXXXXXXXXXXXXXXXXXXXXXXX
 ```
 
-Esa última parte (`hskey-authreq-…`, 38 caracteres) es lo que se pega en
-Headplane. Si pegas la API key, Headplane le antepone `hskey-authreq-` por su
-cuenta y Headscale rechaza la petición: 87 + 14 = 101 caracteres.
+Esa última parte (`hskey-authreq-…`, 38 caracteres) es lo que se pega en el
+panel; también acepta la URL completa. Lo habitual, de todos modos, es que el
+propio usuario abra esa URL e inicie sesión: el Auth ID es para registrar a
+mano un dispositivo a nombre de otro.
 
-### Dos URLs distintas: control plane e interfaz web
+### Dos URLs distintas: control plane y panel
 
-Headscale y Headplane son servicios separados, pero comparten dominio: Caddy
+Headscale y el panel son servicios separados, pero comparten dominio: Caddy
 enruta por ruta.
 
 | | URL |
 |---|---|
 | Control plane (Headscale) | `https://vpn.midominio.com` |
-| Interfaz web (Headplane) | `https://vpn.midominio.com/admin` |
+| Panel (Mi VPN) | `https://vpn.midominio.com/mi-vpn/` |
 
-La primera es la que va en `--login-server`. `/admin*` va a Headplane y **todo
-lo demás** a Headscale, porque los clientes Tailscale usan la raíz del dominio
-(`/key`, `/ts2021`, `/machine/*`, `/derp`, `/bootstrap-dns`…).
+La primera es la que va en `--login-server`. `/mi-vpn` va al panel (y `/admin`,
+donde estaba Headplane, redirige ahí) y **todo lo demás** a Headscale, porque
+los clientes Tailscale usan la raíz del dominio (`/key`, `/ts2021`,
+`/machine/*`, `/derp`, `/bootstrap-dns`…).
 
-Ambas quedan guardadas en `.env` como `HEADSCALE_PUBLIC_URL` y
-`HEADPLANE_PUBLIC_URL`; con `SSL_MODE=none` son las mismas pero en `http://`.
+### API key de Headscale
 
-### API key de Headplane
-
-Sin OIDC, la única credencial para entrar en la UI es una API key de Headscale
-(no hay usuario/contraseña propios). El instalador genera una y la guarda en
-`.env`; si la pierdes:
+El panel habla con Headscale con la API key que genera el instalador y guarda
+en `.env` (`HEADSCALE_API_KEY`). Sin OIDC es además la credencial para entrar
+en el panel como administrador (no hay usuario/contraseña propios). En el
+panel, Ajustes → Claves → *API keys* las lista, crea y caduca, y marca la que
+usa el propio panel para que no la caduques por error. Por línea de comandos:
 
 ```bash
 docker exec headscale headscale apikeys create --expiration 90d
@@ -430,7 +440,195 @@ docker exec headscale headscale apikeys expire --prefix <prefijo>
 
 > ⚠️ Da control total sobre el tailnet. Trátala como una contraseña de
 > administrador y ten en cuenta que caduca (90 días por defecto,
-> configurable con `APIKEY_EXPIRATION`).
+> configurable con `APIKEY_EXPIRATION`). **Cuando caduca, el panel deja de
+> funcionar**: reejecuta `./install.sh`, que la renueva.
+
+### El panel Mi VPN
+
+`https://<DOMAIN>/mi-vpn/` es el panel de la VPN ([portal/](portal/), Python
+sin dependencias), con la estructura de la consola de Tailscale. Sustituye a
+Headplane, que ya no forma parte del stack (`/admin` redirige aquí). Tema
+oscuro o claro según el navegador.
+
+**Lo que ve cada usuario** (sólo lo suyo):
+
+| Sección | Qué hay (equivalente en Tailscale) |
+|---------|------------------------------------|
+| **Dispositivos** | Tabla con búsqueda (tecla `/`) y filtro por estado; IPs, SO, versión de Tailscale con aviso de actualización, última conexión e insignias (caducado, caducidad desactivada, nodo de salida, subredes, efímero, tags). Menú `···`: editar nombre, copiar IP, caducar clave, quitar. *(Machines)* |
+| **Detalle** | Propietario, SO, versión, arquitectura, método de registro, clave de nodo, fechas y caducidad; direcciones IPv4/IPv6 y nombre MagicDNS; rutas anunciadas y su estado; relay DERP preferido y endpoints. *(Machine page)* |
+| **Añadir dispositivo** | Instrucciones por sistema (Linux, Windows, macOS, iOS, Android) apuntando a este servidor. *(Add device)* |
+| **DNS** | Nombre de la red, MagicDNS y el nombre de cada dispositivo, servidores de nombres, split DNS y dominios de búsqueda. *(DNS)* |
+| **Ajustes → Claves** | Claves de autenticación de un solo uso o reutilizables, efímeras, de 1 a 90 días; se muestran una única vez; revocar. *(Settings → Keys)* |
+| **Ajustes → General** | Cuenta, rol y grupos, cambio de contraseña (Authentik) y tema. *(Settings → General)* |
+
+**Lo que añade un administrador** (lo que antes hacía Headplane):
+
+| Sección | Qué hay |
+|---------|---------|
+| **Dispositivos** | Los de **todos** los usuarios, con filtro por usuario. *Registrar con Auth ID* (para un `tailscale up` sin clave, a nombre de quien elijas). En el menú y el detalle: editar tags, activar/desactivar la caducidad de la clave y **aprobar rutas** (subredes y nodo de salida). |
+| **Usuarios** | Usuarios de Headscale, con sus dispositivos. Crear usuarios locales (para servidores con claves), renombrar, eliminar (si no tienen dispositivos) y generar claves a su nombre. Con Authentik, acceso directo al alta de cuentas. |
+| **Control de acceso** | Editor de la política ACL (HuJSON) con *Comprobar* y *Guardar*; Headscale valida antes de aplicar y los errores se muestran tal cual. |
+| **DNS** | **Editable**: MagicDNS, nombre de la red, usar los servidores de nombres en los dispositivos, servidores globales (IP o DoH), split DNS y dominios de búsqueda. |
+| **Ajustes → Claves** | Las claves de todos los usuarios, y las **API keys** de Headscale (crear, caducar). La que usa el propio panel está marcada y no se puede caducar desde aquí. |
+
+**Cómo se entra**, según `AUTH_PROVIDER`:
+
+| `AUTH_PROVIDER` | Inicio de sesión | Quién es administrador |
+|---|---|---|
+| `authentik` | Cuenta de Authentik (cliente OIDC propio `mi-vpn`) | Grupos `vpn-admins` y `authentik Admins` |
+| `external` | Tu proveedor OIDC, con el mismo cliente que Headscale. Registra también `https://<DOMAIN>/mi-vpn/callback` como Redirect URI | Los emails de `PORTAL_ADMIN_EMAILS` |
+| `none` | API key de Headscale | Siempre (sólo hay sesiones de admin) |
+
+Con OIDC, `PORTAL_API_KEY_LOGIN=true` añade además el login con API key como
+acceso de emergencia si el proveedor falla. Cerrar sesión en el panel cierra
+también la del proveedor, así que en el mismo navegador se puede entrar después
+con otro usuario.
+
+**Cómo funciona el DNS editable.** La sección `dns:` de
+`headscale-config.yaml` va entre dos marcadores (`# >>> dns` … `# <<< dns`) y
+es lo único que el panel reescribe. Al guardar: escribe el bloque, ejecuta
+`headscale configtest`, y si pasa reinicia Headscale y espera a que esté sano
+(unos 10 s sin plano de control; las conexiones ya establecidas entre
+dispositivos siguen funcionando). Si Headscale rechaza la configuración o no
+arranca, restaura la anterior. `install.sh` conserva ese bloque al regenerar la
+configuración, así que los cambios no se pierden al reinstalar.
+
+> ⚠️ Para eso el panel monta el socket de Docker, y **acceso al socket de
+> Docker equivale a root en el host**. El panel sólo lo usa para
+> `headscale configtest` y reiniciar el contenedor `headscale`, corre con el uid
+> dueño del proyecto (no root) y con el sistema de ficheros en sólo lectura,
+> pero tenlo presente: una vulnerabilidad en el panel podría escalar al host.
+
+**Datos que usa**: la API REST de Headscale para todo lo que se modifica; el
+SO, la versión y el relay DERP, que esa API no da, del `Hostinfo` de la base
+de datos de Headscale, montada **en sólo lectura** (con PostgreSQL esas
+columnas quedan vacías). Si hay salida a internet, consulta además los nombres
+de los relays públicos y la última versión de Tailscale.
+
+**Seguridad**: el panel localiza a cada usuario en Headscale por su
+identificador OIDC, no por el nombre, y comprueba en el servidor el rol y la
+propiedad de cada dispositivo, clave o usuario que se toca. Un usuario no
+puede ver ni modificar lo de otro aunque manipule la petición.
+
+### Login de usuarios con Authentik
+
+Headscale no tiene usuarios con contraseña: sin OIDC, al panel sólo entra un
+administrador con la API key y los dispositivos se registran con pre-auth
+keys. Con `AUTH_PROVIDER=authentik` el instalador añade
+[Authentik](https://goauthentik.io) al stack y lo deja configurado:
+
+- Vive en `https://<DOMAIN>/authentik/`, el mismo dominio. No hace falta DNS
+  ni certificado nuevos, ni tocar el proxy de delante. No usa `/auth`
+  porque Headscale ya la ocupa (`/auth/{id}`).
+- El blueprint [authentik/blueprints/headscale.yaml](authentik/blueprints/headscale.yaml)
+  crea las aplicaciones OIDC (VPN y Mi VPN), los grupos, el tema, el
+  formulario de alta y, si se configuró, el login con Google.
+
+**Quién puede entrar lo deciden los grupos de Authentik:**
+
+| Grupo | VPN (`tailscale up`) | Panel Mi VPN |
+|-------|----------------------|--------------|
+| `headscale-users` | ✅ | ✅ sus dispositivos |
+| `vpn-admins` | ✅ | ✅ administrador |
+| `authentik Admins` (akadmin) | ✅ | ✅ administrador |
+| sin grupo | ❌ | ❌ "Permission denied" |
+
+**Dar acceso a alguien:** abre `https://<DOMAIN>/alta-usuario`. Es un
+formulario que pide nombre, usuario, email, contraseña (mínimo 10 caracteres)
+y el acceso: *VPN* (`headscale-users`) o *VPN + administrador de la VPN*
+(`vpn-admins`). Al enviarlo, la cuenta queda lista y "Continuar" lleva a
+Usuarios del panel. Sólo pueden usarlo los administradores; no hace falta
+entrar en el panel de Authentik. También está en el panel (Usuarios → *Dar de
+alta una cuenta*) y como aplicación "Alta de usuarios" en
+`https://<DOMAIN>/authentik/if/user/`.
+
+El usuario `akadmin` y su contraseña inicial los muestra el instalador al
+acabar. Para todo lo demás de las cuentas (bajas, cambiar grupos, restablecer
+contraseñas) está `https://<DOMAIN>/authentik/if/admin/`.
+
+> Las instalaciones anteriores tenían un grupo `headplane-admins`: el blueprint
+> lo elimina y crea `vpn-admins`. Si tenía miembros, añádelos al nuevo grupo.
+
+#### Aislamiento de red por usuario
+
+Con `NETWORK_ISOLATION=true` (por defecto), el instalador aplica esta
+política ACL a Headscale:
+
+```json
+{"acls": [{"action": "accept", "src": ["autogroup:member"], "dst": ["autogroup:self:*"]}]}
+```
+
+Los dispositivos de un usuario se ven entre sí, pero no ven los de nadie
+más, admins incluidos. La app de Tailscale de cada dispositivo muestra
+también sólo los del propio usuario. La política sólo se aplica si Headscale
+todavía no tiene una: si ya la editaste en el panel (Control de acceso), se
+respeta.
+
+#### Tema "Headscale Dashboard"
+
+Las pantallas de Authentik (login, alta de usuarios) y el portal Mi VPN
+llevan un tema propio con aspecto Tailscale y el logo "Headscale Dashboard"
+(una rejilla de puntos que forma una H), en **oscuro o claro según el
+navegador**. En Authentik cada usuario puede fijarlo en sus ajustes; en Mi VPN,
+con el botón ☀/☾ de la barra superior (se recuerda en ese navegador). Si el
+navegador no indica preferencia, el portal usa el oscuro. Los ficheros están
+en [authentik/branding/](authentik/branding/):
+
+| Fichero | Qué es |
+|---------|--------|
+| `logo-light.svg` / `logo-dark.svg` | Logo de la pantalla de login, para cada tema |
+| `favicon.svg` | Icono de la pestaña |
+| `background.svg` | Fondo (trama de puntos) |
+| `custom.css` | Colores, tipografía y formas |
+
+Para cambiar el logo, el favicon o el fondo basta con reemplazar el fichero:
+se sirven directamente. El portal tiene su propia hoja de estilos
+([portal/static/style.css](portal/static/style.css)), con la misma paleta. Si editas `custom.css`, aplícalo con
+`docker exec authentik-worker ak apply_blueprint custom/headscale.yaml`
+(tarda 1-2 minutos), o ejecuta `./install.sh`.
+
+**Registrar un dispositivo:** `tailscale up --login-server=https://<DOMAIN>`
+sin `--authkey`. Abre el login de Authentik en el navegador y, tras la
+confirmación de Headscale, el nodo queda a nombre de ese usuario.
+
+#### Login con Google
+
+Requiere HTTPS: Google no acepta Redirect URIs `http://`. En
+[Google Cloud Console](https://console.cloud.google.com/apis/credentials) crea
+un *OAuth client ID* de tipo *Web application* con:
+
+- Authorized JavaScript origins: `https://<DOMAIN>`
+- Authorized redirect URIs: `https://<DOMAIN>/authentik/source/oauth/callback/google/`
+
+Pega el Client ID y el secret cuando el instalador lo pida (o ponlos en
+`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` y reejecuta `./install.sh`).
+Aparecerá el botón de Google en el login de Authentik.
+
+Quien entra con Google por primera vez obtiene cuenta en Authentik **sin
+grupo**, así que no accede a nada hasta que lo añadas a uno. Si su email
+coincide con el de un usuario local, entra como ese usuario.
+
+#### Cómo llega Headscale a Authentik
+
+Headscale y el panel validan el issuer contra la URL **pública**
+(`https://<DOMAIN>/authentik/application/o/headscale/`), así que tienen que
+alcanzarla desde sus contenedores. El instalador lo resuelve en
+`docker-compose.override.yml`:
+
+- `letsencrypt`, `selfsigned`, `none`: `extra_hosts` apunta `DOMAIN` al host
+  (`host-gateway`), donde Caddy publica sus puertos. No depende del NAT
+  loopback del router. Con `selfsigned` monta además la CA de Caddy
+  (`data/caddy-ca/`).
+- `front`: pasa por el proxy de delante, así que el instalador **se detiene
+  hasta que lo hayas configurado**. Si `DOMAIN` resuelve a una IP pública y
+  tu router no hace NAT loopback, indica `FRONT_PROXY_IP` (la IP del proxy
+  en la LAN).
+- `DOMAIN=localhost` no es compatible: dentro de un contenedor, `localhost`
+  es el propio contenedor.
+
+Si un firewall en el host (ufw, firewalld) filtra el tráfico de las redes de
+Docker hacia los puertos de Caddy, Headscale no arrancará. Ver
+[troubleshooting](#headscale-no-arranca-con-authentik).
 
 ### Gestión de Usuarios
 
@@ -483,8 +681,8 @@ docker compose logs -f
 # Solo Headscale
 docker compose logs -f headscale
 
-# Solo Headplane
-docker compose logs -f headplane
+# Solo el panel Mi VPN
+docker compose logs -f portal
 
 # Solo Caddy
 docker compose logs -f caddy
@@ -515,23 +713,23 @@ docker compose up -d
 ```
 Internet
     │
-    │ HTTPS (443)
-    ├─────────────────────┐
-    │                     │
-    │                     │ UDP (3478)
-    │                     │ DERP/STUN
-    ▼                     ▼
-┌─────────┐         ┌──────────────┐
-│  Caddy  │         │  Headscale   │
-│ (Proxy) │────────▶│(Control Plane)│
-└─────────┘         └──────────────┘
-    │                     ▲
-    │ HTTP (3000)         │ Unix Socket
-    ▼                     │
-┌─────────┐               │
-│Headplane│───────────────┘
-│ (Web UI)│  (Modo Integrated)
+    │ HTTPS (443)                                  UDP (3478) DERP/STUN
+    ▼                                                      │
+┌─────────┐  /            ┌───────────────┐                │
+│  Caddy  │──────────────▶│   Headscale   │◀───────────────┘
+│ (Proxy) │               │(Control Plane)│
+└─────────┘               └───────────────┘
+    │  /mi-vpn                ▲   ▲
+    ▼                  API    │   │ configtest y reinicio (socket de Docker)
+┌─────────┐───────────────────┘   │ tras editar el DNS
+│ Mi VPN  │───────────────────────┘
+│ (panel) │── BD de Headscale (sólo lectura: SO, versión, DERP)
 └─────────┘
+    │  /authentik (opcional)
+    ▼
+┌───────────┐
+│ Authentik │  cuentas, grupos, login con Google
+└───────────┘
 ```
 
 ### Componentes
@@ -540,27 +738,40 @@ Internet
    - Asigna IPs a los nodos
    - Gestiona ACLs y rutas
    - Proporciona servidor DERP embebido
-   - Expone API gRPC para gestión
+   - Expone la API REST que usa el panel
 
-2. **Headplane**: Interfaz web moderna
-   - Modo integrado: acceso directo al socket Unix de Headscale
-   - Gestión completa de usuarios, nodos, rutas, ACLs
-   - Autenticación local u OIDC
+2. **Mi VPN** (`portal`, contenedor `mi-vpn`): panel web, siempre activo
+   - Usuarios: sus dispositivos y claves. Administradores: toda la VPN
+   - Login con OIDC (Authentik o propio) y/o API key
+   - Imagen oficial de Python, sólo biblioteca estándar, sin estado propio
+   - Sustituye a Headplane
 
 3. **Caddy**: Reverse proxy (arranca siempre)
-   - Enruta el único dominio: `/` → Headscale, `/admin` → Headplane
+   - Enruta el único dominio: `/` → Headscale, `/mi-vpn/` → panel (`/admin`
+     redirige ahí) y, si Authentik está activado, `/authentik/` → Authentik y
+     `/alta-usuario` → formulario de alta
    - Certificado automático de Let's Encrypt o CA interna, según `SSL_MODE`
    - Redirección HTTP → HTTPS cuando es él quien tiene el certificado
    - Headers de seguridad
+
+4. **Authentik** (opcional, profile `authentik`): proveedor de identidad
+   - Usuarios con contraseña, grupos y login con Google
+   - `authentik-server`, `authentik-worker` y `authentik-postgresql`
+   - Sin puertos publicados: se sirve a través de Caddy
 
 ### Volúmenes
 
 ```
 headscale-data/          → Base de datos SQLite y claves de Headscale
-headscale-socket/        → Socket Unix para comunicación Headscale ↔ Headplane
+headscale-socket/        → Socket Unix de la CLI de Headscale
 caddy-data/              → Certificados SSL (Let's Encrypt)
 caddy-config/            → Configuración persistente de Caddy
 data/caddy-logs/         → Logs de acceso de Caddy
+authentik-db/            → PostgreSQL de Authentik (usuarios, grupos, config)
+authentik-data/          → Datos de Authentik (/data)
+authentik-media/         → Ficheros subidos desde la UI de Authentik (iconos, logos)
+data/caddy-ca/           → CA de Caddy para Headscale y el panel (selfsigned + Authentik)
+headplane-data/          → (instalaciones anteriores) datos de Headplane; ya no se usa
 ```
 
 ---
@@ -584,9 +795,9 @@ El instalador detectará la instalación existente y te permitirá reconfigurar 
 nano .env
 
 # 2. Regenerar configuraciones (si cambiaste variables que afectan a los .yaml)
+#    Mejor con ./install.sh: además conserva el bloque DNS que edita el panel
 export $(cat .env | xargs)
 envsubst < templates/headscale-config.yaml.tmpl > headscale-config.yaml
-envsubst < templates/headplane-config.yaml.tmpl > headplane-config.yaml
 
 # 3. Reiniciar servicios
 docker compose down
@@ -624,11 +835,18 @@ Es crítico respaldar:
 
 2. **Configuraciones**:
    - `.env`
-   - `headscale-config.yaml`
-   - `headplane-config.yaml`
+   - `headscale-config.yaml` (incluye el DNS editado desde el panel)
 
 3. **Certificados SSL** (opcional, se regeneran automáticamente):
    - Volumen Docker: `caddy-data`
+
+4. **Authentik** (si está activado): usuarios, contraseñas y grupos viven en
+   su PostgreSQL, no en Headscale:
+   ```bash
+   docker exec authentik-postgresql pg_dump -U authentik authentik > authentik-$(date +%F).sql
+   ```
+   Guarda también `AUTHENTIK_SECRET_KEY` y `AUTHENTIK_PG_PASS` de `.env`: sin
+   ellos el volcado no sirve para restaurar.
 
 ### Crear Backup
 
@@ -637,7 +855,6 @@ Es crítico respaldar:
 tar -czf headscale-backup-$(date +%Y%m%d).tar.gz \
   .env \
   headscale-config.yaml \
-  headplane-config.yaml \
   data/
 
 # Método 2: Backup de volúmenes Docker
@@ -731,10 +948,10 @@ sudo iptables -A INPUT -p udp --dport 3478 -j ACCEPT
 |---------|-------|----------|
 | Los nodos se desconectan y reconectan cada ~60 s | `/machine/map` es un long-poll y el proxy lo corta con su `proxy_read_timeout` por defecto | `proxy_read_timeout 3600s;` y `proxy_buffering off;` en el proxy |
 | `tailscale up` se queda colgado sin error | `/ts2021` necesita un `Upgrade` de HTTP/1.1 | Activa *Websockets Support* en NPM, o las cabeceras `Upgrade`/`Connection` en nginx |
-| La UI carga en blanco | Se intentó quitar el prefijo `/admin` con un `rewrite` | Quita el rewrite: el prefijo está compilado en la imagen |
+| El panel carga sin estilos o redirige mal | Se reescribió el prefijo `/mi-vpn` en el proxy | Reenvía el dominio entero sin `rewrite`: Caddy ya enruta |
 | `413 Request Entity Too Large` al registrar un nodo | El mapa de red supera el límite del proxy | `client_max_body_size 0;` |
 | Todos los nodos aparecen con la misma IP en los logs | Falta el CIDR del proxy en `trusted_proxies` | Añádelo en `headscale-config.yaml` y `docker compose restart headscale` |
-| El navegador pierde la sesión de Headplane al recargar | `SESSION_SECURE=false` sirviendo por HTTPS | Re-ejecuta el instalador: lo deriva de `URL_SCHEME` |
+| El navegador pierde la sesión del panel al recargar | `HEADSCALE_PUBLIC_URL` en `http://` pero se sirve por HTTPS | Re-ejecuta el instalador: la cookie es `Secure` sólo si la URL pública es `https://` |
 | Los nodos conectan pero no se ven entre sí | UDP 3478 cerrado (no pasa por el proxy) | Ábrelo directo contra esta máquina |
 
 Comprobación rápida desde la máquina del proxy, saltándose el proxy y hablando
@@ -744,8 +961,8 @@ directamente con Caddy:
 # El control plane responde con su clave pública
 curl -s http://<BACKEND_HOST>:<HTTP_PORT>/key?v=142
 
-# La UI responde en /admin
-curl -sI http://<BACKEND_HOST>:<HTTP_PORT>/admin | head -1
+# El panel responde en /mi-vpn/ (sin sesión redirige al login: 303)
+curl -sI http://<BACKEND_HOST>:<HTTP_PORT>/mi-vpn/ | head -1
 ```
 
 Si estos dos funcionan pero el dominio público no, el problema está en el
@@ -781,43 +998,33 @@ curl -I http://vpn.midominio.com
 > con `envsubst` desde `.env`, el instalador calcula además el site address,
 > la directiva `tls`, el HSTS y el bloque de redirección.
 
-### Headplane muestra "Connection refused"
+### El panel muestra "Algo ha fallado"
 
-**Síntoma**: Al acceder a la UI, aparece error de conexión
+**Síntoma**: `/mi-vpn/` carga pero las páginas muestran un error genérico.
 
-**Verificación**:
+La causa habitual es que el panel no puede hablar con Headscale: Headscale
+caído o la API key de `.env` caducada (90 días por defecto).
+
 ```bash
-# Verificar que headscale está corriendo y healthy
-docker compose ps headscale
-
-# Verificar que el socket Unix existe
-docker exec headplane ls -la /var/run/headscale/
-
-# Verificar permisos del socket
-docker exec headscale ls -la /var/run/headscale/headscale.sock
+docker compose ps headscale portal
+docker compose logs --tail=50 portal        # verás la traza completa del error
+docker exec headscale headscale apikeys list # ¿la de .env sigue vigente?
 ```
 
-**Solución**:
-```bash
-# Reiniciar servicios en orden
-docker compose restart headscale
-sleep 10
-docker compose restart headplane
-```
+**Solución**: si la API key caducó, `./install.sh` genera otra y reinicia el
+panel. Si Headscale está caído, `docker compose logs headscale`.
 
-### Error de permisos en socket Unix
+### El panel no deja editar el DNS
 
-**Síntoma**: Headplane no puede conectarse a Headscale, error de permisos en logs
+**Síntoma**: en DNS aparece un aviso en lugar del formulario.
 
-**Solución**:
-```bash
-# Verificar configuración de permisos en headscale-config.yaml
-# Debe tener:
-# unix_socket_permission: "0770"
-
-# Reiniciar Headscale
-docker compose restart headscale
-```
+- *"config.yaml no tiene el bloque DNS gestionado"*: la configuración viene
+  de una versión anterior. Reejecuta `./install.sh` una vez.
+- *"no tiene permiso de escritura"*: `PORTAL_UID`/`PORTAL_GID` de `.env` no
+  coinciden con el dueño de `headscale-config.yaml`. Reejecuta `./install.sh`,
+  que los detecta.
+- *"no tiene acceso a Docker"*: `DOCKER_GID` no es el grupo de
+  `/var/run/docker.sock` (`stat -c %g /var/run/docker.sock`).
 
 ### Certificado autofirmado no es confiable
 
@@ -848,6 +1055,41 @@ Esto es **normal** con certificados autofirmados. Tienes 3 opciones:
    ```bash
    ./install.sh  # Re-ejecutar y elegir Let's Encrypt
    ```
+
+### Headscale no arranca con Authentik
+
+Con OIDC, Headscale no arranca (`only_start_if_oidc_is_available`) hasta que
+descarga la configuración del issuer desde la URL pública. Síntoma: el
+contenedor se reinicia en bucle y `docker compose logs headscale` muestra un
+error OIDC.
+
+```bash
+# ¿Authentik sirve el proveedor? (desde la red interna)
+docker exec caddy wget -qO- http://authentik-server:9000/authentik/application/o/headscale/.well-known/openid-configuration
+
+# ¿Se aplicó el blueprint? Busca errores de "headscale.yaml"
+docker compose logs authentik-worker | grep -i blueprint
+```
+
+- Si lo primero falla, el blueprint no se ha aplicado: revisa
+  Authentik → Customization → Blueprints.
+- Si lo primero funciona pero Headscale sigue sin arrancar, no alcanza la URL
+  pública desde su contenedor. Revisa el firewall del host hacia los puertos
+  de Caddy desde las redes de Docker, `FRONT_PROXY_IP` con `SSL_MODE=front`, y
+  que exista `data/caddy-ca/root.crt` con `selfsigned`.
+
+**Error 400 en `/authentik/application/o/authorize/` tras cambiar el dominio**
+(`redirect_uri_no_match` en los logs de Authentik): el proveedor conserva las
+redirect URIs antiguas, porque Authentik sólo reaplica un blueprint cuando
+cambia el fichero, no sus variables. `./install.sh` lo reaplica solo; a mano:
+`docker exec authentik-worker ak apply_blueprint custom/headscale.yaml`.
+
+**"Permission denied" de Authentik al iniciar sesión**: el usuario no está en
+`headscale-users` ni en `vpn-admins`.
+
+**"Invalid grant_type for provider" en los logs de Authentik**: el proveedor
+se creó sin `grant_types`. El blueprint actual lo define; reinicia el worker
+para que lo reaplique: `docker compose restart authentik-worker`.
 
 ### Base de datos corrupta
 
@@ -949,7 +1191,7 @@ Las contribuciones son bienvenidas. Para contribuir:
 - [ ] Script de migración desde instalaciones manuales
 - [ ] Dashboard de monitoreo (Prometheus + Grafana)
 - [ ] Soporte para alta disponibilidad (HA)
-- [ ] Integración con más proveedores OIDC
+- [x] Login con usuario/contraseña y Google (Authentik integrado)
 - [ ] Script de actualización automática de versiones
 
 ---
@@ -963,7 +1205,7 @@ Este proyecto está bajo la Licencia MIT. Ver el archivo [LICENSE](LICENSE) para
 ## 🙏 Agradecimientos
 
 - [Headscale](https://github.com/juanfont/headscale) - Control plane open-source
-- [Headplane](https://github.com/tale/headplane) - UI web moderna
+- [Headplane](https://github.com/tale/headplane) - UI web que usaba este proyecto antes de Mi VPN
 - [Tailscale](https://tailscale.com/) - Por crear el protocolo WireGuard mesh
 - [Caddy](https://caddyserver.com/) - Servidor web con HTTPS automático
 
@@ -985,7 +1227,7 @@ Si tienes problemas:
 
 <div align="center">
 
-**[⬆ Volver arriba](#headscale--headplane---despliegue-todo-en-uno)**
+**[⬆ Volver arriba](#headscale--mi-vpn---despliegue-todo-en-uno)**
 
 Hecho con ❤️ para la comunidad open-source
 

@@ -1,5 +1,5 @@
 # =============================================================================
-# ${DOMAIN} - Headscale + Headplane
+# ${DOMAIN} - Headscale + Mi VPN
 # =============================================================================
 # Generado por install.sh. Añade este bloque al Caddyfile del proxy de borde y
 # recarga con:
@@ -7,8 +7,8 @@
 #   caddy validate --config /etc/caddy/Caddyfile
 #   systemctl reload caddy
 #
-# Detrás hay otro Caddy que ya enruta por ruta (/ -> Headscale, /admin ->
-# Headplane), así que aquí basta con reenviar el dominio entero.
+# Detrás hay otro Caddy que ya enruta por ruta (/ -> Headscale, /mi-vpn ->
+# panel), así que aquí basta con reenviar el dominio entero.
 #
 # OJO con el relay DERP: Headscale escucha STUN en UDP ${HEADSCALE_DERP_PORT} y
 # eso NO pasa por un reverse proxy HTTP. Abre ese puerto directo contra

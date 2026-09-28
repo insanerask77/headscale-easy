@@ -71,7 +71,7 @@ database:
 
 # Policy (ACL)
 policy:
-  # "database" guarda las ACL en la BD y permite editarlas desde Headplane.
+  # "database" guarda las ACL en la BD y permite editarlas desde Mi VPN.
   # Con "file" (y path vacío) GET /api/v1/policy devuelve 500 y SetPolicy está
   # deshabilitado, así que el editor de ACL de la UI no funciona.
   mode: database
@@ -79,25 +79,9 @@ policy:
   # Sólo se usa si mode es "file": ruta a un fichero HuJSON con las políticas.
   path: ""
 
-# DNS configuration
-dns:
-  # Usar MagicDNS
-  magic_dns: true
-
-  # Base domain para MagicDNS (FQDN sin punto final)
-  base_domain: ${TAILNET_NAME}.headscale.net
-
-  # Nameservers para los clientes
-  nameservers:
-    global:
-      - 1.1.1.1
-      - 1.0.0.1
-
-  # Dominios de búsqueda
-  search_domains: []
-
-  # Split DNS (opcional)
-  extra_records: []
+# DNS: lo edita Mi VPN (Administración → DNS). install.sh escribe aquí el
+# bloque marcado y, al regenerar este fichero, conserva el que ya existía.
+${DNS_CONFIG}
 
 # Log
 log:
@@ -108,7 +92,7 @@ log:
 # Sin esto, Headscale registra la IP del proxy como IP de todos los clientes.
 ${TRUSTED_PROXIES_CONFIG}
 
-# Unix socket para comunicación local (usado por Headplane en modo integrated)
+# Unix socket de la CLI local (docker exec headscale headscale ...)
 unix_socket: /var/run/headscale/headscale.sock
 unix_socket_permission: "0770"
 

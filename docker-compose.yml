@@ -1,5 +1,5 @@
 # =============================================================================
-# HEADSCALE + HEADPLANE - DOCKER COMPOSE
+# HEADSCALE + MI VPN - DOCKER COMPOSE
 # =============================================================================
 # Configuración generada/actualizada por install.sh
 # Para reconfigurar: ejecuta ./install.sh o edita .env y docker compose up -d
@@ -14,12 +14,47 @@ volumes:
     name: headscale-data
   headscale-socket:
     name: headscale-socket
-  headplane-data:
-    name: headplane-data
   caddy-data:
     name: caddy-data
   caddy-config:
     name: caddy-config
+  # Sólo con AUTH_PROVIDER=authentik
+  authentik-db:
+    name: authentik-db
+  authentik-data:
+    name: authentik-data
+  # La imagen enlaza /data/media -> /media, así que lo subido desde la UI de
+  # Authentik (iconos, logos) vive en /media y necesita su propio volumen.
+  authentik-media:
+    name: authentik-media
+
+# Entorno común del server y el worker de Authentik. Los valores por defecto
+# vacíos (y no ':?') son a propósito: Compose interpola el fichero entero
+# aunque el profile 'authentik' esté inactivo, y un ':?' rompería el stack
+# para quien no usa Authentik.
+x-authentik-env: &authentik-env
+  AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:-}
+  AUTHENTIK_POSTGRESQL__HOST: authentik-postgresql
+  AUTHENTIK_POSTGRESQL__NAME: authentik
+  AUTHENTIK_POSTGRESQL__USER: authentik
+  AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_PG_PASS:-}
+  # Authentik vive bajo /authentik/ del mismo dominio: la raíz es de Headscale,
+  # que ya usa /auth/{id} para registrar nodos, así que /auth no está libre.
+  AUTHENTIK_WEB__PATH: /authentik/
+  AUTHENTIK_WEB__BASE_URL: ${HEADSCALE_PUBLIC_URL:-}
+  AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+  # Usuario 'akadmin': sólo se leen en el primer arranque
+  AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_ADMIN_EMAIL:-}
+  AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD:-}
+  # Consumidas por authentik/blueprints/headscale.yaml
+  HEADSCALE_PUBLIC_URL: ${HEADSCALE_PUBLIC_URL:-}
+  OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+  OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+  PORTAL_OIDC_CLIENT_ID: ${PORTAL_OIDC_CLIENT_ID:-mi-vpn}
+  PORTAL_OIDC_CLIENT_SECRET: ${PORTAL_OIDC_CLIENT_SECRET:-}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  TZ: ${TZ:-UTC}
 
 services:
   # ---------------------------------------------------------------------------
@@ -30,10 +65,6 @@ services:
     container_name: headscale
     restart: unless-stopped
 
-    labels:
-      # Label para que Headplane pueda identificar este contenedor
-      me.tale.headplane.target: "headscale"
-
     volumes:
       # Configuración
       - ./headscale-config.yaml:/etc/headscale/config.yaml:ro
@@ -41,7 +72,7 @@ services:
       # Datos persistentes
       - headscale-data:/var/lib/headscale
 
-      # Socket Unix para comunicación con Headplane
+      # Socket Unix de la CLI (docker exec headscale headscale ...)
       - headscale-socket:/var/run/headscale
 
     networks:
@@ -77,61 +108,12 @@ services:
       - no-new-privileges:true
 
   # ---------------------------------------------------------------------------
-  # HEADPLANE - Web UI
-  # ---------------------------------------------------------------------------
-  headplane:
-    image: ghcr.io/tale/headplane:${HEADPLANE_IMAGE_TAG:-latest}
-    container_name: headplane
-    restart: unless-stopped
-
-    depends_on:
-      headscale:
-        condition: service_healthy
-
-    volumes:
-      # Configuración
-      - ./headplane-config.yaml:/etc/headplane/config.yaml:ro
-
-      # Socket Unix compartido con Headscale
-      - headscale-socket:/var/run/headscale:ro
-
-      # Config de Headscale (solo lectura)
-      - ./headscale-config.yaml:/etc/headscale/config.yaml:ro
-
-      # Socket de Docker (para integración Docker)
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-
-      # Datos persistentes de Headplane
-      - headplane-data:/var/lib/headplane
-
-    networks:
-      - headscale-net
-
-    # Sin 'ports': Headplane no se publica en el host, sólo lo alcanza Caddy
-    # por la red interna de Docker. La UI se sirve en /admin del dominio.
-
-    environment:
-      - TZ=${TZ:-UTC}
-      - CONFIG_PATH=/etc/headplane/config.yaml
-
-    # Healthcheck deshabilitado - el contenedor no tiene wget/curl en PATH
-    # El servicio funciona correctamente sin healthcheck
-    # healthcheck:
-    #   test: ["CMD", "/nodejs/bin/node", "-e", "require('http').get('http://localhost:3000/', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
-    #   interval: 10s
-    #   timeout: 5s
-    #   retries: 5
-    #   start_period: 20s
-
-    security_opt:
-      - no-new-privileges:true
-
-  # ---------------------------------------------------------------------------
   # CADDY - Reverse proxy y (opcionalmente) TLS
   # ---------------------------------------------------------------------------
   # Arranca SIEMPRE: es quien enruta el único dominio del stack
-  #   /       -> Headscale
-  #   /admin  -> Headplane
+  #   /          -> Headscale
+  #   /mi-vpn    -> panel Mi VPN (/admin redirige aquí)
+  #   /authentik -> Authentik (sólo con AUTH_PROVIDER=authentik)
   # Que además termine TLS depende de SSL_MODE en .env; con 'front' o 'none'
   # sólo hace de reverse proxy por HTTP.
   caddy:
@@ -139,14 +121,10 @@ services:
     container_name: caddy
     restart: unless-stopped
 
-    # service_started, no service_healthy: Headplane no tiene healthcheck (su
-    # imagen no trae wget ni curl) y Compose aborta el arranque si se espera
-    # por la salud de un servicio que no la publica. Tampoco hace falta: Caddy
-    # resuelve los upstreams al atender cada petición, no al arrancar.
+    # service_started basta: Caddy resuelve los upstreams al atender cada
+    # petición, no al arrancar.
     depends_on:
       headscale:
-        condition: service_started
-      headplane:
         condition: service_started
 
     volumes:
@@ -187,5 +165,174 @@ services:
       retries: 5
       start_period: 10s
 
+    security_opt:
+      - no-new-privileges:true
+
+  # ---------------------------------------------------------------------------
+  # AUTHENTIK - Proveedor de identidad (opcional, profile 'authentik')
+  # ---------------------------------------------------------------------------
+  # Da a Headscale y a Mi VPN login con usuario/contraseña y, opcionalmente,
+  # con Google. Sólo arranca si .env tiene COMPOSE_PROFILES=authentik, que es
+  # lo que escribe install.sh al elegir AUTH_PROVIDER=authentik.
+  #
+  # No publica puertos: Caddy lo sirve bajo /authentik/ del mismo dominio.
+  # La configuración (proveedor OIDC, grupos, Google) la aplica el blueprint
+  # authentik/blueprints/headscale.yaml.
+  authentik-postgresql:
+    image: docker.io/library/postgres:${AUTHENTIK_PG_IMAGE_TAG:-16-alpine}
+    container_name: authentik-postgresql
+    profiles: ["authentik"]
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: authentik
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: ${AUTHENTIK_PG_PASS:-}
+
+    volumes:
+      - authentik-db:/var/lib/postgresql/data
+
+    networks:
+      - headscale-net
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d authentik -U authentik"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+    security_opt:
+      - no-new-privileges:true
+
+  authentik-server:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_IMAGE_TAG:-2026.8.3}
+    container_name: authentik-server
+    profiles: ["authentik"]
+    restart: unless-stopped
+    command: server
+
+    depends_on:
+      authentik-postgresql:
+        condition: service_healthy
+
+    environment: *authentik-env
+
+    volumes:
+      - authentik-data:/data
+      - authentik-media:/media
+      - ./authentik/blueprints:/blueprints/custom:ro
+      # Logo, favicon y fondo: el brand los referencia como
+      # "branding/<fichero>", que Authentik sirve desde media/public/
+      - ./authentik/branding:/media/public/branding:ro
+
+    networks:
+      - headscale-net
+
+    shm_size: 512mb
+
+    # El healthcheck ('ak healthcheck') viene definido en la imagen
+
+    security_opt:
+      - no-new-privileges:true
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_IMAGE_TAG:-2026.8.3}
+    container_name: authentik-worker
+    profiles: ["authentik"]
+    restart: unless-stopped
+    command: worker
+
+    depends_on:
+      authentik-postgresql:
+        condition: service_healthy
+
+    environment: *authentik-env
+
+    # A diferencia del compose oficial, sin el socket de Docker ni 'user: root':
+    # sólo hacen falta para que Authentik gestione outposts en contenedores,
+    # y aquí no se usan.
+    volumes:
+      - authentik-data:/data
+      - authentik-media:/media
+      - ./authentik/blueprints:/blueprints/custom:ro
+      # El blueprint lee de aquí el CSS del tema (!File /branding/custom.css)
+      - ./authentik/branding:/branding:ro
+
+    networks:
+      - headscale-net
+
+    shm_size: 512mb
+
+    security_opt:
+      - no-new-privileges:true
+
+  # ---------------------------------------------------------------------------
+  # MI VPN - Panel de la VPN
+  # ---------------------------------------------------------------------------
+  # Usuarios: ven y gestionan sólo sus dispositivos. Administradores: todos los
+  # dispositivos, usuarios, rutas, tags, ACL, DNS y API keys. Código en
+  # ./portal (Python, sólo biblioteca estándar), servido por Caddy en /mi-vpn.
+  # Inicio de sesión con OIDC (Authentik o el proveedor propio) y/o con una
+  # API key de Headscale, según AUTH_PROVIDER (lo configura install.sh).
+  portal:
+    image: python:${PORTAL_PYTHON_TAG:-3.13-alpine}
+    container_name: mi-vpn
+    restart: unless-stopped
+    command: ["python", "-u", "/app/app.py"]
+
+    depends_on:
+      headscale:
+        condition: service_healthy
+
+    environment:
+      PUBLIC_URL: ${HEADSCALE_PUBLIC_URL:-}
+      TAILNET_NAME: ${TAILNET_NAME:-}
+      SESSION_SECRET: ${PORTAL_SESSION_SECRET:-}
+      # OIDC (vacío = sin SSO, sólo API key)
+      OIDC_ISSUER: ${PORTAL_OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${PORTAL_OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${PORTAL_OIDC_CLIENT_SECRET:-}
+      PORTAL_API_KEY_LOGIN: ${PORTAL_API_KEY_LOGIN:-false}
+      PORTAL_ADMIN_GROUPS: ${PORTAL_ADMIN_GROUPS:-vpn-admins,authentik Admins}
+      PORTAL_ADMIN_EMAILS: ${PORTAL_ADMIN_EMAILS:-}
+      # Para localizar al usuario de Headscale: su providerId es <issuer>/<sub>
+      HEADSCALE_OIDC_ISSUER: ${OIDC_ISSUER_URL:-}
+      HEADSCALE_URL: http://headscale:${HEADSCALE_HTTP_PORT:-8080}
+      HEADSCALE_API_KEY: ${HEADSCALE_API_KEY:-}
+      HEADSCALE_DB: /headscale/db.sqlite
+      HEADSCALE_CONFIG: /etc/headscale/config.yaml
+      TZ: ${TZ:-UTC}
+
+    volumes:
+      - ./portal:/app:ro
+      # Sólo lectura. La API de Headscale no da el SO ni la versión de
+      # Tailscale de cada dispositivo: se leen del Hostinfo de su base de datos.
+      - headscale-data:/headscale:ro
+      # Escritura: los admins editan el DNS (sólo el bloque marcado).
+      - ./headscale-config.yaml:/etc/headscale/config.yaml
+      # Para validar ('headscale configtest') y reiniciar Headscale tras
+      # cambiar el DNS. Acceso a Docker equivale a root en el host: el panel
+      # sólo lo usa para esas dos operaciones sobre el contenedor headscale.
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    networks:
+      - headscale-net
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/mi-vpn/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    # Corre con el usuario dueño de los ficheros del proyecto (para escribir
+    # headscale-config.yaml) y el grupo del socket de Docker; nunca como root.
+    user: "${PORTAL_UID:-1000}:${PORTAL_GID:-1000}"
+    group_add:
+      - "${DOCKER_GID:-999}"
+    read_only: true
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true

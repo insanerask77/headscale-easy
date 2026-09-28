@@ -1,4 +1,4 @@
-# Contribuir a Headscale + Headplane Deployment
+# Contribuir a Headscale + Mi VPN Deployment
 
 ¡Gracias por tu interés en contribuir! Este documento proporciona guías para contribuir al proyecto.
 
@@ -224,7 +224,7 @@ Si tienes preguntas sobre cómo contribuir:
 ## 🎓 Recursos
 
 - [Headscale docs](https://headscale.net/)
-- [Headplane docs](https://github.com/tale/headplane)
+- [Headscale API](https://headscale.net/stable/ref/api/)
 - [Docker Compose docs](https://docs.docker.com/compose/)
 - [Caddy docs](https://caddyserver.com/docs/)
 - [Bash scripting guide](https://www.gnu.org/software/bash/manual/)

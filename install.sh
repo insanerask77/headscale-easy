@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
 # =============================================================================
-# HEADSCALE + HEADPLANE - INSTALADOR INTERACTIVO
+# HEADSCALE + MI VPN - INSTALADOR INTERACTIVO
 # =============================================================================
-# Instalador todo-en-uno para Headscale (control plane) + Headplane (Web UI)
+# Instalador todo-en-uno para Headscale (control plane) + Mi VPN (panel web)
 # Uso: ./install.sh
 #
 # Características:
@@ -240,6 +240,13 @@ validate_url() {
     return 1
 }
 
+# Validar IP opcional: vacío o una IPv4
+validate_optional_ip() {
+    local input="$1"
+    [[ -z "$input" ]] && return 0
+    [[ "$input" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]
+}
+
 # Generar secreto aleatorio
 generate_secret() {
     local length="${1:-64}"
@@ -387,7 +394,8 @@ load_existing_config() {
 }
 
 # Este instalador tiene UN solo modo de despliegue: Caddy delante de Headscale
-# y Headplane, enrutando un único dominio (/ -> control plane, /admin -> UI).
+# y el panel Mi VPN, enrutando un único dominio (/ -> control plane, /mi-vpn ->
+# panel).
 # La única bifurcación es quién pone el HTTPS, y eso es lo que decide SSL_MODE:
 #
 #   letsencrypt  Caddy pide el certificado a Let's Encrypt.
@@ -401,7 +409,7 @@ configure_network() {
     print_header "CONFIGURACIÓN DE RED Y ACCESO"
 
     print_info "Dominio o IP con el que se accede al stack. Caddy enruta ese"
-    print_info "único nombre: / -> Headscale, /admin -> Headplane."
+    print_info "único nombre: / -> Headscale, /mi-vpn -> panel."
     print_info "Ejemplos: vpn.midominio.com, 192.168.1.100, localhost"
     DOMAIN=$(ask_input "Dominio o IP" "${DOMAIN:-vpn.example.com}" "validate_domain_or_ip")
 
@@ -483,9 +491,8 @@ configure_ports() {
         HTTPS_PORT="443"
     fi
 
-    # Headplane y la API de Headscale NO se publican en el host: sólo los
+    # El panel y la API de Headscale NO se publican en el host: sólo los
     # alcanza Caddy por la red interna de Docker.
-    HEADPLANE_PORT="3000"
 
     HEADSCALE_GRPC_PORT=$(ask_input "Puerto gRPC de Headscale (interno)" "${HEADSCALE_GRPC_PORT:-50443}" "validate_port")
     HEADSCALE_HTTP_PORT=$(ask_input "Puerto HTTP API de Headscale (interno)" "${HEADSCALE_HTTP_PORT:-8080}" "validate_port")
@@ -499,7 +506,7 @@ configure_ports() {
 # calcularse después de configure_ports.
 #
 # Importante: son las URLs que ve el MUNDO, no las internas. Headscale y
-# Headplane siguen hablando HTTP por la red de Docker, pero anuncian https://
+# el panel siguen hablando HTTP por la red de Docker, pero anuncian https://
 # cuando es eso lo que resuelve el cliente.
 compute_public_urls() {
     local suffix=""
@@ -520,15 +527,13 @@ compute_public_urls() {
             ;;
     esac
 
-    # Un solo dominio: la UI vive en /admin de ese mismo host.
-    HEADPLANE_PUBLIC_URL="$HEADSCALE_PUBLIC_URL"
 
     # SERVER_URL = URL del control plane; es la que usan los clientes Tailscale
     SERVER_URL="$HEADSCALE_PUBLIC_URL"
 
     echo ""
     print_info "URL del control plane (Headscale): ${HEADSCALE_PUBLIC_URL}"
-    print_info "URL de la interfaz web (Headplane): ${HEADPLANE_PUBLIC_URL}/admin"
+    print_info "URL del panel (Mi VPN): ${HEADSCALE_PUBLIC_URL}/mi-vpn/"
 }
 
 configure_tailnet() {
@@ -552,47 +557,244 @@ configure_tailnet() {
     print_success "Configuración de Tailnet completada"
 }
 
-configure_oidc() {
-    print_header "CONFIGURACIÓN DE AUTENTICACIÓN OIDC (OPCIONAL)"
+# Headscale no tiene usuarios con contraseña propios: sin OIDC el panel sólo
+# acepta una API key y los dispositivos se registran con pre-auth keys. Para
+# login con usuario/contraseña o con Google hace falta un proveedor OIDC:
+#
+#   none       Sin OIDC. Mi VPN pide la API key de Headscale (sólo admins).
+#   authentik  Authentik dentro de este stack, bajo /authentik/ del mismo
+#              dominio. Usuarios locales con contraseña y, opcionalmente,
+#              "Login con Google". Se configura solo mediante un blueprint.
+#   external   Un proveedor que ya tienes (Keycloak, Authelia, Google...).
+configure_auth() {
+    print_header "AUTENTICACIÓN DE USUARIOS"
 
-    print_info "Puedes integrar un proveedor OIDC (Keycloak, Authentik, etc.)"
-    print_info "Si no lo configuras, Headplane usará autenticación local (usuario/contraseña)"
-
-    if ask_yes_no "¿Deseas configurar autenticación OIDC?" "${ENABLE_OIDC:-n}"; then
-        ENABLE_OIDC="true"
-
-        print_info "Ejemplos de Issuer URL:"
-        print_info "  - Keycloak: https://auth.example.com/realms/master"
-        print_info "  - Authentik: https://auth.example.com/application/o/headplane/"
-
-        OIDC_ISSUER_URL=$(ask_input "Issuer URL del proveedor OIDC" "${OIDC_ISSUER_URL:-}" "validate_url")
-        OIDC_CLIENT_ID=$(ask_input "Client ID" "${OIDC_CLIENT_ID:-headplane}")
-        OIDC_CLIENT_SECRET=$(ask_input "Client Secret" "${OIDC_CLIENT_SECRET:-}")
-        OIDC_SCOPE=$(ask_input "Scopes OIDC (separados por espacios)" "${OIDC_SCOPE:-openid profile email}")
-        OIDC_EMAIL_CLAIM=$(ask_input "Claim del email" "${OIDC_EMAIL_CLAIM:-email}")
-    else
-        ENABLE_OIDC="false"
-        OIDC_ISSUER_URL=""
-        OIDC_CLIENT_ID=""
-        OIDC_CLIENT_SECRET=""
-        OIDC_SCOPE="openid profile email"
-        OIDC_EMAIL_CLAIM="email"
+    # Compatibilidad con .env anteriores, que sólo tenían ENABLE_OIDC
+    local current="${AUTH_PROVIDER:-}"
+    if [[ -z "$current" ]]; then
+        current=$([[ "${ENABLE_OIDC:-false}" == "true" ]] && echo "external" || echo "none")
     fi
 
-    print_success "Configuración de OIDC completada"
+    PREV_AUTH_PROVIDER="$current"
+
+    AUTH_PROVIDER=$(ask_choice "¿Cómo inician sesión los usuarios?" "$current" \
+        "none|Sólo API key|El panel pide la API key de Headscale (sólo administradores); los dispositivos se registran con pre-auth keys. Sin cuentas de usuario." \
+        "authentik|Authentik integrado|Usuarios con contraseña y login con Google opcional, en ${HEADSCALE_PUBLIC_URL}/authentik/. Añade 3 contenedores (~1 GB de RAM)." \
+        "external|Proveedor OIDC propio|Keycloak, Authelia, Google directo u otro que ya tengas funcionando.")
+
+    case "$AUTH_PROVIDER" in
+        none)      configure_auth_none ;;
+        authentik) configure_auth_authentik ;;
+        external)  configure_auth_external ;;
+    esac
+
+    ENABLE_OIDC=$([[ "$AUTH_PROVIDER" == "none" ]] && echo "false" || echo "true")
+
+    # Con OIDC, el panel puede aceptar además la API key de Headscale como
+    # acceso de administrador de emergencia (si el proveedor se cae, sin ella
+    # no se entra hasta cambiar PORTAL_API_KEY_LOGIN). Por defecto, sólo SSO.
+    # .env anteriores la llamaban HEADPLANE_API_KEY_LOGIN.
+    PORTAL_API_KEY_LOGIN="${PORTAL_API_KEY_LOGIN:-${HEADPLANE_API_KEY_LOGIN:-false}}"
+    if [[ "$ENABLE_OIDC" == "true" ]]; then
+        echo ""
+        print_info "El panel puede aceptar también la API key de Headscale para entrar como"
+        print_info "administrador. Sirve de acceso de emergencia si el proveedor OIDC falla."
+        if ask_yes_no "¿Permitir también el login con API key?" \
+                      "$([[ "$PORTAL_API_KEY_LOGIN" == "true" ]] && echo y || echo n)"; then
+            PORTAL_API_KEY_LOGIN="true"
+        else
+            PORTAL_API_KEY_LOGIN="false"
+        fi
+    else
+        # Sin OIDC la API key es la ÚNICA forma de entrar
+        PORTAL_API_KEY_LOGIN="true"
+    fi
+
+    echo ""
+    print_info "Aislamiento de red: cada usuario sólo alcanza SUS dispositivos"
+    print_info "(admins incluidos). Sin él, cualquier dispositivo llega a cualquier otro."
+    if ask_yes_no "¿Aislar la red por usuario?" \
+                  "$([[ "${NETWORK_ISOLATION:-true}" == "true" ]] && echo y || echo n)"; then
+        NETWORK_ISOLATION="true"
+    else
+        NETWORK_ISOLATION="false"
+    fi
+
+    print_success "Configuración de autenticación completada"
+}
+
+configure_auth_none() {
+    OIDC_ISSUER_URL=""
+    OIDC_CLIENT_ID=""
+    OIDC_CLIENT_SECRET=""
+    OIDC_SCOPE="openid profile email"
+    OIDC_EMAIL_CLAIM="email"
+    GOOGLE_CLIENT_ID=""
+    GOOGLE_CLIENT_SECRET=""
+    PORTAL_ADMIN_EMAILS=""
+}
+
+configure_auth_external() {
+    print_info "Ejemplos de Issuer URL:"
+    print_info "  - Keycloak: https://auth.example.com/realms/master"
+    print_info "  - Google:   https://accounts.google.com"
+    print_info "Registra en el proveedor estas dos Redirect URIs:"
+    print_info "  ${HEADSCALE_PUBLIC_URL}/oidc/callback     (Headscale)"
+    print_info "  ${HEADSCALE_PUBLIC_URL}/mi-vpn/callback   (panel Mi VPN)"
+
+    # Si se viene de Authentik, sus valores no sirven para otro proveedor
+    if [[ "${OIDC_ISSUER_URL:-}" == */authentik/application/o/* ]]; then
+        OIDC_ISSUER_URL=""
+        OIDC_CLIENT_SECRET=""
+    fi
+
+    OIDC_ISSUER_URL=$(ask_input "Issuer URL del proveedor OIDC" "${OIDC_ISSUER_URL:-}" "validate_url")
+    # El panel usa el MISMO cliente que Headscale: así el 'sub' coincide y
+    # puede localizar a cada usuario en Headscale sin depender del nombre.
+    OIDC_CLIENT_ID=$(ask_input "Client ID (el mismo para Headscale y el panel)" "${OIDC_CLIENT_ID:-headscale}")
+    OIDC_CLIENT_SECRET=$(ask_input "Client Secret" "${OIDC_CLIENT_SECRET:-}")
+    OIDC_SCOPE=$(ask_input "Scopes OIDC (separados por espacios)" "${OIDC_SCOPE:-openid profile email}")
+    OIDC_EMAIL_CLAIM=$(ask_input "Claim del email" "${OIDC_EMAIL_CLAIM:-email}")
+    GOOGLE_CLIENT_ID=""
+    GOOGLE_CLIENT_SECRET=""
+
+    # Quién administra: el proveedor externo no tiene los grupos de este stack
+    echo ""
+    print_info "Administradores del panel: emails separados por comas. El resto de"
+    print_info "usuarios sólo verán sus propios dispositivos."
+    PORTAL_ADMIN_EMAILS=$(ask_input "Emails de administradores" "${PORTAL_ADMIN_EMAILS:-${ACME_EMAIL:-}}")
+}
+
+configure_auth_authentik() {
+    # Headscale y el panel validan el issuer contra la URL pública, así que
+    # tienen que poder alcanzarla desde dentro de sus contenedores. "localhost"
+    # dentro de un contenedor es el propio contenedor: no hay forma de que
+    # llegue a Caddy.
+    if [[ "$DOMAIN" == "localhost" ]]; then
+        print_error "Authentik no funciona con DOMAIN=localhost"
+        print_info "Headscale tiene que alcanzar ${HEADSCALE_PUBLIC_URL}/authentik/ desde su"
+        print_info "contenedor, y ahí 'localhost' es el propio contenedor."
+        print_info "Reejecuta el instalador con la IP de esta máquina en la LAN o un dominio."
+        exit 1
+    fi
+
+    # Todo lo de Authentik se deriva de la URL pública: un único dominio.
+    OIDC_ISSUER_URL="${HEADSCALE_PUBLIC_URL}/authentik/application/o/headscale/"
+    OIDC_CLIENT_ID="headscale"
+    # Se conserva el de .env al reconfigurar; si venimos de otro proveedor, su
+    # secreto no vale aquí. El blueprint lo copia a Authentik en cada arranque.
+    if [[ -z "${OIDC_CLIENT_SECRET:-}" || "$PREV_AUTH_PROVIDER" != "authentik" ]]; then
+        OIDC_CLIENT_SECRET=$(generate_secret 32)
+    fi
+    OIDC_SCOPE="openid profile email"
+    OIDC_EMAIL_CLAIM="email"
+
+    echo ""
+    print_info "Authentik crea el usuario administrador 'akadmin' en su primer arranque."
+    print_info "Usa un email real y tuyo: con login con Google, esa cuenta de Google"
+    print_info "entraría como akadmin."
+    AUTHENTIK_ADMIN_EMAIL=$(ask_input "Email del administrador de Authentik" \
+                                      "${AUTHENTIK_ADMIN_EMAIL:-${ACME_EMAIL:-admin@${DOMAIN}}}" "validate_email")
+
+    # Con SSL_MODE=front, Headscale llega a la URL pública a través del proxy
+    # de delante. Por defecto resuelve el dominio por DNS; si ese DNS apunta a
+    # una IP pública y el router no hace NAT loopback, no llegará.
+    if [[ "$SSL_MODE" == "front" ]]; then
+        echo ""
+        print_info "Headscale y el panel tienen que alcanzar ${HEADSCALE_PUBLIC_URL}"
+        print_info "desde sus contenedores, pasando por el proxy de delante."
+        print_info "Si ${DOMAIN} resuelve a una IP pública y tu router no hace NAT"
+        print_info "loopback, indica la IP del proxy en la LAN. Vacío = usar el DNS."
+        FRONT_PROXY_IP=$(ask_input "IP del proxy de delante (opcional)" "${FRONT_PROXY_IP:-}" "validate_optional_ip")
+    else
+        FRONT_PROXY_IP=""
+    fi
+
+    # --- Login con Google ---
+    echo ""
+    if [[ "$URL_SCHEME" != "https" ]]; then
+        print_warning "Login con Google no disponible: Google exige HTTPS en la Redirect URI"
+        GOOGLE_CLIENT_ID=""
+        GOOGLE_CLIENT_SECRET=""
+    elif ask_yes_no "¿Añadir \"Login con Google\"?" "$([[ -n "${GOOGLE_CLIENT_ID:-}" ]] && echo y || echo n)"; then
+        echo ""
+        print_info "En https://console.cloud.google.com/apis/credentials crea un"
+        print_info "\"OAuth client ID\" de tipo \"Web application\" con:"
+        print_info "  Authorized JavaScript origins: ${HEADSCALE_PUBLIC_URL}"
+        print_info "  Authorized redirect URIs:      ${HEADSCALE_PUBLIC_URL}/authentik/source/oauth/callback/google/"
+        echo ""
+        GOOGLE_CLIENT_ID=$(ask_input "Google Client ID" "${GOOGLE_CLIENT_ID:-}")
+        GOOGLE_CLIENT_SECRET=$(ask_input "Google Client Secret" "${GOOGLE_CLIENT_SECRET:-}")
+    else
+        GOOGLE_CLIENT_ID=""
+        GOOGLE_CLIENT_SECRET=""
+    fi
 }
 
 generate_secrets() {
     print_header "GENERACIÓN DE SECRETOS"
 
-    # Generar COOKIE_SECRET si no existe (exactamente 32 caracteres)
-    if [ -z "${COOKIE_SECRET:-}" ]; then
-        print_info "Generando COOKIE_SECRET..."
-        COOKIE_SECRET=$(generate_secret 16)  # 16 bytes = 32 caracteres hex
-        print_success "COOKIE_SECRET generado"
-    else
-        print_info "COOKIE_SECRET existente detectado, reutilizando"
+    # Firma las cookies de sesión del panel. Se conserva al reconfigurar para
+    # no cerrar las sesiones abiertas.
+    if [[ -z "${PORTAL_SESSION_SECRET:-}" ]]; then
+        PORTAL_SESSION_SECRET=$(generate_secret 32)
+        print_success "Secreto de sesión del panel generado"
     fi
+
+    [[ "$AUTH_PROVIDER" == "authentik" ]] || return 0
+
+    # Nunca se regeneran si ya existen: la contraseña de Postgres queda fijada
+    # al inicializar la base de datos y la SECRET_KEY firma sesiones y tokens.
+    # La del admin sólo se lee en el primer arranque de Authentik.
+    if [[ -z "${AUTHENTIK_SECRET_KEY:-}" ]]; then
+        AUTHENTIK_SECRET_KEY=$(generate_secret 32)
+        print_success "AUTHENTIK_SECRET_KEY generado"
+    fi
+    if [[ -z "${AUTHENTIK_PG_PASS:-}" ]]; then
+        AUTHENTIK_PG_PASS=$(generate_secret 24)
+        print_success "Contraseña de la base de datos de Authentik generada"
+    fi
+    if [[ -z "${AUTHENTIK_BOOTSTRAP_PASSWORD:-}" ]]; then
+        AUTHENTIK_BOOTSTRAP_PASSWORD=$(generate_secret 12)
+        print_success "Contraseña inicial de akadmin generada"
+    fi
+
+    # Cliente OIDC propio del panel Mi VPN. El blueprint lo copia a Authentik
+    # en cada arranque. Si venimos de otro proveedor, su secreto no vale aquí.
+    if [[ -z "${PORTAL_OIDC_CLIENT_SECRET:-}" || "${PORTAL_OIDC_CLIENT_ID:-}" != "mi-vpn" ]]; then
+        PORTAL_OIDC_CLIENT_SECRET=$(generate_secret 32)
+    fi
+    PORTAL_OIDC_CLIENT_ID="mi-vpn"
+    return 0
+}
+
+# Con qué se autentica el panel y con qué permisos corre, según AUTH_PROVIDER.
+portal_settings() {
+    case "$AUTH_PROVIDER" in
+        authentik)
+            PORTAL_OIDC_ISSUER="${HEADSCALE_PUBLIC_URL}/authentik/application/o/mi-vpn/"
+            PORTAL_ADMIN_EMAILS=""
+            ;;
+        external)
+            # Mismo cliente que Headscale (ver configure_auth_external)
+            PORTAL_OIDC_ISSUER="$OIDC_ISSUER_URL"
+            PORTAL_OIDC_CLIENT_ID="$OIDC_CLIENT_ID"
+            PORTAL_OIDC_CLIENT_SECRET="$OIDC_CLIENT_SECRET"
+            ;;
+        *)
+            PORTAL_OIDC_ISSUER=""
+            PORTAL_OIDC_CLIENT_ID=""
+            PORTAL_OIDC_CLIENT_SECRET=""
+            PORTAL_ADMIN_EMAILS=""
+            ;;
+    esac
+
+    # El panel escribe headscale-config.yaml (DNS) y habla con el socket de
+    # Docker (validar y reiniciar Headscale): corre con el uid/gid dueño de los
+    # ficheros del proyecto y el grupo del socket, nunca como root.
+    PORTAL_UID=$(stat -c %u "$SCRIPT_DIR")
+    PORTAL_GID=$(stat -c %g "$SCRIPT_DIR")
+    DOCKER_GID=$(stat -c %g /var/run/docker.sock 2>/dev/null || echo 999)
 }
 
 # -----------------------------------------------------------------------------
@@ -602,17 +804,15 @@ generate_secrets() {
 generate_env_file() {
     print_header "GENERANDO ARCHIVO .env"
 
-    # Variables derivadas: deben existir como variables de shell (no solo en el
-    # heredoc) porque las plantillas se rellenan con envsubst más adelante.
-    AUTH_TYPE=$([[ "$ENABLE_OIDC" == "true" ]] && echo "oidc" || echo "local")
-    # La cookie debe marcarse Secure siempre que el navegador hable HTTPS, lo
-    # que incluye SSL_MODE=front: ahí el TLS lo pone el proxy de delante y Caddy
-    # sirve HTTP, pero el cliente ve https. Por eso se decide sobre URL_SCHEME.
-    SESSION_SECURE=$([[ "$URL_SCHEME" == "https" ]] && echo "true" || echo "false")
+    # Cómo se autentica el panel y con qué uid/gid corre
+    portal_settings
+    # Compose lee COMPOSE_PROFILES de .env: así 'docker compose up -d' a secas
+    # levanta también Authentik cuando está elegido, sin recordar --profile.
+    COMPOSE_PROFILES=$([[ "$AUTH_PROVIDER" == "authentik" ]] && echo "authentik" || echo "")
 
     cat > "$ENV_FILE" <<EOF
 # =============================================================================
-# CONFIGURACIÓN HEADSCALE + HEADPLANE
+# CONFIGURACIÓN HEADSCALE + MI VPN
 # =============================================================================
 # Generado por install.sh el $(date)
 # Para reconfigurar: ejecuta ./install.sh
@@ -620,7 +820,7 @@ generate_env_file() {
 # -----------------------------------------------------------------------------
 # RED Y ACCESO
 # -----------------------------------------------------------------------------
-# Un solo dominio. Caddy lo enruta: / -> Headscale, /admin -> Headplane.
+# Un solo dominio. Caddy lo enruta: / -> Headscale, /mi-vpn -> panel.
 DOMAIN=${DOMAIN}
 URL_SCHEME=${URL_SCHEME}
 
@@ -628,8 +828,6 @@ URL_SCHEME=${URL_SCHEME}
 SERVER_URL=${SERVER_URL}
 HEADSCALE_PUBLIC_URL=${HEADSCALE_PUBLIC_URL}
 
-# URL pública de la interfaz web (la UI se sirve bajo /admin)
-HEADPLANE_PUBLIC_URL=${HEADPLANE_PUBLIC_URL}
 
 # Quién pone el HTTPS. Caddy arranca siempre y enruta en los cuatro casos.
 #   letsencrypt -> Caddy pide el certificado a Let's Encrypt
@@ -651,7 +849,6 @@ BACKEND_HOST=${BACKEND_HOST:-}
 # -----------------------------------------------------------------------------
 HTTP_PORT=${HTTP_PORT}
 HTTPS_PORT=${HTTPS_PORT}
-HEADPLANE_PORT=${HEADPLANE_PORT}
 HEADSCALE_GRPC_PORT=${HEADSCALE_GRPC_PORT}
 HEADSCALE_HTTP_PORT=${HEADSCALE_HTTP_PORT}
 HEADSCALE_DERP_PORT=${HEADSCALE_DERP_PORT}
@@ -668,8 +865,9 @@ ADMIN_USER=${ADMIN_USER}
 # Caducidad de la API key generada automáticamente (ej: 90d, 365d)
 APIKEY_EXPIRATION=${APIKEY_EXPIRATION:-90d}
 
-# API key de Headscale: credencial de acceso a Headplane. La rellena el
-# instalador tras arrancar Headscale. NO compartir ni versionar.
+# API key de Headscale: la usa el panel Mi VPN para hablar con Headscale (y
+# sirve para entrar en él como admin si PORTAL_API_KEY_LOGIN=true). La rellena
+# el instalador tras arrancar Headscale. NO compartir ni versionar.
 HEADSCALE_API_KEY=${HEADSCALE_API_KEY:-}
 
 IP_PREFIXES_V4=${IP_PREFIXES_V4}
@@ -678,14 +876,43 @@ DATA_DIR=${DATA_DIR}
 LOG_LEVEL=${LOG_LEVEL}
 
 # -----------------------------------------------------------------------------
-# HEADPLANE
+# PANEL MI VPN (/mi-vpn)
 # -----------------------------------------------------------------------------
-COOKIE_SECRET=${COOKIE_SECRET}
-INTEGRATION_MODE=integrated
+# Firma las cookies de sesión. NO compartir.
+PORTAL_SESSION_SECRET=${PORTAL_SESSION_SECRET:-}
+
+# OIDC del panel (los deriva install.sh de AUTH_PROVIDER; vacío = sin SSO)
+PORTAL_OIDC_ISSUER="${PORTAL_OIDC_ISSUER:-}"
+PORTAL_OIDC_CLIENT_ID="${PORTAL_OIDC_CLIENT_ID:-}"
+PORTAL_OIDC_CLIENT_SECRET="${PORTAL_OIDC_CLIENT_SECRET:-}"
+
+# ¿Acepta también la API key de Headscale para entrar como admin? (acceso de
+# emergencia). Sin OIDC es la única forma de entrar y se fuerza a true.
+PORTAL_API_KEY_LOGIN=${PORTAL_API_KEY_LOGIN:-false}
+
+# Quién es administrador: miembros de estos grupos (Authentik) o dueños de
+# estos emails (proveedor OIDC propio). Separados por comas.
+PORTAL_ADMIN_GROUPS="${PORTAL_ADMIN_GROUPS:-vpn-admins,authentik Admins}"
+PORTAL_ADMIN_EMAILS="${PORTAL_ADMIN_EMAILS:-}"
+
+# Con qué uid/gid corre el panel (dueño de los ficheros del proyecto, para
+# escribir headscale-config.yaml) y el grupo del socket de Docker.
+PORTAL_UID=${PORTAL_UID}
+PORTAL_GID=${PORTAL_GID}
+DOCKER_GID=${DOCKER_GID}
 
 # -----------------------------------------------------------------------------
-# OIDC
+# AUTENTICACIÓN
 # -----------------------------------------------------------------------------
+# none      -> sin OIDC: el panel sólo acepta la API key (admins)
+# authentik -> Authentik integrado en /authentik/ (usuario/contraseña, Google)
+# external  -> proveedor OIDC propio
+AUTH_PROVIDER=${AUTH_PROVIDER}
+
+# Profiles de Compose activos (lo deriva install.sh de AUTH_PROVIDER)
+COMPOSE_PROFILES=${COMPOSE_PROFILES}
+
+# OIDC (con authentik los rellena el instalador)
 ENABLE_OIDC=${ENABLE_OIDC}
 OIDC_ISSUER_URL="${OIDC_ISSUER_URL}"
 OIDC_CLIENT_ID="${OIDC_CLIENT_ID}"
@@ -693,11 +920,32 @@ OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET}"
 OIDC_SCOPE="${OIDC_SCOPE}"
 OIDC_EMAIL_CLAIM="${OIDC_EMAIL_CLAIM}"
 
-# Auth type (generado automáticamente)
-AUTH_TYPE=${AUTH_TYPE}
+# Aislamiento de red por usuario: los dispositivos de cada usuario sólo
+# alcanzan los suyos (ACL autogroup:self). Sólo se aplica si Headscale aún no
+# tiene política; una política existente nunca se sobrescribe.
+NETWORK_ISOLATION=${NETWORK_ISOLATION:-true}
 
-# Session secure (generado automáticamente)
-SESSION_SECURE=${SESSION_SECURE}
+# -----------------------------------------------------------------------------
+# AUTHENTIK (sólo con AUTH_PROVIDER=authentik). NO compartir ni versionar.
+# -----------------------------------------------------------------------------
+# No cambies AUTHENTIK_PG_PASS ni AUTHENTIK_SECRET_KEY tras el primer arranque:
+# la base de datos ya está inicializada con ellas.
+AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY:-}
+AUTHENTIK_PG_PASS=${AUTHENTIK_PG_PASS:-}
+
+# Usuario akadmin. Sólo se leen en el PRIMER arranque de Authentik: cambiar
+# la contraseña aquí después no tiene efecto (se cambia desde su UI).
+AUTHENTIK_ADMIN_EMAIL=${AUTHENTIK_ADMIN_EMAIL:-}
+AUTHENTIK_BOOTSTRAP_PASSWORD=${AUTHENTIK_BOOTSTRAP_PASSWORD:-}
+
+# Login con Google (vacío = deshabilitado). Redirect URI a registrar en Google:
+#   ${HEADSCALE_PUBLIC_URL}/authentik/source/oauth/callback/google/
+GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}"
+GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-}"
+
+# IP del proxy de delante en la LAN (SSL_MODE=front). Si tiene valor, los
+# contenedores resuelven DOMAIN a ella para llegar a Authentik.
+FRONT_PROXY_IP=${FRONT_PROXY_IP:-}
 
 # -----------------------------------------------------------------------------
 # AVANZADO
@@ -705,8 +953,8 @@ SESSION_SECURE=${SESSION_SECURE}
 TZ=${TZ:-UTC}
 NETWORK_NAME=headscale-net
 HEADSCALE_IMAGE_TAG=latest
-HEADPLANE_IMAGE_TAG=latest
 CADDY_IMAGE_TAG=2-alpine
+AUTHENTIK_IMAGE_TAG=${AUTHENTIK_IMAGE_TAG:-2026.8.3}
 EOF
 
     print_success "Archivo .env generado: $ENV_FILE"
@@ -725,17 +973,31 @@ generate_headscale_config() {
             scope_list+="    - ${s}"$'\n'
         done
 
+        # Authentik no marca los emails como verificados (sus usuarios los da
+        # de alta un admin, sin paso de verificación) y Headscale, por
+        # defecto, no sincroniza los que no lo están.
+        local email_verified="true"
+        [[ "$AUTH_PROVIDER" == "authentik" ]] && email_verified="false"
+
         # Heredoc SIN comillas: las variables deben expandirse aquí. envsubst
         # hace una sola pasada y no volvería a sustituir el texto insertado.
+        #
+        # No se filtra con allowed_groups/allowed_domains: con Authentik ya lo
+        # hacen las bindings de la aplicación (grupo headscale-users), y con un
+        # proveedor externo se añaden a mano si hacen falta.
         OIDC_CONFIG=$(cat <<EOFC
 oidc:
+  # Headscale no arranca si no puede descargar la configuración del issuer
   only_start_if_oidc_is_available: true
   issuer: "${OIDC_ISSUER_URL}"
   client_id: "${OIDC_CLIENT_ID}"
   client_secret: "${OIDC_CLIENT_SECRET}"
   scope:
 ${scope_list%$'\n'}
-  strip_email_domain: true
+  email_verified_required: ${email_verified}
+  pkce:
+    enabled: true
+    method: S256
 EOFC
         )
     else
@@ -763,72 +1025,57 @@ EOFP
     fi
 
     # Cargar plantilla y sustituir variables
+    DNS_CONFIG=$(dns_block)
+
     export SERVER_URL HEADSCALE_HTTP_PORT HEADSCALE_METRICS_PORT HEADSCALE_GRPC_PORT \
            IP_PREFIXES_V4 IP_PREFIXES_V6 TAILNET_NAME HEADSCALE_DERP_PORT LOG_LEVEL \
            OIDC_CONFIG OIDC_ISSUER_URL OIDC_CLIENT_ID OIDC_CLIENT_SECRET OIDC_SCOPE \
-           TRUSTED_PROXIES_CONFIG
+           TRUSTED_PROXIES_CONFIG DNS_CONFIG
 
     envsubst < "$TEMPLATES_DIR/headscale-config.yaml.tmpl" > "$SCRIPT_DIR/headscale-config.yaml"
 
     print_success "Configuración de Headscale generada: headscale-config.yaml"
 }
 
-generate_headplane_config() {
-    print_header "GENERANDO CONFIGURACIÓN DE HEADPLANE"
+# Bloque dns: de headscale-config.yaml, entre marcadores. Lo edita el panel
+# Mi VPN (Administración → DNS); al regenerar la configuración se conserva el
+# bloque que ya hubiera, para no perder esos cambios. Si no existe (primera
+# instalación, o una anterior a este cambio), se escribe el de por defecto.
+dns_block() {
+    local begin="# >>> dns: gestionado por Mi VPN (no edites entre estos marcadores a mano)"
+    local end="# <<< dns"
+    local current="$SCRIPT_DIR/headscale-config.yaml"
 
-    # Generar bloque OIDC si está habilitado
-    if [[ "$ENABLE_OIDC" == "true" ]]; then
-        OIDC_CONFIG_BLOCK=$(cat <<EOFC
-oidc:
-  enabled: true
-  issuer: "${OIDC_ISSUER_URL}"
-  client_id: "${OIDC_CLIENT_ID}"
-  client_secret: "${OIDC_CLIENT_SECRET}"
-  scope: "${OIDC_SCOPE}"
-  use_pkce: true
-  disable_api_key_login: false
-  profile_picture_source: "gravatar"
-  default_role: "member"
-EOFC
-        )
-    else
-        OIDC_CONFIG_BLOCK="# OIDC disabled"
+    if [[ -f "$current" ]] && grep -qF "$begin" "$current"; then
+        sed -n "\|^${begin}\$|,\|^${end}\$|p" "$current"
+        return 0
     fi
 
-    # Headplane exige un booleano estricto; nunca dejar el valor vacío.
-    # Depende del esquema que ve el NAVEGADOR, no de si Caddy arranca: con
-    # proxy externo hay HTTPS aunque Headplane reciba HTTP por dentro.
-    SESSION_SECURE=$([[ "$URL_SCHEME" == "https" ]] && echo "true" || echo "false")
-
-    # La API key sólo existe tras arrancar Headscale. En la primera pasada se
-    # omite la clave; bootstrap_headscale regenera este fichero con ella.
-    if [[ -n "${HEADSCALE_API_KEY:-}" ]]; then
-        HEADSCALE_API_KEY_LINE="api_key: \"${HEADSCALE_API_KEY}\""
-    else
-        HEADSCALE_API_KEY_LINE="# api_key: pendiente de generar"
+    # Por defecto. Si había una sección dns: sin marcadores (instalación
+    # anterior), se respetan su base_domain y MagicDNS.
+    local base="${TAILNET_NAME}.headscale.net" magic="true"
+    if [[ -f "$current" ]]; then
+        local b m
+        b=$(sed -n '/^dns:/,/^[a-z]/{s/^  base_domain:[[:space:]]*//p}' "$current" | head -1)
+        m=$(sed -n '/^dns:/,/^[a-z]/{s/^  magic_dns:[[:space:]]*//p}' "$current" | head -1)
+        [[ -n "$b" ]] && base="$b"
+        [[ -n "$m" ]] && magic="$m"
     fi
-
-    # Cargar plantilla y sustituir variables
-    # Exportar todas las variables necesarias
-    export COOKIE_SECRET
-    export SESSION_SECURE
-    export HEADPLANE_PUBLIC_URL
-    export HEADSCALE_PUBLIC_URL
-    export HEADSCALE_HTTP_PORT
-    export HEADSCALE_API_KEY_LINE
-    export OIDC_CONFIG_BLOCK
-
-    # Usar envsubst sin lista de variables para que sustituya todas
-    envsubst < "$TEMPLATES_DIR/headplane-config.yaml.tmpl" > "$SCRIPT_DIR/headplane-config.yaml"
-
-    # Verificar que no ha quedado ningún campo obligatorio sin sustituir
-    if grep -qE '^\s*(cookie_secure|cookie_secret|base_url|public_url|url):\s*("")?\s*$' "$SCRIPT_DIR/headplane-config.yaml"; then
-        print_error "headplane-config.yaml tiene campos obligatorios vacíos tras la sustitución"
-        grep -nE '^\s*(cookie_secure|cookie_secret|base_url|public_url|url):\s*("")?\s*$' "$SCRIPT_DIR/headplane-config.yaml"
-        exit 1
-    fi
-
-    print_success "Configuración de Headplane generada: headplane-config.yaml"
+    cat <<EOFD
+${begin}
+dns:
+  magic_dns: ${magic}
+  base_domain: ${base}
+  override_local_dns: true
+  nameservers:
+    global:
+      - 1.1.1.1
+      - 1.0.0.1
+    split: {}
+  search_domains: []
+  extra_records: []
+${end}
+EOFD
 }
 
 generate_caddyfile() {
@@ -879,7 +1126,35 @@ EOF
         HTTP_REDIRECT=""
     fi
 
-    export CADDY_DOMAIN CADDY_TLS CADDY_HSTS HEADSCALE_HTTP_PORT HTTP_REDIRECT
+    # Authentik bajo /authentik/. No se recorta el prefijo: Authentik lo espera
+    # (AUTHENTIK_WEB__PATH) y lo incluye en todas las URLs que genera.
+    if [[ "$AUTH_PROVIDER" == "authentik" ]]; then
+        # Authentik construye el issuer OIDC y sus redirecciones a partir del
+        # esquema de la petición. Con SSL_MODE=front a Caddy le llega HTTP y lo
+        # reenviaría como tal, así que se fuerza el esquema que ve el navegador.
+        local proto_line="# X-Forwarded-Proto: el de la petición entrante"
+        [[ "$SSL_MODE" == "front" ]] && proto_line="header_up X-Forwarded-Proto https"
+
+        AUTHENTIK_ROUTE=$(cat <<EOF
+    # Authentik (proveedor de identidad). Va antes que el catch-all de
+    # Headscale; /authentik a secas redirige para no caer en él.
+    redir /authentik /authentik/ 308
+    # Atajo al formulario de alta de usuarios (blueprint: headscale-alta-usuario)
+    redir /alta-usuario /authentik/if/flow/headscale-alta-usuario/ 302
+
+    handle /authentik/* {
+        reverse_proxy authentik-server:9000 {
+            header_up X-Real-IP {remote_host}
+            ${proto_line}
+        }
+    }
+EOF
+        )
+    else
+        AUTHENTIK_ROUTE="    # Authentik deshabilitado (AUTH_PROVIDER=${AUTH_PROVIDER})"
+    fi
+
+    export CADDY_DOMAIN CADDY_TLS CADDY_HSTS HEADSCALE_HTTP_PORT HTTP_REDIRECT AUTHENTIK_ROUTE
 
     envsubst < "$TEMPLATES_DIR/Caddyfile.tmpl" > "$SCRIPT_DIR/Caddyfile"
 
@@ -910,6 +1185,9 @@ EOFP
         )
     fi
 
+    local oidc_block=""
+    [[ "$AUTH_PROVIDER" == "authentik" ]] && oidc_block=$(authentik_reachability_block)
+
     # El heredoc no va entrecomillado, pero ports_block ya viene expandido y
     # bash no vuelve a escanear el resultado de una expansión: los ${HTTP_PORT}
     # de dentro llegan literales al fichero, que es lo que queremos (los
@@ -928,9 +1206,56 @@ services:
   caddy:
     ports:
 ${ports_block}
+${oidc_block}
 EOF
 
     print_success "docker-compose.override.yml generado"
+}
+
+# Headscale y el panel validan el issuer OIDC contra la URL PÚBLICA de
+# Authentik (${HEADSCALE_PUBLIC_URL}/authentik/...): el issuer que publica
+# Authentik se construye con el host y esquema de la petición, y los clientes
+# OIDC exigen que coincida exactamente. Por eso no vale la URL interna
+# http://authentik-server:9000; hay que llegar a la pública desde dentro de
+# los contenedores:
+#
+#   - DOMAIN se resuelve a la puerta de enlace del host (host-gateway), donde
+#     Caddy publica sus puertos: mismo puerto y mismo certificado que ve un
+#     navegador, sin depender de que el router haga NAT loopback.
+#   - Con SSL_MODE=front el TLS lo pone otra máquina: se resuelve a
+#     FRONT_PROXY_IP si se indicó, o por DNS si no.
+#   - Con SSL_MODE=selfsigned hay que confiar además en la CA de Caddy.
+authentik_reachability_block() {
+    local target=""
+    if [[ "$DOMAIN" =~ ^[0-9.]+$ ]]; then
+        target=""                              # una IP no necesita resolución
+    elif [[ "$SSL_MODE" == "front" ]]; then
+        target="${FRONT_PROXY_IP:-}"
+    else
+        target="host-gateway"
+    fi
+
+    local svc hosts="" ca_env="" ca_vol=""
+    [[ -n "$target" ]] && hosts=$'\n'"    extra_hosts:"$'\n'"      - \"${DOMAIN}:${target}\""
+
+    local out=""
+    for svc in headscale portal; do
+        if [[ "$SSL_MODE" == "selfsigned" ]]; then
+            # Cada runtime añade la CA de Caddy a su manera: Go (Headscale)
+            # con SSL_CERT_DIR y el panel (Python) con EXTRA_CA_FILE, que
+            # carga él mismo.
+            case "$svc" in
+                headscale) ca_env="      - SSL_CERT_DIR=/etc/ssl/certs:/caddy-ca" ;;
+                portal)    ca_env="      - EXTRA_CA_FILE=/caddy-ca/root.crt" ;;
+            esac
+            ca_vol=$'\n'"    volumes:"$'\n'"      - ./data/caddy-ca:/caddy-ca:ro"$'\n'"    environment:"$'\n'"${ca_env}"
+        fi
+        [[ -z "$hosts" && -z "$ca_vol" ]] && continue
+        out+=$'\n'"  ${svc}:${hosts}${ca_vol}"
+    done
+
+    [[ -z "$out" ]] && return 0
+    printf '\n  # Acceso a la URL pública de Authentik desde los contenedores (OIDC)%s\n' "$out"
 }
 
 # Con Caddy delante de todo, el proxy externo tiene un ÚNICO destino y no
@@ -980,20 +1305,125 @@ create_data_dirs() {
 # FUNCIONES DE DESPLIEGUE
 # -----------------------------------------------------------------------------
 
-start_headscale_first() {
-    # Headscale debe estar arriba ANTES que Headplane: la API key que Headplane
-    # necesita sólo puede emitirla un Headscale en marcha.
-    print_header "ARRANCANDO HEADSCALE"
+# Con Authentik, Headscale no arranca (only_start_if_oidc_is_available) hasta
+# que el issuer responde en la URL pública. Eso exige, por este orden:
+# Authentik con el blueprint aplicado, y Caddy enrutando /authentik/. Caddy se
+# levanta con --no-deps para no arrastrar al panel, que todavía no
+# tiene la API key.
+start_authentik_first() {
+    [[ "$AUTH_PROVIDER" == "authentik" ]] || return 0
+
+    print_header "ARRANCANDO AUTHENTIK"
 
     print_info "Descargando imágenes de Docker..."
     docker compose pull
 
+    print_info "Levantando Authentik y Caddy..."
+    docker compose up -d authentik-postgresql authentik-server authentik-worker
+    # --force-recreate: al reconfigurar, Caddy ya corre con el Caddyfile
+    # anterior (sin /authentik/) y 'up' no relee un fichero montado.
+    docker compose up -d --no-deps --force-recreate caddy
+
+    # Headscale necesita la CA de Caddy para validar el issuer por HTTPS
+    if [[ "$SSL_MODE" == "selfsigned" ]]; then
+        export_root_ca
+        mkdir -p "$SCRIPT_DIR/data/caddy-ca"
+        if [[ -s "$SCRIPT_DIR/caddy-root-ca.crt" ]]; then
+            cp "$SCRIPT_DIR/caddy-root-ca.crt" "$SCRIPT_DIR/data/caddy-ca/root.crt"
+        fi
+    fi
+
+    # Con un proxy delante, Headscale llega al issuer A TRAVÉS de ese proxy:
+    # si todavía no reenvía el dominio hacia aquí, Headscale no arrancará.
+    if [[ "$SSL_MODE" == "front" ]]; then
+        echo ""
+        print_warning "Headscale validará el login contra ${HEADSCALE_PUBLIC_URL}/authentik/"
+        print_warning "pasando por el proxy de delante, así que ese proxy tiene que estar listo."
+        echo -e "   Configúralo ahora con: ${BOLD}$(ls -1 "$SCRIPT_DIR"/reverse-proxy/ 2>/dev/null | sed 's|^|reverse-proxy/|' | tr '\n' ' ')${NC}"
+        echo -e "   (reenvía ${DOMAIN} a ${BACKEND_HOST}:${HTTP_PORT}; Caddy ya está escuchando)"
+        read -r -p "$(echo -e "${CYAN}?${NC} Pulsa Enter cuando el proxy reenvíe ${DOMAIN} a esta máquina: ")" _
+    fi
+
+    # El primer arranque migra la base de datos y aplica los blueprints: puede
+    # tardar un par de minutos. Se consulta desde Caddy (que trae wget) por la
+    # red interna: aquí sólo se comprueba que Authentik ya sirve el proveedor.
+    print_info "Esperando a que Authentik publique el proveedor OIDC (1-3 min la primera vez)..."
+    local url="http://authentik-server:9000/authentik/application/o/headscale/.well-known/openid-configuration"
+    local waited=0
+    while [ $waited -lt 300 ]; do
+        if docker exec caddy wget -q -O /dev/null "$url" 2>/dev/null; then
+            echo ""
+            # Authentik sólo reaplica un blueprint cuando cambia el FICHERO, no
+            # sus variables de entorno. Al reconfigurar (otro dominio, otro
+            # secreto, Google) el proveedor se quedaría con los valores viejos
+            # y el login fallaría con redirect_uri_no_match. Se fuerza aquí.
+            # Tarda ~1-2 min: reaplica también los blueprints por defecto de
+            # los que depende (entradas metaapplyblueprint).
+            print_info "Aplicando el blueprint con la configuración actual (1-2 min)..."
+            if ! docker exec authentik-worker ak apply_blueprint custom/headscale.yaml >/dev/null 2>&1; then
+                print_error "No se pudo aplicar el blueprint de Authentik"
+                print_info "Ejecuta a mano: docker exec authentik-worker ak apply_blueprint custom/headscale.yaml"
+                exit 1
+            fi
+            print_success "Authentik está listo"
+            return 0
+        fi
+        sleep 5
+        waited=$((waited + 5))
+        echo -n "."
+    done
+
+    echo ""
+    print_error "Authentik no publicó el proveedor OIDC tras 300s"
+    print_info "Revisa los logs con: docker compose logs authentik-server authentik-worker"
+    print_info "Si el blueprint falló, aparece en Authentik > Customization > Blueprints"
+    exit 1
+}
+
+# Si se deja de usar Authentik, sus contenedores quedarían corriendo: con el
+# profile inactivo 'docker compose up' ya no los gestiona. Los datos siguen en
+# los volúmenes authentik-db y authentik-data por si se vuelve a activar.
+# Headplane se retiró: la administración está en el panel Mi VPN. Si sigue el
+# contenedor de una instalación anterior, se quita. Su volumen (headplane-data)
+# y su config se conservan: no se borra nada que no se pueda recuperar.
+remove_headplane() {
+    if docker ps -a --format '{{.Names}}' | grep -qx headplane; then
+        print_info "Retirando Headplane (sustituido por Mi VPN; su volumen se conserva)..."
+        docker rm -f headplane >/dev/null
+    fi
+}
+
+stop_unused_authentik() {
+    [[ "$AUTH_PROVIDER" == "authentik" ]] && return 0
+    if docker ps -a --format '{{.Names}}' | grep -qE '^authentik-(server|worker|postgresql)$'; then
+        print_info "Deteniendo Authentik (ya no se usa; sus datos se conservan)..."
+        docker compose --profile authentik rm -sf authentik-server authentik-worker authentik-postgresql >/dev/null
+    fi
+}
+
+start_headscale_first() {
+    # Headscale debe estar arriba ANTES que el panel: la API key que el panel
+    # necesita sólo puede emitirla un Headscale en marcha.
+    print_header "ARRANCANDO HEADSCALE"
+
+    # Con Authentik las imágenes ya se descargaron en start_authentik_first
+    if [[ "$AUTH_PROVIDER" != "authentik" ]]; then
+        print_info "Descargando imágenes de Docker..."
+        docker compose pull
+    fi
+
     print_info "Levantando Headscale..."
-    docker compose up -d headscale
+    # --force-recreate: al reconfigurar, headscale-config.yaml cambia pero el
+    # contenedor no, y 'up' a secas no lo reiniciaría para leerlo.
+    docker compose up -d --force-recreate headscale
+
+    # Con OIDC, Headscale se reinicia hasta alcanzar el issuer: más margen
+    local max_wait=90
+    [[ "$ENABLE_OIDC" == "true" ]] && max_wait=180
 
     print_info "Esperando a que Headscale esté saludable..."
     local waited=0
-    while [ $waited -lt 90 ]; do
+    while [ $waited -lt $max_wait ]; do
         local state
         state=$(docker inspect -f '{{.State.Health.Status}}' headscale 2>/dev/null || echo "starting")
         if [[ "$state" == "healthy" ]]; then
@@ -1007,8 +1437,14 @@ start_headscale_first() {
     done
 
     echo ""
-    print_error "Headscale no llegó a estado saludable tras 90s"
+    print_error "Headscale no llegó a estado saludable tras ${max_wait}s"
     print_info "Revisa los logs con: docker compose logs headscale"
+    if [[ "$ENABLE_OIDC" == "true" ]]; then
+        print_info "Con OIDC, la causa habitual es que no alcanza el issuer desde su contenedor:"
+        print_info "  ${OIDC_ISSUER_URL}.well-known/openid-configuration"
+        print_info "Comprueba el DNS de ${DOMAIN}, el firewall hacia los puertos de Caddy"
+        print_info "y, con certificado autofirmado, que exista data/caddy-ca/root.crt"
+    fi
     exit 1
 }
 
@@ -1086,13 +1522,65 @@ bootstrap_headscale() {
     print_success "API key generada (válida ${APIKEY_EXPIRATION:-90d}) y guardada en .env"
 }
 
+# Política ACL de aislamiento: autogroup:member -> autogroup:self. Con ella,
+# el dispositivo de un usuario sólo alcanza los de ese mismo usuario.
+#
+# Sólo se aplica si Headscale no tiene política todavía (mode: database, que
+# es lo que edita el panel): una política existente, hecha a mano o desde
+# Mi VPN > Control de acceso, nunca se pisa.
+apply_network_policy() {
+    [[ "${NETWORK_ISOLATION:-true}" == "true" ]] || return 0
+
+    print_header "AISLAMIENTO DE RED POR USUARIO"
+
+    if docker exec headscale headscale policy get >/dev/null 2>&1; then
+        print_info "Headscale ya tiene una política ACL: se conserva tal cual"
+        print_info "Para aislar por usuario, añade en Mi VPN > Control de acceso:"
+        print_info '  {"action": "accept", "src": ["autogroup:member"], "dst": ["autogroup:self:*"]}'
+        return 0
+    fi
+
+    local policy
+    policy=$(cat <<'EOFP'
+{
+  // Generada por install.sh (NETWORK_ISOLATION=true).
+  // Cada usuario sólo alcanza sus propios dispositivos, admins incluidos.
+  // Edítala desde Mi VPN > Control de acceso.
+  "acls": [
+    {
+      "action": "accept",
+      "src": ["autogroup:member"],
+      "dst": ["autogroup:self:*"]
+    }
+  ]
+}
+EOFP
+    )
+
+    # La imagen de Headscale es distroless (sin sh): la política entra por
+    # stdin, que 'policy set -f' acepta como /dev/stdin.
+    if printf '%s\n' "$policy" | docker exec -i headscale headscale policy set -f /dev/stdin >/dev/null 2>&1; then
+        print_success "Política aplicada: cada usuario sólo alcanza sus dispositivos"
+    else
+        print_warning "No se pudo aplicar la política de aislamiento"
+        print_info "Aplícala desde Mi VPN > Control de acceso con:"
+        printf '%s\n' "$policy"
+    fi
+}
+
 deploy_stack() {
     print_header "DESPLEGANDO STACK CON DOCKER COMPOSE"
 
-    # Caddy forma parte del stack siempre: es quien enruta / y /admin, con
-    # certificado o sin él. Por eso ya no hay profiles que activar.
+    # Caddy forma parte del stack siempre: es quien enruta / y /mi-vpn, con
+    # certificado o sin él.
+    stop_unused_authentik
+    remove_headplane
+
     print_info "Levantando servicios..."
     docker compose up -d
+    # El Caddyfile y el código del panel pueden haber cambiado: si ya
+    # existían, 'up' no los reinicia para releerlos.
+    docker compose restart caddy portal >/dev/null
 
     # Esperar a que los servicios estén saludables
     print_info "Esperando a que los servicios estén listos..."
@@ -1151,16 +1639,52 @@ export_root_ca() {
     return 0
 }
 
+show_authentik_info() {
+    local ak="${HEADSCALE_PUBLIC_URL}/authentik"
+
+    echo -e "${YELLOW}${BOLD}┌─────────────────────────────────────────────────────────────────────────┐${NC}"
+        echo -e "${YELLOW}${BOLD}│  AUTHENTIK: CUENTAS DE USUARIO                                          │${NC}"
+    echo -e "${YELLOW}${BOLD}└─────────────────────────────────────────────────────────────────────────┘${NC}"
+    echo ""
+    echo -e "  Panel de Authentik:  ${BOLD}${ak}/if/admin/${NC}"
+    echo -e "  Usuario:         ${BOLD}akadmin${NC}"
+    echo -e "  Contraseña:      ${BOLD}${AUTHENTIK_BOOTSTRAP_PASSWORD}${NC}"
+    print_warning "Es la contraseña del PRIMER arranque. Cámbiala al entrar (y si ya la cambiaste, ésta ya no vale)."
+    echo ""
+    echo -e "  Para dar de alta a alguien (sin entrar en el panel de Authentik):"
+    echo -e "   ${BOLD}${HEADSCALE_PUBLIC_URL}/alta-usuario${NC}"
+    echo -e "   Formulario con nombre, usuario, email, contraseña y acceso:"
+    echo -e "      • ${BOLD}VPN${NC}                        -> grupo headscale-users"
+    echo -e "      • ${BOLD}VPN + administrador${NC}        -> grupo vpn-admins"
+    echo -e "   Sólo pueden usarlo los miembros de vpn-admins y akadmin."
+    echo -e "   Sin grupo, Authentik deniega el acceso aunque la cuenta exista."
+    echo ""
+    if [[ -n "${GOOGLE_CLIENT_ID:-}" ]]; then
+        echo -e "  Login con Google activo. Quien entre con Google por primera vez obtiene"
+        echo -e "  cuenta en Authentik pero ${BOLD}sin grupo${NC}: añádelo a uno para que entre."
+        echo -e "  Redirect URI registrada en Google:"
+        echo -e "   ${BOLD}${ak}/source/oauth/callback/google/${NC}"
+        echo ""
+    fi
+    echo -e "  Administran el panel ${BOLD}akadmin${NC} y los miembros de ${BOLD}vpn-admins${NC}."
+    echo -e "  Los dispositivos pueden registrarse con ${YELLOW}tailscale up --login-server=${HEADSCALE_PUBLIC_URL}${NC}"
+    echo -e "  (sin --authkey): abrirá el login de Authentik en el navegador."
+    if [[ "${NETWORK_ISOLATION:-true}" == "true" ]]; then
+        echo -e "  Red aislada por usuario: cada uno sólo alcanza sus propios dispositivos."
+    fi
+    echo ""
+}
+
 show_access_info() {
     print_header "¡INSTALACIÓN COMPLETADA!"
 
     echo ""
-    echo -e "${GREEN}${BOLD}✓ Headscale + Headplane están corriendo${NC}"
+    echo -e "${GREEN}${BOLD}✓ Headscale + Mi VPN están corriendo${NC}"
     echo -e "${CYAN}HTTPS:${NC} ${BOLD}${SSL_MODE}${NC}"
     echo ""
 
     # URLs de acceso
-    echo -e "${CYAN}Interfaz web (Headplane):${NC} ${BOLD}${HEADPLANE_PUBLIC_URL}/admin${NC}"
+    echo -e "${CYAN}Panel (Mi VPN):${NC} ${BOLD}${HEADSCALE_PUBLIC_URL}/mi-vpn/${NC}"
     echo -e "${CYAN}Control plane (Headscale):${NC} ${BOLD}${HEADSCALE_PUBLIC_URL}${NC}"
     echo ""
 
@@ -1213,10 +1737,16 @@ show_access_info() {
         echo ""
     fi
 
-    # --- API key: único método de acceso a la UI sin OIDC ---
-    if [[ -n "${HEADSCALE_API_KEY:-}" ]]; then
+    # --- API key: con ella se entra en el panel si no hay OIDC ---
+    # Con sólo SSO no sirve para iniciar sesión (el panel la usa por dentro),
+    # así que mostrarla como credencial de login confundiría.
+    if [[ "${PORTAL_API_KEY_LOGIN:-true}" != "true" ]]; then
+        print_info "El panel sólo acepta SSO: la API key de Headscale (en .env) no sirve para entrar."
+        print_info "Para usarla como acceso de emergencia: PORTAL_API_KEY_LOGIN=true y ./install.sh"
+        echo ""
+    elif [[ -n "${HEADSCALE_API_KEY:-}" ]]; then
         echo -e "${YELLOW}${BOLD}┌─────────────────────────────────────────────────────────────────────────┐${NC}"
-        echo -e "${YELLOW}${BOLD}│  API KEY PARA INICIAR SESIÓN EN HEADPLANE                               │${NC}"
+        echo -e "${YELLOW}${BOLD}│  API KEY PARA ENTRAR EN EL PANEL COMO ADMINISTRADOR                     │${NC}"
         echo -e "${YELLOW}${BOLD}└─────────────────────────────────────────────────────────────────────────┘${NC}"
         echo ""
         echo -e "  ${BOLD}${HEADSCALE_API_KEY}${NC}"
@@ -1229,15 +1759,21 @@ show_access_info() {
         echo ""
     else
         print_warning "No se generó ninguna API key en esta ejecución"
-        echo -e "  Para entrar en Headplane necesitas una:"
+        echo -e "  Para entrar en el panel con API key necesitas una:"
         echo -e "  ${YELLOW}docker exec headscale headscale apikeys create --expiration 90d${NC}"
         echo ""
     fi
 
+    [[ "$AUTH_PROVIDER" == "authentik" ]] && show_authentik_info
+
     echo -e "${CYAN}${BOLD}Próximos pasos:${NC}"
     echo ""
-    echo -e "1. Entra en ${BOLD}${HEADPLANE_PUBLIC_URL}/admin${NC} y pega la API key de arriba"
-    echo -e "   ${YELLOW}(la UI vive bajo /admin; la raíz / devuelve 404)${NC}"
+    if [[ "$ENABLE_OIDC" == "true" ]]; then
+        echo -e "1. Entra en ${BOLD}${HEADSCALE_PUBLIC_URL}/mi-vpn/${NC} e inicia sesión"
+    else
+        echo -e "1. Entra en ${BOLD}${HEADSCALE_PUBLIC_URL}/mi-vpn/${NC} con la API key de arriba"
+    fi
+    echo -e "   ${YELLOW}(el panel vive bajo /mi-vpn; /admin redirige ahí)${NC}"
     echo ""
     echo "2. Generar una clave de pre-autenticación para conectar dispositivos:"
     echo -e "   ${YELLOW}docker exec headscale headscale preauthkeys create --user ${ADMIN_USER_ID} --reusable --expiration 24h${NC}"
@@ -1247,10 +1783,10 @@ show_access_info() {
     echo -e "   ${YELLOW}tailscale up --login-server=${HEADSCALE_PUBLIC_URL} --authkey=<clave-del-paso-2>${NC}"
     echo ""
     print_warning "No confundas las tres claves de este stack:"
-    echo -e "   • ${BOLD}API key${NC} (hskey-api-...)      -> iniciar sesión en la UI de Headplane"
+    echo -e "   • ${BOLD}API key${NC} (hskey-api-...)      -> acceso de administrador a la API y al panel"
     echo -e "   • ${BOLD}Pre-auth key${NC} (hskey-auth-...) -> registrar dispositivos con --authkey"
     echo -e "   • ${BOLD}Auth ID${NC} (hskey-authreq-...)   -> lo imprime 'tailscale up' sin --authkey,"
-    echo -e "     y es lo único que acepta el diálogo \"Register Machine Key\" de Headplane"
+    echo -e "     y se registra en el panel: Dispositivos → Registrar con Auth ID"
     echo ""
 
     echo -e "${CYAN}${BOLD}Comandos útiles:${NC}"
@@ -1275,7 +1811,6 @@ show_access_info() {
     echo ""
     echo "• Configuración: .env"
     echo "• Config Headscale: headscale-config.yaml"
-    echo "• Config Headplane: headplane-config.yaml"
     echo "• Caddyfile: Caddyfile"
     echo "• Override de puertos: docker-compose.override.yml"
     [[ "$SSL_MODE" == "front" ]] && echo "• Snippet del proxy de delante: reverse-proxy/"
@@ -1303,7 +1838,7 @@ main() {
 ║   ██║  ██║███████╗██║  ██║██████╔╝███████║╚██████╗██║  ██║███████╗███████╗║
 ║   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═════╝ ╚══════╝ ╚═════╝╚═╝  ╚═╝╚══════╝╚══════╝║
 ║                                                                           ║
-║                        + HEADPLANE WEB UI                                 ║
+║                            + MI VPN (panel)                               ║
 ║                                                                           ║
 ║              Instalador Interactivo Todo-en-Uno v1.0                     ║
 ║                                                                           ║
@@ -1311,7 +1846,7 @@ main() {
 EOF
     echo -e "${NC}"
 
-    print_info "Este instalador configurará Headscale + Headplane con un solo comando"
+    print_info "Este instalador configurará Headscale + el panel Mi VPN con un solo comando"
     print_info "Responde las preguntas a continuación (puedes usar valores por defecto)"
     echo ""
 
@@ -1349,7 +1884,7 @@ EOF
     configure_ports
     compute_public_urls
     configure_tailnet
-    configure_oidc
+    configure_auth
 
     # 4. Generar secretos
     generate_secrets
@@ -1358,7 +1893,6 @@ EOF
     generate_env_file
     create_data_dirs
     generate_headscale_config
-    generate_headplane_config
     generate_caddyfile
     generate_compose_override
     generate_front_proxy_snippet
@@ -1366,14 +1900,17 @@ EOF
     # 6. Desplegar
     echo ""
     if ask_yes_no "¿Deseas desplegar el stack ahora?" "y"; then
+        # Fase 0: con Authentik, el issuer OIDC tiene que existir antes que
+        # Headscale arranque
+        start_authentik_first
+
         # Fase 1: sólo Headscale, para poder emitir la API key
         start_headscale_first
         bootstrap_headscale
+        apply_network_policy
 
-        # Regenerar la config de Headplane ya con la API key inyectada
-        generate_headplane_config
-
-        # Fase 2: resto del stack (Headplane y Caddy)
+        # Fase 2: resto del stack (panel y Caddy). El panel lee la API key de
+        # .env, que bootstrap_headscale acaba de actualizar.
         deploy_stack
         show_access_info
     else

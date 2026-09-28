@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
 # =============================================================================
-# HEADSCALE + HEADPLANE - DESINSTALADOR
+# HEADSCALE + MI VPN - DESINSTALADOR
 # =============================================================================
-# Script para detener y limpiar la instalación de Headscale + Headplane
+# Script para detener y limpiar la instalación de Headscale + Mi VPN
 # Uso: ./uninstall.sh [--purge]
 #
 # Opciones:
@@ -100,14 +100,14 @@ show_warning() {
 ║                                                                           ║
 ║                          ⚠  ADVERTENCIA  ⚠                               ║
 ║                                                                           ║
-║                DESINSTALADOR DE HEADSCALE + HEADPLANE                     ║
+║                  DESINSTALADOR DE HEADSCALE + MI VPN                      ║
 ║                                                                           ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 EOF
     echo -e "${NC}"
 
     echo ""
-    print_warning "Este script detendrá y eliminará los contenedores de Headscale + Headplane"
+    print_warning "Este script detendrá y eliminará los contenedores de Headscale + Mi VPN"
     echo ""
 
     if $PURGE; then
@@ -161,6 +161,9 @@ remove_volumes() {
         "headscale-socket"
         "caddy-data"
         "caddy-config"
+        "authentik-db"
+        "authentik-data"
+        "authentik-media"
     )
 
     for volume in "${volumes[@]}"; do
@@ -202,6 +205,7 @@ remove_configs() {
     local files=(
         "$ENV_FILE"
         "${SCRIPT_DIR}/headscale-config.yaml"
+        # De instalaciones anteriores, cuando el panel era Headplane
         "${SCRIPT_DIR}/headplane-config.yaml"
         "${SCRIPT_DIR}/Caddyfile"
     )
@@ -234,7 +238,7 @@ show_completion() {
     print_header "DESINSTALACIÓN COMPLETADA"
 
     echo ""
-    print_success "Headscale + Headplane han sido desinstalados"
+    print_success "Headscale + Mi VPN han sido desinstalados"
     echo ""
 
     if $PURGE; then

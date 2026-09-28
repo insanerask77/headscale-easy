@@ -1,5 +1,5 @@
 # =============================================================================
-# ${DOMAIN} - Headscale + Headplane
+# ${DOMAIN} - Headscale + Mi VPN
 # =============================================================================
 # Generado por install.sh. Es configuración DINÁMICA de Traefik: cópiala al
 # directorio que vigila tu file provider (p.ej. /etc/traefik/dynamic/) y
@@ -12,8 +12,8 @@
 #       directory: /etc/traefik/dynamic
 #       watch: true
 #
-# Detrás hay un Caddy que ya enruta por ruta (/ -> Headscale, /admin ->
-# Headplane), así que aquí sólo hay UN servicio: se reenvía el dominio entero.
+# Detrás hay un Caddy que ya enruta por ruta (/ -> Headscale, /mi-vpn ->
+# panel), así que aquí sólo hay UN servicio: se reenvía el dominio entero.
 #
 # Ajusta 'entryPoints' y 'certResolver' a los nombres que uses tú.
 #

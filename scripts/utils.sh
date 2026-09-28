@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
 # =============================================================================
-# HEADSCALE + HEADPLANE - UTILIDADES
+# HEADSCALE + MI VPN - UTILIDADES
 # =============================================================================
-# Script con comandos útiles para gestionar Headscale + Headplane
+# Script con comandos útiles para gestionar Headscale + Mi VPN
 # Uso: ./scripts/utils.sh <comando>
 # =============================================================================
 
@@ -152,7 +152,7 @@ cmd_apikey_create() {
     echo -e "  ${BOLD}${key}${NC}"
     echo ""
     print_warning "Guárdala ahora: Headscale sólo la muestra al crearla"
-    print_info "Úsala para iniciar sesión en Headplane (/admin)"
+    print_info "Sirve para la API y para entrar en el panel (/mi-vpn) como admin si PORTAL_API_KEY_LOGIN=true"
 }
 
 cmd_apikey_list() {
@@ -181,7 +181,6 @@ cmd_backup() {
     tar -czf "$backup_file" \
         .env \
         headscale-config.yaml \
-        headplane-config.yaml \
         Caddyfile \
         data/ 2>/dev/null || true
 
@@ -224,7 +223,7 @@ cmd_health() {
     cd "$PROJECT_DIR"
 
     # Verificar cada servicio
-    for service in headscale headplane caddy; do
+    for service in headscale mi-vpn caddy; do
         if docker compose ps | grep -q "$service"; then
             local health=$(docker inspect --format='{{.State.Health.Status}}' "$service" 2>/dev/null || echo "no healthcheck")
 
@@ -286,7 +285,7 @@ cmd_config_show() {
 
 cmd_help() {
     cat << EOF
-${CYAN}${BOLD}Utilidades para Headscale + Headplane${NC}
+${CYAN}${BOLD}Utilidades para Headscale + Mi VPN${NC}
 
 ${BOLD}Uso:${NC}
   ./scripts/utils.sh <comando> [argumentos]
@@ -295,7 +294,7 @@ ${BOLD}Comandos disponibles:${NC}
 
 ${CYAN}Gestión de servicios:${NC}
   status                    - Ver estado de servicios
-  logs [servicio]          - Ver logs (all, headscale, headplane, caddy)
+  logs [servicio]          - Ver logs (all, headscale, portal, caddy)
   restart [servicio]       - Reiniciar servicios
   health                   - Verificar estado de salud
   shell [servicio]         - Abrir shell en contenedor (default: headscale)
@@ -313,7 +312,7 @@ ${CYAN}Gestión de Headscale:${NC}
                               utils.sh preauth:create admin true 7d   (acepta nombre o ID)
 
   apikey:create [expiration]
-                          - Crear API key para iniciar sesión en Headplane
+                          - Crear API key (API de Headscale y login de admin en el panel)
                             (default: 90d)
   apikey:list             - Listar API keys (sólo muestra prefijos)
 

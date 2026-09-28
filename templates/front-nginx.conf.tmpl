@@ -1,13 +1,13 @@
 # =============================================================================
-# ${DOMAIN} - Headscale + Headplane
+# ${DOMAIN} - Headscale + Mi VPN
 # =============================================================================
 # Generado por install.sh. Cópialo a la máquina del proxy, normalmente en
 # /etc/nginx/conf.d/${DOMAIN}.conf, y recarga con:
 #
 #   nginx -t && systemctl reload nginx
 #
-# Detrás hay un Caddy que ya enruta por ruta (/ -> Headscale, /admin ->
-# Headplane), así que aquí sólo hace falta UN upstream: se reenvía el dominio
+# Detrás hay un Caddy que ya enruta por ruta (/ -> Headscale, /mi-vpn ->
+# panel), así que aquí sólo hace falta UN upstream: se reenvía el dominio
 # entero y Caddy reparte.
 #
 # OJO con el relay DERP: Headscale escucha STUN en UDP ${HEADSCALE_DERP_PORT} y

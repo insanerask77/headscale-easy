@@ -1,6 +1,6 @@
-# Quickstart - Headscale + Headplane
+# Quickstart - Headscale + Mi VPN
 
-Guía de inicio rápido para tener Headscale + Headplane funcionando en menos de 5 minutos.
+Guía de inicio rápido para tener Headscale + el panel Mi VPN funcionando en menos de 5 minutos.
 
 ## 🚀 Instalación en 3 Pasos
 
@@ -13,7 +13,7 @@ Guía de inicio rápido para tener Headscale + Headplane funcionando en menos de
 ### 2. Responder las Preguntas
 
 Hay **un solo modo de despliegue**: Caddy delante, enrutando un único dominio
-(`/` → Headscale, `/admin` → Headplane). Lo único que se decide es **quién
+(`/` → Headscale, `/mi-vpn` → panel). Lo único que se decide es **quién
 pone el HTTPS**:
 
 | Respuesta | Elígela si... |
@@ -31,17 +31,17 @@ El resto de preguntas:
   si elegiste "un proxy por delante")
 - **Puertos**: Enter para los valores por defecto
 - **Nombre del Tailnet**: `myorg` (o el nombre de tu empresa)
-- **¿OIDC?**: `n` (no, a menos que tengas Keycloak/Authentik)
+- **¿Cómo inician sesión los usuarios?**: `1` (sólo API key) para empezar; `2` (Authentik) si quieres usuario/contraseña o login con Google
 
 ### 3. ¡Listo!
 
-Al finalizar verás la API key para entrar en Headplane y las URLs:
+Al finalizar verás las URLs y, si no usas OIDC, la API key para entrar en el panel:
 
 ```
-✓ Headscale + Headplane están corriendo
+✓ Headscale + Mi VPN están corriendo
 HTTPS: letsencrypt
 
-Interfaz web (Headplane): https://vpn.midominio.com/admin
+Panel (Mi VPN): https://vpn.midominio.com/mi-vpn/
 Control plane (Headscale): https://vpn.midominio.com
 ```
 
@@ -63,18 +63,18 @@ máquina del proxy y aplícalo allí.
 
 ## 📝 Primeros Pasos
 
-### 1. Entrar en la UI Web
-
-El instalador ya ha creado el usuario administrador y una **API key**, que
-muestra por pantalla al terminar. Ábre la UI y pega esa key en el login:
+### 1. Entrar en el panel
 
 ```
-https://vpn.midominio.com/admin          # con HTTPS (Caddy o un proxy delante)
-http://localhost/admin                   # sin HTTPS
+https://vpn.midominio.com/mi-vpn/        # con HTTPS (Caddy o un proxy delante)
+http://localhost/mi-vpn/                 # sin HTTPS
 ```
 
-> Headplane sirve la interfaz bajo la ruta `/admin`. La raíz (`/`) devuelve 404.
-> Sin OIDC, la API key es la única credencial: no hay usuario/contraseña.
+> Con Authentik, entra con `akadmin` y la contraseña que muestra el
+> instalador. Sin OIDC, pega la **API key** que muestra al terminar: es la
+> única credencial, y sólo para administradores. Para tener cuentas con
+> usuario/contraseña, elige Authentik en el instalador (ver README, "El panel
+> Mi VPN" y "Login de usuarios con Authentik").
 
 ### 2. Generar Clave de Conexión
 
@@ -189,7 +189,7 @@ máquina del proxy, hablando directamente con Caddy:
 
 ```bash
 curl -s http://<BACKEND_HOST>:<HTTP_PORT>/key?v=142         # Headscale
-curl -sI http://<BACKEND_HOST>:<HTTP_PORT>/admin | head -1  # Headplane
+curl -sI http://<BACKEND_HOST>:<HTTP_PORT>/mi-vpn/ | head -1  # panel
 ```
 
 - **Fallan los dos**: el problema está en esta máquina. Revisa el firewall y
@@ -235,9 +235,9 @@ En móviles no es posible: usa Let's Encrypt. Ver
 
 ### Error 500 `auth ID has invalid length: expected 38, got 101`
 
-**Causa**: has pegado la **API key** (la del login, `hskey-api-…`, 87 caracteres)
-en el diálogo *Register Machine Key* de Headplane. Ese campo sólo acepta el
-**Auth ID** de 38 caracteres.
+**Causa**: has pegado la **API key** (`hskey-api-…`, 87 caracteres) donde
+va un **Auth ID** de 38 caracteres (`hskey-authreq-…`), por ejemplo en
+Dispositivos → *Registrar con Auth ID* del panel o en `headscale auth register`.
 
 **Solución**: lanza `tailscale up` **sin** `--authkey` en el dispositivo:
 
@@ -246,7 +246,7 @@ tailscale up --login-server=https://vpn.midominio.com
 # -> To authenticate, visit: .../register/hskey-authreq-XXXXXXXXXXXXXXXXXXXXXXXX
 ```
 
-Pega en Headplane sólo el `hskey-authreq-…`. O sáltate la UI por completo usando
+Pega en el panel sólo el `hskey-authreq-…` (o la URL completa). O sáltate ese paso usando
 una pre-auth key con `--authkey` (paso 2 de arriba).
 
 ### Los dispositivos no se conectan entre sí

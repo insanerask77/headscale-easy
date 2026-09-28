@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # =============================================================================
-# HEADSCALE + HEADPLANE - VALIDADOR DE ESTRUCTURA
+# HEADSCALE + MI VPN - VALIDADOR DE ESTRUCTURA
 # =============================================================================
 # Script para validar que todos los archivos necesarios están presentes
 # Uso: ./scripts/validate.sh
@@ -41,8 +41,14 @@ required_files=(
     "README.md"
     "LICENSE"
     "templates/headscale-config.yaml.tmpl"
-    "templates/headplane-config.yaml.tmpl"
     "templates/Caddyfile.tmpl"
+    "authentik/blueprints/headscale.yaml"
+    "authentik/branding/custom.css"
+    "portal/app.py"
+    "portal/headscale.py"
+    "portal/views.py"
+    "portal/views_admin.py"
+    "portal/static/style.css"
     "scripts/utils.sh"
 )
 
@@ -144,7 +150,7 @@ required_vars=(
     "SSL_MODE"
     "DOMAIN"
     "TAILNET_NAME"
-    "COOKIE_SECRET"
+    "PORTAL_SESSION_SECRET"
 )
 
 missing_vars=()

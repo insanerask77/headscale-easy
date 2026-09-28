@@ -1,10 +1,10 @@
-# Makefile para Headscale + Headplane
+# Makefile para Headscale + Mi VPN
 # Comandos útiles para gestionar el proyecto
 
 .PHONY: help install uninstall clean validate status logs restart backup update
 
 help: ## Mostrar esta ayuda
-	@echo "Headscale + Headplane - Comandos disponibles:"
+	@echo "Headscale + Mi VPN - Comandos disponibles:"
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 	@echo ""
@@ -20,7 +20,7 @@ purge: ## Desinstalar y eliminar todos los datos
 
 clean: ## Limpiar archivos generados (no afecta contenedores corriendo)
 	@echo "Limpiando archivos generados..."
-	@rm -f .env headscale-config.yaml headplane-config.yaml Caddyfile docker-compose.override.yml
+	@rm -f .env headscale-config.yaml Caddyfile docker-compose.override.yml
 	@rm -rf data/
 	@echo "✓ Archivos limpiados"
 
@@ -38,8 +38,8 @@ logs: ## Ver logs de todos los servicios
 logs-headscale: ## Ver logs solo de Headscale
 	@./scripts/utils.sh logs headscale
 
-logs-headplane: ## Ver logs solo de Headplane
-	@./scripts/utils.sh logs headplane
+logs-portal: ## Ver logs solo del panel Mi VPN
+	@./scripts/utils.sh logs portal
 
 restart: ## Reiniciar servicios
 	@./scripts/utils.sh restart
@@ -109,8 +109,8 @@ config-show: ## Mostrar configuración actual (.env)
 dev-shell-headscale: ## Abrir shell en contenedor Headscale
 	@docker exec -it headscale /bin/sh
 
-dev-shell-headplane: ## Abrir shell en contenedor Headplane
-	@docker exec -it headplane /bin/sh
+dev-shell-portal: ## Abrir shell en el contenedor del panel Mi VPN
+	@docker exec -it mi-vpn /bin/sh
 
 dev-test: ## Ejecutar pruebas de configuración
 	@echo "Ejecutando pruebas de generación de configuración..."
