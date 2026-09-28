@@ -14,6 +14,7 @@
   <a href="https://github.com/insanerask77/headscale-easy/actions/workflows/ci.yml"><img src="https://github.com/insanerask77/headscale-easy/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/insanerask77/headscale-easy/releases"><img src="https://img.shields.io/github/v/release/insanerask77/headscale-easy?sort=semver" alt="Release"></a>
   <a href="https://github.com/insanerask77/headscale-easy/pkgs/container/headscale-easy"><img src="https://img.shields.io/badge/image-ghcr.io-blue?logo=docker" alt="Docker image"></a>
+  <a href="https://insanerask77.github.io/headscale-easy/"><img src="https://img.shields.io/badge/docs-github.io-3f6fe0" alt="Documentation"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
   <a href="https://github.com/insanerask77/headscale-easy/stargazers"><img src="https://img.shields.io/github/stars/insanerask77/headscale-easy?style=social" alt="GitHub stars"></a>
   <a href="https://buymeacoffee.com/insanerask"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-☕-FFDD00" alt="Buy me a coffee"></a>
@@ -133,12 +134,14 @@ Docker socket to validate and restart Headscale.
 
 ## 📚 Documentation
 
-- [Configuration](docs/configuration.md) — every installer option, HTTPS modes,
-  front proxies, sign-in providers, `.env` reference, DNS.
-- [Operations](docs/operations.md) — users and admins, updates, backups,
-  uninstalling, troubleshooting.
-- [Contributing](CONTRIBUTING.md) — development setup, translations, pull requests.
-- [Security](SECURITY.md) — reporting vulnerabilities and the security model.
+**📖 [insanerask77.github.io/headscale-easy](https://insanerask77.github.io/headscale-easy/)** — English and Spanish.
+
+- [Getting started](https://insanerask77.github.io/headscale-easy/getting-started/) — requirements, install, first device.
+- [Configuration](https://insanerask77.github.io/headscale-easy/configuration/) — installer options, HTTPS modes, front
+  proxies, sign-in providers, DNS, `.env` reference.
+- [Operations](https://insanerask77.github.io/headscale-easy/operations/) — users and admins, machines, updates, backups,
+  troubleshooting.
+- [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 ## 🙌 Support the project
 

@@ -12,10 +12,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from i18n import LANGUAGES, _, get_lang, ngettext
-from version import PROJECT_URL, SPONSOR_URL, VERSION
+from version import DOCS_URL, PROJECT_URL, SPONSOR_URL, VERSION
 
 BASE = "/admin"
 
+
+
+def docs_url(page: str = "") -> str:
+    """Link to the documentation site, in the viewer's language when it exists."""
+    return DOCS_URL + ("es/" if get_lang() == "es" else "") + page
 
 def esc(value) -> str:
     return html.escape("" if value is None else str(value), quote=True)
@@ -225,7 +230,7 @@ def sidebar(active: str, session: dict, ctx: dict) -> str:
         ("keys", "settings/keys", _("Keys")),
     ], active))
     groups.append(f"""
-      <a class="nav-top" href="{PROJECT_URL}#readme" target="_blank" rel="noopener">{icon("book")}<span>{esc(_("Documentation"))}</span>{icon("external", "ext")}</a>
+      <a class="nav-top" href="{docs_url()}" target="_blank" rel="noopener">{icon("book")}<span>{esc(_("Documentation"))}</span>{icon("external", "ext")}</a>
       <a class="nav-top" href="{SPONSOR_URL}" target="_blank" rel="noopener">{icon("coffee")}<span>{esc(_("Support the project"))}</span>{icon("external", "ext")}</a>""")
 
     name = session.get("name") or session.get("username") or _("Administrator")

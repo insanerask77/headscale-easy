@@ -1,14 +1,5 @@
 # Operations
 
-- [Users and admins](#users-and-admins)
-- [Connecting devices](#connecting-devices)
-- [Managing machines](#managing-machines)
-- [Everyday commands](#everyday-commands)
-- [Updating](#updating)
-- [Backups](#backups)
-- [Uninstalling](#uninstalling)
-- [Troubleshooting](#troubleshooting)
-
 ## Users and admins
 
 Headscale Easy has two roles:

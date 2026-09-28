@@ -13,6 +13,7 @@
 <p align="center">
   <a href="https://github.com/insanerask77/headscale-easy/actions/workflows/ci.yml"><img src="https://github.com/insanerask77/headscale-easy/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/insanerask77/headscale-easy/releases"><img src="https://img.shields.io/github/v/release/insanerask77/headscale-easy?sort=semver" alt="Versión"></a>
+  <a href="https://insanerask77.github.io/headscale-easy/es/"><img src="https://img.shields.io/badge/docs-github.io-3f6fe0" alt="Documentación"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/licencia-MIT-green" alt="Licencia MIT"></a>
   <a href="https://buymeacoffee.com/insanerask"><img src="https://img.shields.io/badge/Invítame%20a%20un%20café-☕-FFDD00" alt="Invítame a un café"></a>
 </p>
@@ -98,13 +99,14 @@ la consola muestra los pasos para cada sistema.
 
 ## 📚 Documentación
 
-La documentación detallada está en inglés:
+**📖 [insanerask77.github.io/headscale-easy/es](https://insanerask77.github.io/headscale-easy/es/)**, en español e inglés.
 
-- [Configuración](docs/configuration.md): opciones del instalador, modos de
-  HTTPS, proxies por delante, proveedores de login, referencia de `.env`, DNS.
-- [Operación](docs/operations.md): usuarios y admins, actualizaciones, copias de
-  seguridad, desinstalación, resolución de problemas.
-- [Contribuir](CONTRIBUTING.md): entorno de desarrollo, traducciones, pull requests.
+- [Primeros pasos](https://insanerask77.github.io/headscale-easy/es/getting-started/): requisitos, instalación, primer dispositivo.
+- [Configuración](https://insanerask77.github.io/headscale-easy/es/configuration/): opciones del instalador, modos de
+  HTTPS, proxies por delante, proveedores de login, DNS, referencia de `.env`.
+- [Operación](https://insanerask77.github.io/headscale-easy/es/operations/): usuarios y admins, máquinas, actualizaciones,
+  copias de seguridad, resolución de problemas.
+- [Contribuir](CONTRIBUTING.md) · [Seguridad](SECURITY.md) · [Cambios](CHANGELOG.md)
 
 ## 🙌 Apoya el proyecto
 

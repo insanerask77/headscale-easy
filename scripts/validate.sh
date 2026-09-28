@@ -35,6 +35,7 @@ required_files=(
     web/ui.py web/i18n.py web/version.py web/locales/es.json
     web/static/style.css web/static/app.js web/static/theme.js
     scripts/utils.sh scripts/check_i18n.py
+    mkdocs.yml docs/requirements.txt docs/index.md docs/index.es.md
 )
 for f in "${required_files[@]}"; do
     [[ -f "$f" ]] || fail "Missing file: $f"

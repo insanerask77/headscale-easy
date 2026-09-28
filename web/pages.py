@@ -10,10 +10,9 @@ import ipaddress
 from datetime import datetime, timezone
 
 from i18n import LANGUAGES, _, get_lang, ngettext
-from ui import (BASE, LOGO, badge, copy_btn, csrf_input, esc, flash_html, icon, initials, layout, notice,
+from ui import (BASE, LOGO, badge, copy_btn, csrf_input, docs_url, esc, flash_html, icon, initials, layout, notice,
                 page_head, parse_time, relative, time_tag, user_label)
 
-DOCS = "https://github.com/insanerask77/headscale-easy/blob/main/docs"
 OS_NAMES = {"linux": "Linux", "windows": "Windows", "macos": "macOS", "ios": "iOS",
             "android": "Android", "freebsd": "FreeBSD", "openbsd": "OpenBSD", "tvos": "tvOS"}
 EXIT_ROUTES = {"0.0.0.0/0", "::/0"}
@@ -229,7 +228,7 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
     head = page_head(_("Machines"),
                      esc(_("Manage the devices connected to your tailnet.") if admin
                          else _("Manage your devices. Only you can see them, and they can only reach each other.")),
-                     add, (_("See how to manage devices"), f"{DOCS}/operations.md#managing-machines"))
+                     add, (_("See how to manage devices"), docs_url("operations/#managing-machines")))
     head += register_dialog(session, users or []) if admin else ""
     head += notice("error", error) if error else ""
     head += flash_html(flash)
@@ -288,7 +287,7 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
     <div class="toolbar">
       <label class="search">{icon("search")}<input type="search" placeholder="{esc(_("Search by name, owner, tag, version…"))}" data-filter aria-label="{esc(_("Search machines"))}"></label>
       {filters}
-      <a class="link hide-sm" href="{DOCS}/operations.md#managing-machines" target="_blank" rel="noopener">{esc(_("Learn more"))}</a>
+      <a class="link hide-sm" href="{docs_url("operations/#managing-machines")}" target="_blank" rel="noopener">{esc(_("Learn more"))}</a>
       <span class="spacer"></span>
       <a class="icon-btn boxed" href="{BASE}/machines.csv" title="{esc(_("Export to CSV"))}" aria-label="{esc(_("Export to CSV"))}">{icon("download")}</a>
     </div>
@@ -533,7 +532,7 @@ def dns_page(session: dict, ctx: dict, dns: dict, machines: list[Machine], error
     names = "".join(f'<tr><td>{esc(m.name)}</td><td><code>{esc(m.fqdn)}</code></td><td class="actions">{copy_btn(m.fqdn)}</td></tr>'
                     for m in machines if m.fqdn)
     sub = _("DNS settings are shared by the whole tailnet.") + ("" if admin else " " + _("Only an admin can change them."))
-    body = page_head(_("DNS"), esc(sub), link=(_("Learn more"), f"{DOCS}/configuration.md#dns")) + flash_html(flash) + f"""
+    body = page_head(_("DNS"), esc(sub), link=(_("Learn more"), docs_url("configuration/#dns"))) + flash_html(flash) + f"""
     <section class="card">
       <h2>{esc(_("Tailnet DNS name"))}</h2>
       <p class="muted">{esc(_("Every machine gets a name under this domain."))}</p>

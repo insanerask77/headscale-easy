@@ -8,7 +8,6 @@ from pages import dialog
 from ui import (BASE, LOGO, badge, bare_page, csrf_input, esc, flash_html, icon, initials, layout, notice,
                 page_head, time_tag, user_label)
 
-DOCS = "https://github.com/insanerask77/headscale-easy/blob/main/docs"
 
 
 # -----------------------------------------------------------------------------
