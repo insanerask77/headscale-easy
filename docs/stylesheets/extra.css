@@ -1,0 +1,37 @@
+/* Headscale Easy brand: the same blue as the web console */
+:root {
+  --md-primary-fg-color: #3f6fe0;
+  --md-primary-fg-color--light: #6b8fe8;
+  --md-primary-fg-color--dark: #3561c9;
+  --md-accent-fg-color: #3561c9;
+}
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color: #1c1c1c;
+  --md-primary-fg-color: #242424;
+  --md-accent-fg-color: #6b8fe8;
+  --md-typeset-a-color: #7f9ff0;
+}
+.md-header, .md-tabs { box-shadow: none; border-bottom: 1px solid rgb(127 127 127 / 18%); }
+
+/* Home page */
+.hse-hero { text-align: center; margin: 1rem 0 2rem; }
+.hse-hero h1 { margin-bottom: .4rem; font-weight: 700; }
+.hse-hero p { font-size: 1.1rem; opacity: .85; }
+.hse-hero .md-button { margin: .3rem; }
+.md-typeset img.hse-shot { border-radius: 10px; border: 1px solid rgb(127 127 127 / 25%); }
+.md-typeset .grid.cards > ul > li { border-radius: 10px; }
+
+/* Buttons: brand blue in both themes (the dark header colour is not a button colour) */
+.md-typeset .md-button {
+  color: var(--md-typeset-a-color);
+  border-color: currentColor;
+  border-radius: 8px;
+}
+.md-typeset .md-button--primary,
+.md-typeset .md-button--primary:hover,
+.md-typeset .md-button:hover {
+  color: #fff;
+  background-color: #3f6fe0;
+  border-color: #3f6fe0;
+}
+.md-typeset .hse-hero h1 { color: var(--md-default-fg-color); }

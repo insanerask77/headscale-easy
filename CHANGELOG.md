@@ -21,6 +21,8 @@ First release as **Headscale Easy**.
 - Per-user network isolation policy (`autogroup:self`) on new installs.
 - Ready-made configuration for Nginx Proxy Manager, nginx, Traefik and Caddy
   when another proxy terminates TLS.
+- Documentation site on GitHub Pages, in English and Spanish:
+  https://insanerask77.github.io/headscale-easy/
 
 ### Changed
 - Headplane is no longer part of the stack: the console replaces it. Existing

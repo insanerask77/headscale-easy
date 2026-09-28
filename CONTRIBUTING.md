@@ -31,7 +31,7 @@ web/                    The web console (ghcr.io/insanerask77/headscale-easy)
   i18n.py, locales/     Translations
   static/               CSS, JS, font, favicon
 scripts/                utils.sh (make targets), validate.sh, check_i18n.py
-docs/                   Documentation and screenshots
+docs/, mkdocs.yml       Documentation site (GitHub Pages), screenshots
 ```
 
 ## Principles
@@ -70,6 +70,22 @@ To test the installer's output without deploying, answer **No** to "Deploy the
 stack now?": it writes `.env`, `headscale-config.yaml`, `Caddyfile` and
 `docker-compose.override.yml` and stops.
 
+## Documentation
+
+The docs live in `docs/` and are published to
+[GitHub Pages](https://insanerask77.github.io/headscale-easy/) with
+[MkDocs Material](https://squidfunk.github.io/mkdocs-material/) on every push to
+`main`. English pages are `page.md`, Spanish ones `page.es.md` (a missing
+translation falls back to English). Keep the `{ #anchor }` ids of translated
+headings equal to the English ones: the console links to them.
+
+Preview locally:
+
+```bash
+pip install -r docs/requirements.txt
+mkdocs serve        # http://127.0.0.1:8000
+```
+
 ## Translations
 
 UI strings are written in English in the code, wrapped in `_()` (or
@@ -103,5 +119,5 @@ language there is welcome too.
 4. Describe what you tested. Screenshots help for UI changes.
 5. CI must pass.
 
-By contributing you agree your work is licensed under the [MIT License](LICENSE)
-and to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+By contributing you agree your work is licensed under the [MIT License](https://github.com/insanerask77/headscale-easy/blob/main/LICENSE)
+and to follow the [Code of Conduct](https://github.com/insanerask77/headscale-easy/blob/main/CODE_OF_CONDUCT.md).

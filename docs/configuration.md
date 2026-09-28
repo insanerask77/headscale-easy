@@ -4,16 +4,6 @@ Everything is configured by `./install.sh`. It stores your answers in `.env`
 and generates the rest from `templates/`. Run it again to change anything:
 your previous answers become the defaults and no data is lost.
 
-- [The installer](#the-installer)
-- [HTTPS modes](#https-modes)
-- [Behind an existing reverse proxy](#behind-an-existing-reverse-proxy)
-- [Sign-in](#sign-in)
-- [Network isolation and ACLs](#network-isolation-and-acls)
-- [DNS](#dns)
-- [Language](#language)
-- [Generated files](#generated-files)
-- [`.env` reference](#env-reference)
-
 ## The installer
 
 The questions, in order:
@@ -151,7 +141,7 @@ then runs `headscale configtest` and restarts Headscale — restoring the previo
 block if the check fails. The installer keeps that block when it regenerates the
 file, so your DNS settings survive reconfiguration.
 
-This is the only feature that needs the Docker socket; see [SECURITY.md](../SECURITY.md).
+This is the only feature that needs the Docker socket; see [Security](security.md).
 
 ## Language
 
@@ -174,4 +164,4 @@ All of them are in `.gitignore`. Do not edit them by hand: re-run the installer.
 
 ## `.env` reference
 
-See [`.env.example`](../.env.example): every variable, documented.
+See [`.env.example`](https://github.com/insanerask77/headscale-easy/blob/main/.env.example): every variable, documented.
