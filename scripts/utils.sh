@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-
 # =============================================================================
-# HEADSCALE + MI VPN - UTILIDADES
-# =============================================================================
-# Script con comandos útiles para gestionar Headscale + Mi VPN
-# Uso: ./scripts/utils.sh <comando>
+#  Headscale Easy — day-to-day helpers
+#  https://github.com/insanerask77/headscale-easy
+#
+#  Usage: ./scripts/utils.sh <command> [args]   (or: make <target>)
 # =============================================================================
 
 set -euo pipefail
@@ -13,7 +12,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 ENV_FILE="${PROJECT_DIR}/.env"
 
-# Colores
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -22,379 +20,172 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 BOLD='\033[1m'
 
-# -----------------------------------------------------------------------------
-# FUNCIONES DE UTILIDAD
-# -----------------------------------------------------------------------------
-
-print_info() { echo -e "${BLUE}ℹ${NC} $1"; }
+print_info()    { echo -e "${BLUE}ℹ${NC} $1"; }
 print_success() { echo -e "${GREEN}✓${NC} $1"; }
 print_warning() { echo -e "${YELLOW}⚠${NC} $1"; }
-print_error() { echo -e "${RED}✗${NC} $1"; }
+print_error()   { echo -e "${RED}✗${NC} $1" >&2; }
 
-# -----------------------------------------------------------------------------
-# COMANDOS
-# -----------------------------------------------------------------------------
+hs() { docker exec headscale headscale "$@"; }
 
-cmd_status() {
-    echo -e "${CYAN}${BOLD}Estado de servicios:${NC}\n"
-    cd "$PROJECT_DIR"
-    docker compose ps
+# Headscale 0.29 wants numeric user ids; accept a name too
+user_id() {
+    local user="$1" id
+    if [[ "$user" =~ ^[0-9]+$ ]]; then echo "$user"; return 0; fi
+    id=$(hs users list --output json 2>/dev/null | tr -d ' \t\n' \
+         | grep -oE "\"id\":[0-9]+,\"name\":\"${user}\"" | grep -oE '[0-9]+' | head -1)
+    if [[ -z "$id" ]]; then print_error "No such user: $user"; return 1; fi
+    echo "$id"
 }
 
-cmd_logs() {
-    local service="${1:-}"
-    cd "$PROJECT_DIR"
+# -----------------------------------------------------------------------------
+# Services
+# -----------------------------------------------------------------------------
 
-    if [[ -z "$service" ]]; then
-        echo -e "${CYAN}${BOLD}Logs de todos los servicios:${NC}\n"
-        docker compose logs -f
-    else
-        echo -e "${CYAN}${BOLD}Logs de $service:${NC}\n"
-        docker compose logs -f "$service"
-    fi
+cmd_status() { cd "$PROJECT_DIR"; docker compose ps; }
+
+cmd_logs() {
+    cd "$PROJECT_DIR"
+    if [[ -n "${1:-}" ]]; then docker compose logs -f "$1"; else docker compose logs -f; fi
 }
 
 cmd_restart() {
-    local service="${1:-}"
     cd "$PROJECT_DIR"
-
-    if [[ -z "$service" ]]; then
-        print_info "Reiniciando todos los servicios..."
-        docker compose restart
-        print_success "Servicios reiniciados"
-    else
-        print_info "Reiniciando $service..."
-        docker compose restart "$service"
-        print_success "$service reiniciado"
-    fi
-}
-
-cmd_users_list() {
-    print_info "Listando usuarios de Headscale:"
-    docker exec headscale headscale users list
-}
-
-cmd_users_create() {
-    local username="${1:-}"
-
-    if [[ -z "$username" ]]; then
-        read -p "$(echo -e "${CYAN}?${NC} Nombre del usuario: ")" username
-    fi
-
-    print_info "Creando usuario: $username"
-    docker exec headscale headscale users create "$username"
-    print_success "Usuario creado: $username"
-}
-
-cmd_nodes_list() {
-    local user="${1:-}"
-
-    if [[ -z "$user" ]]; then
-        print_info "Listando todos los nodos:"
-        docker exec headscale headscale nodes list
-    else
-        print_info "Listando nodos del usuario $user:"
-        docker exec headscale headscale nodes list --user "$user"
-    fi
-}
-
-cmd_preauthkey_create() {
-    local user="${1:-}"
-    local reusable="${2:-true}"
-    local expiration="${3:-24h}"
-
-    if [[ -z "$user" ]]; then
-        read -p "$(echo -e "${CYAN}?${NC} Usuario: ")" user
-    fi
-
-    # Headscale 0.29 exige el ID numérico en --user. Se acepta un nombre por
-    # comodidad y se resuelve aquí; si ya es un número se usa tal cual.
-    local user_id="$user"
-    if [[ ! "$user" =~ ^[0-9]+$ ]]; then
-        user_id=$(docker exec headscale headscale users list --output json 2>/dev/null \
-                  | tr -d ' \t\n' \
-                  | grep -oE "\"id\":[0-9]+,\"name\":\"${user}\"" \
-                  | grep -oE '[0-9]+' | head -1)
-        if [[ -z "$user_id" ]]; then
-            print_error "No existe el usuario '$user'"
-            return 1
-        fi
-    fi
-
-    print_info "Generando clave de pre-autenticación para $user (ID $user_id)..."
-
-    local cmd="docker exec headscale headscale preauthkeys create --user $user_id --expiration $expiration"
-
-    if [[ "$reusable" == "true" ]]; then
-        cmd="$cmd --reusable"
-    fi
-
-    echo ""
-    eval "$cmd"
-    echo ""
-    print_success "Clave generada"
-}
-
-cmd_apikey_create() {
-    local expiration="${1:-90d}"
-
-    print_info "Generando API key de Headscale (válida $expiration)..."
-
-    local key
-    key=$(docker exec headscale headscale apikeys create --expiration "$expiration" | tr -d '\r\n')
-
-    if [[ ! "$key" =~ ^hskey- ]]; then
-        print_error "No se pudo generar la API key"
-        return 1
-    fi
-
-    echo ""
-    echo -e "  ${BOLD}${key}${NC}"
-    echo ""
-    print_warning "Guárdala ahora: Headscale sólo la muestra al crearla"
-    print_info "Sirve para la API y para entrar en el panel (/mi-vpn) como admin si PORTAL_API_KEY_LOGIN=true"
-}
-
-cmd_apikey_list() {
-    print_info "API keys de Headscale:"
-    echo ""
-    docker exec headscale headscale apikeys list
-}
-
-cmd_routes_list() {
-    print_info "Listando rutas:"
-    docker exec headscale headscale routes list
-}
-
-cmd_backup() {
-    local backup_dir="${1:-./backups}"
-    local timestamp=$(date +%Y%m%d_%H%M%S)
-    local backup_file="${backup_dir}/headscale-backup-${timestamp}.tar.gz"
-
-    print_info "Creando backup en: $backup_file"
-
-    # Crear directorio de backups si no existe
-    mkdir -p "$backup_dir"
-
-    # Crear backup
-    cd "$PROJECT_DIR"
-    tar -czf "$backup_file" \
-        .env \
-        headscale-config.yaml \
-        Caddyfile \
-        data/ 2>/dev/null || true
-
-    # Backup de volumen de Headscale
-    docker run --rm \
-        -v headscale-data:/data \
-        -v "$(pwd)/${backup_dir}":/backup \
-        alpine tar czf "/backup/headscale-data-${timestamp}.tar.gz" -C /data .
-
-    print_success "Backup completado:"
-    echo "  - Archivos: $backup_file"
-    echo "  - Volumen: ${backup_dir}/headscale-data-${timestamp}.tar.gz"
-}
-
-cmd_update() {
-    print_info "Actualizando imágenes de Docker..."
-
-    cd "$PROJECT_DIR"
-
-    # Cargar .env
-    if [ -f "$ENV_FILE" ]; then
-        set -a
-        source "$ENV_FILE"
-        set +a
-    fi
-
-    # Pull de nuevas imágenes
-    docker compose pull
-
-    # Recrear contenedores
-    print_info "Recreando contenedores con nuevas imágenes..."
-    docker compose up -d
-
-    print_success "Actualización completada"
+    if [[ -n "${1:-}" ]]; then docker compose restart "$1"; else docker compose restart; fi
+    print_success "Restarted ${1:-all services}"
 }
 
 cmd_health() {
-    echo -e "${CYAN}${BOLD}Estado de salud de los servicios:${NC}\n"
-
-    cd "$PROJECT_DIR"
-
-    # Verificar cada servicio
-    for service in headscale mi-vpn caddy; do
-        if docker compose ps | grep -q "$service"; then
-            local health=$(docker inspect --format='{{.State.Health.Status}}' "$service" 2>/dev/null || echo "no healthcheck")
-
-            case "$health" in
-                healthy)
-                    echo -e "${GREEN}✓${NC} $service: ${GREEN}healthy${NC}"
-                    ;;
-                unhealthy)
-                    echo -e "${RED}✗${NC} $service: ${RED}unhealthy${NC}"
-                    ;;
-                starting)
-                    echo -e "${YELLOW}⏳${NC} $service: ${YELLOW}starting${NC}"
-                    ;;
-                "no healthcheck")
-                    echo -e "${BLUE}ℹ${NC} $service: ${BLUE}no healthcheck${NC}"
-                    ;;
-                *)
-                    echo -e "${RED}✗${NC} $service: ${RED}not running${NC}"
-                    ;;
-            esac
-        else
-            echo -e "${YELLOW}⚠${NC} $service: ${YELLOW}not configured${NC}"
-        fi
+    local c state
+    for c in headscale headscale-easy caddy authentik-server authentik-worker authentik-postgresql; do
+        state=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$c" 2>/dev/null || echo "absent")
+        case "$state" in
+            healthy|running) echo -e "${GREEN}✓${NC} ${c}: ${state}" ;;
+            starting)        echo -e "${YELLOW}…${NC} ${c}: ${state}" ;;
+            absent)          [[ "$c" == authentik-* ]] || echo -e "${RED}✗${NC} ${c}: not running" ;;
+            *)               echo -e "${RED}✗${NC} ${c}: ${state}" ;;
+        esac
     done
 }
 
-cmd_shell() {
-    local service="${1:-headscale}"
+cmd_shell() { docker exec -it "${1:-headscale-easy}" /bin/sh; }
 
-    print_info "Abriendo shell en $service..."
-    docker exec -it "$service" /bin/sh
+cmd_update() {
+    cd "$PROJECT_DIR"
+    print_info "Pulling new images..."
+    docker compose pull --ignore-pull-failures
+    docker compose up -d
+    print_success "Updated"
+}
+
+# -----------------------------------------------------------------------------
+# Headscale
+# -----------------------------------------------------------------------------
+
+cmd_users_list()   { hs users list; }
+cmd_users_create() {
+    local name="${1:-}"
+    [[ -z "$name" ]] && read -r -p "$(echo -e "${CYAN}?${NC} User name: ")" name
+    hs users create "$name"
+}
+cmd_nodes_list() {
+    if [[ -n "${1:-}" ]]; then hs nodes list --user "$(user_id "$1")"; else hs nodes list; fi
+}
+cmd_routes_list() { hs nodes list-routes; }
+
+cmd_preauthkey_create() {
+    local user="${1:-}" reusable="${2:-true}" expiration="${3:-24h}" id
+    [[ -z "$user" ]] && read -r -p "$(echo -e "${CYAN}?${NC} User: ")" user
+    id=$(user_id "$user")
+    local args=(preauthkeys create --user "$id" --expiration "$expiration")
+    [[ "$reusable" == "true" ]] && args+=(--reusable)
+    hs "${args[@]}"
+}
+
+cmd_apikey_create() {
+    local key
+    key=$(hs apikeys create --expiration "${1:-90d}" | tr -d '\r\n')
+    [[ "$key" =~ ^hskey- ]] || { print_error "Could not create the API key"; return 1; }
+    echo -e "\n  ${BOLD}${key}${NC}\n"
+    print_warning "Save it now: Headscale only shows it once."
+}
+cmd_apikey_list() { hs apikeys list; }
+
+# -----------------------------------------------------------------------------
+# Backups and configuration
+# -----------------------------------------------------------------------------
+
+cmd_backup() {
+    local dir ts
+    mkdir -p "${1:-${PROJECT_DIR}/backups}"
+    dir="$(cd "${1:-${PROJECT_DIR}/backups}" && pwd)"
+    ts=$(date +%Y%m%d_%H%M%S)
+    cd "$PROJECT_DIR"
+    tar -czf "${dir}/config-${ts}.tar.gz" .env headscale-config.yaml Caddyfile docker-compose.override.yml 2>/dev/null || true
+    chmod 600 "${dir}/config-${ts}.tar.gz"
+    docker run --rm -v headscale-data:/data:ro -v "${dir}:/backup" alpine \
+        tar czf "/backup/headscale-data-${ts}.tar.gz" -C /data .
+    if docker ps --format '{{.Names}}' | grep -qx authentik-postgresql; then
+        docker exec authentik-postgresql pg_dump -U authentik authentik | gzip > "${dir}/authentik-db-${ts}.sql.gz"
+    fi
+    print_success "Backup written to ${dir} (${ts})"
 }
 
 cmd_config_show() {
-    if [ ! -f "$ENV_FILE" ]; then
-        print_error "No se encontró archivo .env"
-        exit 1
-    fi
-
-    echo -e "${CYAN}${BOLD}Configuración actual (.env):${NC}\n"
-
-    # Mostrar .env con secretos ofuscados
-    while IFS= read -r line; do
-        if [[ "$line" =~ ^[A-Z_]+=.* ]]; then
-            local key="${line%%=*}"
-            local value="${line#*=}"
-
-            # Ofuscar secretos
-            if [[ "$key" =~ (SECRET|PASSWORD|KEY|TOKEN) ]]; then
-                echo "$key=***HIDDEN***"
-            else
-                echo "$line"
-            fi
-        else
-            echo "$line"
-        fi
-    done < "$ENV_FILE"
+    [[ -f "$ENV_FILE" ]] || { print_error ".env not found: run ./install.sh"; exit 1; }
+    sed -E 's/^([A-Z_]*(SECRET|PASSWORD|PASS|KEY|TOKEN)[A-Z_]*=).+/\1***hidden***/' "$ENV_FILE"
 }
 
 cmd_help() {
-    cat << EOF
-${CYAN}${BOLD}Utilidades para Headscale + Mi VPN${NC}
+    cat <<EOF
+Headscale Easy — helpers
 
-${BOLD}Uso:${NC}
-  ./scripts/utils.sh <comando> [argumentos]
+Usage: ./scripts/utils.sh <command> [args]
 
-${BOLD}Comandos disponibles:${NC}
+Services
+  status                         Container status
+  logs [service]                 Follow logs (headscale, web, caddy, authentik-server...)
+  restart [service]              Restart one or all services
+  health                         Health of every container
+  shell [container]              Shell in a container (default: headscale-easy)
+  update                         Pull new images and recreate containers
 
-${CYAN}Gestión de servicios:${NC}
-  status                    - Ver estado de servicios
-  logs [servicio]          - Ver logs (all, headscale, portal, caddy)
-  restart [servicio]       - Reiniciar servicios
-  health                   - Verificar estado de salud
-  shell [servicio]         - Abrir shell en contenedor (default: headscale)
-  update                   - Actualizar imágenes y recrear contenedores
+Headscale
+  users:list                     List users
+  users:create [name]            Create a user
+  nodes:list [user]              List machines (optionally of one user)
+  routes:list                    List subnet routes and exit nodes
+  preauth:create <user> [reusable] [expiration]
+                                 Create an auth key (default: reusable, 24h)
+  apikey:create [expiration]     Create an API key (default: 90d)
+  apikey:list                    List API keys
 
-${CYAN}Gestión de Headscale:${NC}
-  users:list               - Listar usuarios
-  users:create [nombre]    - Crear usuario
-  nodes:list [usuario]     - Listar nodos (opcionalmente filtrar por usuario)
-  routes:list              - Listar rutas
-  preauth:create <usuario> [reusable] [expiration]
-                          - Crear clave de pre-autenticación
-                            Ejemplos:
-                              utils.sh preauth:create admin
-                              utils.sh preauth:create admin true 7d   (acepta nombre o ID)
-
-  apikey:create [expiration]
-                          - Crear API key (API de Headscale y login de admin en el panel)
-                            (default: 90d)
-  apikey:list             - Listar API keys (sólo muestra prefijos)
-
-${CYAN}Utilidades:${NC}
-  backup [directorio]      - Crear backup (default: ./backups)
-  config:show              - Mostrar configuración actual (.env)
-  help                     - Mostrar esta ayuda
-
-${BOLD}Ejemplos:${NC}
-  ./scripts/utils.sh status
-  ./scripts/utils.sh logs headscale
-  ./scripts/utils.sh users:create admin
-  ./scripts/utils.sh preauth:create admin true 24h
-  ./scripts/utils.sh backup /ruta/a/backups
-  ./scripts/utils.sh update
-
+Maintenance
+  backup [dir]                   Back up config, Headscale data and Authentik's DB
+  config:show                    Show .env with secrets hidden
 EOF
 }
-
-# -----------------------------------------------------------------------------
-# MAIN
-# -----------------------------------------------------------------------------
 
 main() {
     local command="${1:-help}"
     shift || true
-
     case "$command" in
-        status)
-            cmd_status "$@"
-            ;;
-        logs)
-            cmd_logs "$@"
-            ;;
-        restart)
-            cmd_restart "$@"
-            ;;
-        health)
-            cmd_health "$@"
-            ;;
-        shell)
-            cmd_shell "$@"
-            ;;
-        update)
-            cmd_update "$@"
-            ;;
-        users:list)
-            cmd_users_list "$@"
-            ;;
-        users:create)
-            cmd_users_create "$@"
-            ;;
-        nodes:list)
-            cmd_nodes_list "$@"
-            ;;
-        routes:list)
-            cmd_routes_list "$@"
-            ;;
-        preauth:create)
-            cmd_preauthkey_create "$@"
-            ;;
-        apikey:create)
-            cmd_apikey_create "$@"
-            ;;
-        apikey:list)
-            cmd_apikey_list "$@"
-            ;;
-        backup)
-            cmd_backup "$@"
-            ;;
-        config:show)
-            cmd_config_show "$@"
-            ;;
-        help|--help|-h)
-            cmd_help
-            ;;
-        *)
-            print_error "Comando desconocido: $command"
-            echo ""
-            cmd_help
-            exit 1
-            ;;
+        status)          cmd_status "$@" ;;
+        logs)            cmd_logs "$@" ;;
+        restart)         cmd_restart "$@" ;;
+        health)          cmd_health "$@" ;;
+        shell)           cmd_shell "$@" ;;
+        update)          cmd_update "$@" ;;
+        users:list)      cmd_users_list "$@" ;;
+        users:create)    cmd_users_create "$@" ;;
+        nodes:list)      cmd_nodes_list "$@" ;;
+        routes:list)     cmd_routes_list "$@" ;;
+        preauth:create)  cmd_preauthkey_create "$@" ;;
+        apikey:create)   cmd_apikey_create "$@" ;;
+        apikey:list)     cmd_apikey_list "$@" ;;
+        backup)          cmd_backup "$@" ;;
+        config:show)     cmd_config_show "$@" ;;
+        help|--help|-h)  cmd_help ;;
+        *) print_error "Unknown command: $command"; echo; cmd_help; exit 1 ;;
     esac
 }
 

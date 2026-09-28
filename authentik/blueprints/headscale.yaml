@@ -1,28 +1,30 @@
 # yaml-language-server: $schema=https://goauthentik.io/blueprints/schema.json
 #
-# Blueprint de Authentik para Headscale + Mi VPN.
-# Lo aplica el worker de Authentik al arrancar y cada vez que cambia el fichero.
-# Montado en /blueprints/custom/ desde docker-compose.yml.
+# Headscale Easy — Authentik blueprint
+# https://github.com/insanerask77/headscale-easy
 #
-# Crea:
-#   - Grupos 'headscale-users' (pueden entrar en la VPN) y 'vpn-admins'
-#     (además administran la VPN desde Mi VPN)
-#   - Dos proveedores OIDC, cada uno con su aplicación:
-#       headscale  VPN ('tailscale up')
-#       mi-vpn     panel Mi VPN (el rol de admin lo decide el grupo)
-#   - Retira lo que creaban versiones anteriores para Headplane
-#   - El tema "Headscale Dashboard" y el formulario de alta de usuarios
-#   - Si GOOGLE_CLIENT_ID está definido: la fuente "Login con Google" y el botón
-#     en la pantalla de login
+# Applied by the Authentik worker on start-up and whenever this file changes
+# (install.sh also forces it, because a change of environment variables alone
+# does not trigger a re-apply). Mounted at /blueprints/custom/.
 #
-# Los valores variables llegan por entorno (!Env) desde .env, así que este
-# fichero no se genera: es el mismo para todas las instalaciones.
+# Creates:
+#   - Groups 'headscale-users' (can join the tailnet) and 'vpn-admins' (also
+#     administer it from the web UI)
+#   - Two OIDC providers, each with its application:
+#       headscale       the tailnet ('tailscale up')
+#       headscale-easy  the web UI (the admin role comes from the groups)
+#   - The "Headscale Easy" theme and the add-user form
+#   - With GOOGLE_CLIENT_ID set: "Sign in with Google"
+#   - Removes what earlier versions of the project created (Headplane, Mi VPN)
+#
+# Values that change per install come from environment variables (!Env), so
+# this file is the same for every installation.
 
 version: 1
 metadata:
-  name: Headscale + Mi VPN
+  name: Headscale Easy
   labels:
-    blueprints.goauthentik.io/description: "OIDC para Headscale y el panel Mi VPN; tema y alta de usuarios"
+    blueprints.goauthentik.io/description: "Headscale Easy: OIDC for Headscale and its web UI, theme and add-user form"
 
 context:
   public_url: !Env [HEADSCALE_PUBLIC_URL, "http://localhost"]
@@ -30,9 +32,8 @@ context:
 
 entries:
   # ---------------------------------------------------------------------------
-  # Dependencias: los flujos y mappings por defecto que se referencian abajo
-  # los crean otros blueprints. En el primer arranque el orden no está
-  # garantizado, así que se aplican antes de seguir.
+  # Dependencies: the default flows, mappings and brand referenced below are
+  # created by other blueprints, in no guaranteed order on first start.
   # ---------------------------------------------------------------------------
   - model: authentik_blueprints.metaapplyblueprint
     attrs:
@@ -57,6 +58,11 @@ entries:
   - model: authentik_blueprints.metaapplyblueprint
     attrs:
       identifiers:
+        name: Default - Invalidation flow
+      required: true
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs:
+      identifiers:
         name: Default - Brand
       required: true
   - model: authentik_blueprints.metaapplyblueprint
@@ -75,8 +81,8 @@ entries:
       required: true
 
   # ---------------------------------------------------------------------------
-  # Grupos. 'created': el blueprint sólo los crea; los miembros se gestionan
-  # desde la UI de Authentik y nunca se pisan al reaplicarlo.
+  # Groups. 'created': only created here; members are managed in Authentik and
+  # never overwritten when the blueprint is applied again.
   # ---------------------------------------------------------------------------
   - model: authentik_core.group
     state: created
@@ -88,14 +94,9 @@ entries:
     id: group-admins
     identifiers:
       name: vpn-admins
-  # Grupo de administradores de versiones anteriores (con Headplane)
-  - model: authentik_core.group
-    state: absent
-    identifiers:
-      name: headplane-admins
 
   # ---------------------------------------------------------------------------
-  # VPN: proveedor OIDC de Headscale ('tailscale up' abre este login)
+  # The tailnet: Headscale's OIDC provider ('tailscale up' opens this sign-in)
   # ---------------------------------------------------------------------------
   - model: authentik_providers_oauth2.oauth2provider
     id: provider
@@ -103,8 +104,8 @@ entries:
       name: headscale
     attrs:
       client_type: confidential
-      # Obligatorio en blueprints: la UI lo rellena sola, pero aquí vacío hace
-      # que Authentik rechace el login con "Invalid grant_type for provider".
+      # Required in blueprints: the UI fills it in, but left empty Authentik
+      # rejects sign-ins with "Invalid grant_type for provider".
       grant_types:
         - authorization_code
         - refresh_token
@@ -112,7 +113,7 @@ entries:
       client_secret: !Env OIDC_CLIENT_SECRET
       authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
       invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
-      # Headscale no soporta JWE: la clave de cifrado debe quedar vacía
+      # Headscale does not support JWE: leave the encryption key empty
       signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
       # Issuer = <public_url>/authentik/application/o/headscale/
       issuer_mode: per_provider
@@ -131,16 +132,16 @@ entries:
     identifiers:
       slug: headscale
     attrs:
-      name: VPN
+      name: Tailnet
       provider: !KeyOf provider
-      # No se lanza desde el navegador: el login lo abre 'tailscale up'
+      # Not launched from the browser: 'tailscale up' opens the sign-in
       meta_hide: true
-      meta_description: "Registro de dispositivos en la VPN"
-      # Basta con pertenecer a UNO de los grupos enlazados abajo
+      meta_description: "Device sign-in to the tailnet"
+      # Being in ONE of the groups bound below is enough
       policy_engine_mode: any
 
-  # Quién puede autorizarse contra la aplicación. Sin estas bindings cualquier
-  # usuario de Authentik, incluido uno recién creado con Google, entraría.
+  # Who may authorize against the application. Without these bindings any
+  # Authentik user, including one just created through Google, would get in.
   - model: authentik_policies.policybinding
     identifiers:
       target: !KeyOf app
@@ -161,29 +162,12 @@ entries:
       group: !Find [authentik_core.group, [name, "authentik Admins"]]
 
   # ---------------------------------------------------------------------------
-  # Headplane (retirado): la administración está en Mi VPN. Se borran la app,
-  # su proveedor y el scope del rol que creaban versiones anteriores.
-  # ---------------------------------------------------------------------------
-  - model: authentik_core.application
-    state: absent
-    identifiers:
-      slug: headplane
-  - model: authentik_providers_oauth2.oauth2provider
-    state: absent
-    identifiers:
-      name: headplane
-  - model: authentik_providers_oauth2.scopemapping
-    state: absent
-    identifiers:
-      name: "Headplane: rol"
-
-  # ---------------------------------------------------------------------------
-  # Mi VPN: panel de la VPN (usuarios: sus dispositivos; admins: todo)
+  # The web UI (members: their machines; admins: everything)
   # ---------------------------------------------------------------------------
   - model: authentik_providers_oauth2.oauth2provider
-    id: provider-portal
+    id: provider-web
     identifiers:
-      name: mi-vpn
+      name: headscale-easy
     attrs:
       client_type: confidential
       grant_types:
@@ -191,14 +175,14 @@ entries:
       client_id: !Env PORTAL_OIDC_CLIENT_ID
       client_secret: !Env PORTAL_OIDC_CLIENT_SECRET
       authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
-      # Cerrar sesión aquí cierra la sesión de Authentik (UserLogoutStage).
-      # El flujo por defecto de los proveedores sólo dice "has salido de la
-      # app" y deja la sesión viva, así que no se podría cambiar de usuario.
+      # Logging out of the UI ends the Authentik session too (UserLogoutStage).
+      # The providers' default flow only says "you left the app" and keeps the
+      # session alive, so switching users would not be possible.
       invalidation_flow: !Find [authentik_flows.flow, [slug, default-invalidation-flow]]
       signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
       issuer_mode: per_provider
-      # El portal localiza al usuario de Headscale por 'sub', que con este modo
-      # es un hash del usuario y coincide con el que recibió Headscale.
+      # The UI finds the member's Headscale user by 'sub', which in this mode
+      # is a hash of the user and matches the one Headscale received.
       sub_mode: hashed_user_id
       property_mappings:
         - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-openid]]
@@ -206,45 +190,46 @@ entries:
         - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
       redirect_uris:
         - matching_mode: strict
-          url: !Format ["%s/mi-vpn/callback", !Context public_url]
+          url: !Format ["%s/admin/callback", !Context public_url]
           redirect_uri_type: authorization
         - matching_mode: strict
-          url: !Format ["%s/mi-vpn/", !Context public_url]
+          url: !Format ["%s/admin/", !Context public_url]
           redirect_uri_type: logout
 
   - model: authentik_core.application
-    id: app-portal
+    id: app-web
     identifiers:
-      slug: mi-vpn
+      slug: headscale-easy
     attrs:
-      name: Mi VPN
-      provider: !KeyOf provider-portal
-      meta_launch_url: !Format ["%s/mi-vpn/", !Context public_url]
-      meta_description: "Tus dispositivos y la administración de la VPN"
+      name: Headscale Easy
+      provider: !KeyOf provider-web
+      meta_launch_url: !Format ["%s/admin/", !Context public_url]
+      meta_description: "Your machines and the tailnet admin console"
+      meta_publisher: "Headscale Easy by Rafa Madolell"
       policy_engine_mode: any
   - model: authentik_policies.policybinding
     identifiers:
-      target: !KeyOf app-portal
+      target: !KeyOf app-web
       order: 0
     attrs:
       group: !KeyOf group-users
   - model: authentik_policies.policybinding
     identifiers:
-      target: !KeyOf app-portal
+      target: !KeyOf app-web
       order: 1
     attrs:
       group: !KeyOf group-admins
   - model: authentik_policies.policybinding
     identifiers:
-      target: !KeyOf app-portal
+      target: !KeyOf app-web
       order: 2
     attrs:
       group: !Find [authentik_core.group, [name, "authentik Admins"]]
 
   # ---------------------------------------------------------------------------
-  # Login con Google (sólo si GOOGLE_CLIENT_ID tiene valor)
+  # Sign in with Google (only when GOOGLE_CLIENT_ID is set)
   # ---------------------------------------------------------------------------
-  # Google no tiene nombre de usuario: se usa el email para no preguntarlo.
+  # Google has no user name: the email is used so it is not asked for.
   - model: authentik_sources_oauth.oauthsourcepropertymapping
     id: google-username
     conditions:
@@ -269,15 +254,15 @@ entries:
       consumer_secret: !Env [GOOGLE_CLIENT_SECRET, ""]
       authentication_flow: !Find [authentik_flows.flow, [slug, default-source-authentication]]
       enrollment_flow: !Find [authentik_flows.flow, [slug, default-source-enrollment]]
-      # Una cuenta de Google con el mismo email que un usuario local entra
-      # como ese usuario. Google verifica el email, así que es seguro siempre
-      # que los emails de los usuarios locales sean reales.
+      # A Google account with the same email as a local user signs in as that
+      # user. Google verifies emails, so this is safe as long as local users'
+      # emails are real.
       user_matching_mode: email_link
       user_property_mappings:
         - !KeyOf google-username
 
-  # Botón "Google" en la pantalla de login. Sustituye la lista de fuentes de
-  # la etapa de identificación por defecto.
+  # "Google" button on the sign-in page (replaces the sources of the default
+  # identification stage).
   - model: authentik_stages_identification.identificationstage
     conditions:
       - !Context google_client_id
@@ -288,23 +273,23 @@ entries:
         - !KeyOf google-source
 
   # ---------------------------------------------------------------------------
-  # Tema "Headscale Dashboard" (aspecto Tailscale)
+  # "Headscale Easy" theme (Tailscale look, dark and light)
   # ---------------------------------------------------------------------------
-  # Los ficheros viven en authentik/branding/. Logo, favicon y fondo los sirve
-  # Authentik desde media/public/branding (montado en el server); el CSS se
-  # incrusta aquí con !File (montado en el worker, que aplica el blueprint).
+  # Files live in authentik/branding/. Logo, favicon and background are served
+  # by Authentik from media/public/branding (mounted on the server); the CSS
+  # is embedded here with !File (mounted on the worker, which applies this).
   - model: authentik_brands.brand
     identifiers:
       domain: authentik-default
     attrs:
-      branding_title: Headscale Dashboard
-      # %(theme)s -> logo-light.svg / logo-dark.svg según el tema activo
+      branding_title: Headscale Easy
+      # %(theme)s -> logo-light.svg / logo-dark.svg for the active theme
       branding_logo: branding/logo-%(theme)s.svg
       branding_favicon: branding/favicon.svg
       branding_default_flow_background: branding/background.svg
       branding_custom_css: !File [/branding/custom.css, ""]
-      # Oscuro o claro según el navegador; cada usuario puede fijarlo en sus
-      # ajustes de Authentik. El CSS define las dos variantes.
+      # Dark or light following the browser; each user can pin it in their
+      # Authentik settings. The CSS defines both variants.
       attributes:
         settings:
           theme:
@@ -314,21 +299,20 @@ entries:
     identifiers:
       slug: default-authentication-flow
     attrs:
-      title: Inicia sesión
+      title: Sign in
       layout: stacked
 
   # ---------------------------------------------------------------------------
-  # Alta de usuarios para administradores
+  # Add-user form for admins
   # ---------------------------------------------------------------------------
-  # Formulario en <public_url>/alta-usuario (redirige a este flujo) para que
-  # los miembros de vpn-admins creen cuentas sin entrar en el panel de
-  # administración de Authentik. Pide nombre, usuario, email, contraseña y el
-  # acceso (sólo VPN, o VPN + administrador), y mete al usuario en el grupo
-  # correspondiente.
+  # At <public_url>/add-user (redirects to this flow) so members of vpn-admins
+  # can create accounts without the Authentik admin interface. It asks for
+  # name, user name, email, password and access (tailnet only, or tailnet +
+  # admin) and puts the user in the matching group.
   - model: authentik_policies_password.passwordpolicy
-    id: alta-password-policy
+    id: add-user-password-policy
     identifiers:
-      name: "Headscale: contraseña de alta"
+      name: "Headscale Easy: add-user password"
     attrs:
       password_field: password
       length_min: 10
@@ -339,244 +323,331 @@ entries:
       check_static_rules: true
       check_have_i_been_pwned: false
       check_zxcvbn: false
-      error_message: La contraseña debe tener al menos 10 caracteres.
+      error_message: The password must be at least 10 characters long.
 
   - model: authentik_stages_prompt.prompt
-    id: alta-field-name
+    id: add-user-name
     identifiers:
-      name: headscale-alta-name
+      name: headscale-easy-add-user-name
     attrs:
       field_key: name
-      label: Nombre completo
+      label: Full name
       type: text
       required: true
-      placeholder: Ana García
+      placeholder: Ada Lovelace
       order: 0
   - model: authentik_stages_prompt.prompt
-    id: alta-field-username
+    id: add-user-username
     identifiers:
-      name: headscale-alta-username
+      name: headscale-easy-add-user-username
     attrs:
       field_key: username
-      label: Usuario
-      # 'username' comprueba además que no esté ya en uso
+      label: User name
+      # 'username' also checks it is not taken
       type: username
       required: true
-      placeholder: ana
-      sub_text: Con él inicia sesión y es su nombre de usuario en Headscale.
+      placeholder: ada
+      sub_text: Used to sign in; also their user name in Headscale.
       order: 1
   - model: authentik_stages_prompt.prompt
-    id: alta-field-email
+    id: add-user-email
     identifiers:
-      name: headscale-alta-email
+      name: headscale-easy-add-user-email
     attrs:
       field_key: email
       label: Email
       type: email
       required: true
-      placeholder: ana@ejemplo.com
-      sub_text: También puede usarlo para iniciar sesión.
+      placeholder: ada@example.com
+      sub_text: Can also be used to sign in.
       order: 2
   - model: authentik_stages_prompt.prompt
-    id: alta-field-password
+    id: add-user-password
     identifiers:
-      name: headscale-alta-password
+      name: headscale-easy-add-user-password
     attrs:
       field_key: password
-      label: Contraseña
+      label: Password
       type: password
       required: true
-      placeholder: Mínimo 10 caracteres
+      placeholder: At least 10 characters
       order: 3
-  # Dos campos de tipo password: Authentik comprueba solo que coincidan
+  # Two password fields: Authentik checks on its own that they match
   - model: authentik_stages_prompt.prompt
-    id: alta-field-password-repeat
+    id: add-user-password-repeat
     identifiers:
-      name: headscale-alta-password-repeat
+      name: headscale-easy-add-user-password-repeat
     attrs:
       field_key: password_repeat
-      label: Repite la contraseña
+      label: Repeat password
       type: password
       required: true
-      placeholder: Repite la contraseña
+      placeholder: Repeat password
       order: 4
   - model: authentik_stages_prompt.prompt
-    id: alta-field-rol
+    id: add-user-role
     identifiers:
-      name: headscale-alta-rol
+      name: headscale-easy-add-user-role
     attrs:
-      # 'rol' no es un campo de usuario: user_write lo descarta y sólo lo lee
-      # la política alta-grupo para elegir el grupo.
+      # 'rol' is not a user field: user_write discards it; only the
+      # add-user-group policy reads it to pick the group.
       field_key: rol
-      label: Acceso
+      label: Access
       type: radio-button-group
       required: true
       placeholder_expression: true
       placeholder: |
         return [
-            {"label": "VPN: puede conectar sus dispositivos", "value": "headscale-users"},
-            {"label": "VPN + administrador de la VPN", "value": "vpn-admins"},
+            {"label": "Member: can connect their own devices", "value": "headscale-users"},
+            {"label": "Admin: manages the whole tailnet", "value": "vpn-admins"},
         ]
       initial_value: headscale-users
       order: 5
 
   - model: authentik_stages_prompt.promptstage
-    id: alta-prompt
+    id: add-user-prompt
     identifiers:
-      name: headscale-alta-prompt
+      name: headscale-easy-add-user-prompt
     attrs:
       fields:
-        - !KeyOf alta-field-name
-        - !KeyOf alta-field-username
-        - !KeyOf alta-field-email
-        - !KeyOf alta-field-password
-        - !KeyOf alta-field-password-repeat
-        - !KeyOf alta-field-rol
+        - !KeyOf add-user-name
+        - !KeyOf add-user-username
+        - !KeyOf add-user-email
+        - !KeyOf add-user-password
+        - !KeyOf add-user-password-repeat
+        - !KeyOf add-user-role
       validation_policies:
-        - !KeyOf alta-password-policy
+        - !KeyOf add-user-password-policy
 
-  # Crea SIEMPRE un usuario nuevo: el admin que rellena el formulario tiene la
-  # sesión abierta y, sin always_create, se escribirían los datos sobre él.
+  # ALWAYS creates a new user: the admin filling in the form is signed in and,
+  # without always_create, the data would be written over their own account.
   - model: authentik_stages_user_write.userwritestage
-    id: alta-write
+    id: add-user-write
     identifiers:
-      name: headscale-alta-write
+      name: headscale-easy-add-user-write
     attrs:
       user_creation_mode: always_create
       create_users_as_inactive: false
       user_type: internal
 
-  # Pantalla final: confirma el alta; "Continuar" lleva a Usuarios de Mi VPN
+  # Final screen: confirms; "Continue" goes to Users in the web UI
   - model: authentik_stages_prompt.prompt
-    id: alta-field-done
+    id: add-user-done-field
     identifiers:
-      name: headscale-alta-done
+      name: headscale-easy-add-user-done
     attrs:
-      field_key: alta_done
-      label: Alta completada
+      field_key: done
+      label: User created
       type: alert_info
       required: false
       initial_value_expression: true
       initial_value: |
-        return f"Usuario «{prompt_context.get('username', '')}» creado. Ya puede entrar en Mi VPN y conectar sus dispositivos. Para dar de alta a otra persona, vuelve a abrir /alta-usuario."
+        return f"User «{prompt_context.get('username', '')}» created. They can now sign in to Headscale Easy and connect their devices. To add someone else, open /add-user again."
       order: 0
   - model: authentik_stages_prompt.promptstage
-    id: alta-done
+    id: add-user-done
     identifiers:
-      name: headscale-alta-done
+      name: headscale-easy-add-user-done
     attrs:
       fields:
-        - !KeyOf alta-field-done
+        - !KeyOf add-user-done-field
   - model: authentik_stages_redirect.redirectstage
-    id: alta-again
+    id: add-user-back
     identifiers:
-      name: headscale-alta-again
+      name: headscale-easy-add-user-back
     attrs:
       mode: static
-      target_static: !Format ["%s/mi-vpn/users", !Context public_url]
+      target_static: !Format ["%s/admin/users", !Context public_url]
       keep_context: false
 
   - model: authentik_flows.flow
-    id: flow-alta
+    id: flow-add-user
     identifiers:
-      slug: headscale-alta-usuario
+      slug: headscale-easy-add-user
     attrs:
-      name: "Headscale: alta de usuario"
-      title: Nuevo usuario
+      name: "Headscale Easy: add user"
+      title: Add user
       designation: enrollment
-      # Sólo con sesión iniciada; quién exactamente lo deciden las bindings
+      # Signed-in users only; which ones is decided by the bindings
       authentication: require_authenticated
       denied_action: message
       policy_engine_mode: any
       layout: stacked
 
-  # Quién puede usar el formulario
+  # Who may use the form
   - model: authentik_policies.policybinding
     identifiers:
-      target: !KeyOf flow-alta
+      target: !KeyOf flow-add-user
       order: 0
     attrs:
       group: !KeyOf group-admins
   - model: authentik_policies.policybinding
     identifiers:
-      target: !KeyOf flow-alta
+      target: !KeyOf flow-add-user
       order: 1
     attrs:
       group: !Find [authentik_core.group, [name, "authentik Admins"]]
 
   - model: authentik_flows.flowstagebinding
     identifiers:
-      target: !KeyOf flow-alta
+      target: !KeyOf flow-add-user
       order: 10
     attrs:
-      stage: !KeyOf alta-prompt
+      stage: !KeyOf add-user-prompt
   - model: authentik_flows.flowstagebinding
-    id: alta-write-binding
+    id: add-user-write-binding
     identifiers:
-      target: !KeyOf flow-alta
+      target: !KeyOf flow-add-user
       order: 20
     attrs:
-      stage: !KeyOf alta-write
-      # La política de grupo necesita los datos del formulario, que no
-      # existen al planificar: se evalúa justo antes de esta etapa.
+      stage: !KeyOf add-user-write
+      # The group policy needs the form data, which does not exist at planning
+      # time: it is evaluated right before this stage.
       evaluate_on_plan: false
       re_evaluate_policies: true
   - model: authentik_flows.flowstagebinding
     identifiers:
-      target: !KeyOf flow-alta
+      target: !KeyOf flow-add-user
       order: 30
     attrs:
-      stage: !KeyOf alta-done
+      stage: !KeyOf add-user-done
   - model: authentik_flows.flowstagebinding
     identifiers:
-      target: !KeyOf flow-alta
+      target: !KeyOf flow-add-user
       order: 40
     attrs:
-      stage: !KeyOf alta-again
+      stage: !KeyOf add-user-back
 
-  # Traduce el "Acceso" elegido a un grupo. user_write añade al usuario los
-  # grupos que encuentra en el contexto del flujo bajo "groups".
+  # Turns the chosen access into a group. user_write adds the user to the
+  # groups found in the flow context under "groups".
   - model: authentik_policies_expression.expressionpolicy
-    id: alta-grupo
+    id: add-user-group
     identifiers:
-      name: headscale-alta-grupo
+      name: headscale-easy-add-user-group
     attrs:
       expression: |
         from authentik.core.models import Group
 
         rol = request.context.get("prompt_data", {}).get("rol")
         if rol not in ("headscale-users", "vpn-admins"):
-            ak_message("Acceso no válido")
+            ak_message("Invalid access")
             return False
         request.context["flow_plan"].context["groups"] = [Group.objects.get(name=rol)]
         return True
   - model: authentik_policies.policybinding
     identifiers:
-      target: !KeyOf alta-write-binding
+      target: !KeyOf add-user-write-binding
       order: 0
     attrs:
-      policy: !KeyOf alta-grupo
+      policy: !KeyOf add-user-group
 
-  # Acceso directo en la biblioteca de aplicaciones de Authentik, visible sólo
-  # para quien puede usar el formulario
+  # Shortcut in the Authentik app library, visible only to who may use it
   - model: authentik_core.application
-    id: app-alta
+    id: app-add-user
     identifiers:
-      slug: headscale-alta-usuario
+      slug: headscale-easy-add-user
     attrs:
-      name: Alta de usuarios
-      meta_launch_url: !Format ["%s/alta-usuario", !Context public_url]
-      meta_description: "Crear cuentas para la VPN"
+      name: Add user
+      meta_launch_url: !Format ["%s/add-user", !Context public_url]
+      meta_description: "Create accounts for the tailnet"
       policy_engine_mode: any
   - model: authentik_policies.policybinding
     identifiers:
-      target: !KeyOf app-alta
+      target: !KeyOf app-add-user
       order: 0
     attrs:
       group: !KeyOf group-admins
   - model: authentik_policies.policybinding
     identifiers:
-      target: !KeyOf app-alta
+      target: !KeyOf app-add-user
       order: 1
     attrs:
       group: !Find [authentik_core.group, [name, "authentik Admins"]]
+
+  # ---------------------------------------------------------------------------
+  # Clean-up of earlier versions (Headplane, "Mi VPN", Spanish add-user flow)
+  # ---------------------------------------------------------------------------
+  - model: authentik_core.application
+    state: absent
+    identifiers:
+      slug: headplane
+  - model: authentik_providers_oauth2.oauth2provider
+    state: absent
+    identifiers:
+      name: headplane
+  - model: authentik_providers_oauth2.scopemapping
+    state: absent
+    identifiers:
+      name: "Headplane: rol"
+  - model: authentik_core.group
+    state: absent
+    identifiers:
+      name: headplane-admins
+  - model: authentik_core.application
+    state: absent
+    identifiers:
+      slug: mi-vpn
+  - model: authentik_providers_oauth2.oauth2provider
+    state: absent
+    identifiers:
+      name: mi-vpn
+  - model: authentik_core.application
+    state: absent
+    identifiers:
+      slug: headscale-alta-usuario
+  - model: authentik_flows.flow
+    state: absent
+    identifiers:
+      slug: headscale-alta-usuario
+  - model: authentik_policies_expression.expressionpolicy
+    state: absent
+    identifiers:
+      name: headscale-alta-grupo
+  - model: authentik_stages_prompt.promptstage
+    state: absent
+    identifiers:
+      name: headscale-alta-prompt
+  - model: authentik_stages_prompt.promptstage
+    state: absent
+    identifiers:
+      name: headscale-alta-done
+  - model: authentik_stages_user_write.userwritestage
+    state: absent
+    identifiers:
+      name: headscale-alta-write
+  - model: authentik_stages_redirect.redirectstage
+    state: absent
+    identifiers:
+      name: headscale-alta-again
+  - model: authentik_policies_password.passwordpolicy
+    state: absent
+    identifiers:
+      name: "Headscale: contraseña de alta"
+  - model: authentik_stages_prompt.prompt
+    state: absent
+    identifiers:
+      name: headscale-alta-name
+  - model: authentik_stages_prompt.prompt
+    state: absent
+    identifiers:
+      name: headscale-alta-username
+  - model: authentik_stages_prompt.prompt
+    state: absent
+    identifiers:
+      name: headscale-alta-email
+  - model: authentik_stages_prompt.prompt
+    state: absent
+    identifiers:
+      name: headscale-alta-password
+  - model: authentik_stages_prompt.prompt
+    state: absent
+    identifiers:
+      name: headscale-alta-password-repeat
+  - model: authentik_stages_prompt.prompt
+    state: absent
+    identifiers:
+      name: headscale-alta-rol
+  - model: authentik_stages_prompt.prompt
+    state: absent
+    identifiers:
+      name: headscale-alta-done

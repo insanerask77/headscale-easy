@@ -1,117 +1,88 @@
-# Makefile para Headscale + Mi VPN
-# Comandos útiles para gestionar el proyecto
+# Headscale Easy — https://github.com/insanerask77/headscale-easy
+# Run `make` to list the targets.
 
-.PHONY: help install uninstall clean validate status logs restart backup update
+.DEFAULT_GOAL := help
+.PHONY: help install uninstall purge validate lint i18n status logs restart health \
+        up down ps users nodes routes user key apikey backup update config
 
-help: ## Mostrar esta ayuda
-	@echo "Headscale + Mi VPN - Comandos disponibles:"
+help: ## Show this help
+	@echo "Headscale Easy — make targets"
 	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
-	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-install: ## Ejecutar el instalador interactivo
+# --- Setup --------------------------------------------------------------------
+
+install: ## Run the interactive installer (also to reconfigure)
 	@./install.sh
 
-uninstall: ## Desinstalar (mantiene datos)
+uninstall: ## Remove the containers (keeps data)
 	@./uninstall.sh
 
-purge: ## Desinstalar y eliminar todos los datos
+purge: ## Remove the containers AND all data
 	@./uninstall.sh --purge
 
-clean: ## Limpiar archivos generados (no afecta contenedores corriendo)
-	@echo "Limpiando archivos generados..."
-	@rm -f .env headscale-config.yaml Caddyfile docker-compose.override.yml
-	@rm -rf data/
-	@echo "✓ Archivos limpiados"
+# --- Development ------------------------------------------------------------------
 
-validate: ## Validar estructura del proyecto
+validate: ## Check the project structure and configuration
 	@./scripts/validate.sh
 
-# Gestión de servicios
+lint: ## shellcheck + Python syntax + i18n coverage
+	@shellcheck -S warning install.sh uninstall.sh scripts/*.sh
+	@python3 -m py_compile web/*.py
+	@python3 scripts/check_i18n.py
 
-status: ## Ver estado de servicios
-	@./scripts/utils.sh status
+i18n: ## Report untranslated UI strings
+	@python3 scripts/check_i18n.py
 
-logs: ## Ver logs de todos los servicios
-	@./scripts/utils.sh logs
+# --- Services ---------------------------------------------------------------------
 
-logs-headscale: ## Ver logs solo de Headscale
-	@./scripts/utils.sh logs headscale
+up: ## Start the stack
+	@docker compose up -d
 
-logs-portal: ## Ver logs solo del panel Mi VPN
-	@./scripts/utils.sh logs portal
-
-restart: ## Reiniciar servicios
-	@./scripts/utils.sh restart
-
-health: ## Verificar estado de salud de servicios
-	@./scripts/utils.sh health
-
-# Docker Compose directo
-
-up: ## Levantar servicios (detecta SSL automáticamente)
-	@if [ -f .env ]; then \
-		. .env && \
-		if [ "$$ENABLE_SSL" = "true" ]; then \
-			docker compose --profile ssl up -d; \
-		else \
-			docker compose up -d; \
-		fi; \
-	else \
-		echo "Error: .env no existe. Ejecuta 'make install' primero."; \
-		exit 1; \
-	fi
-
-down: ## Detener servicios
+down: ## Stop the stack
 	@docker compose down
 
-ps: ## Ver servicios corriendo
+ps: ## Container status
 	@docker compose ps
 
-# Gestión de Headscale
+status: ps
 
-user-create: ## Crear usuario en Headscale (user=nombre)
-	@if [ -z "$(user)" ]; then \
-		echo "Uso: make user-create user=nombre"; \
-		exit 1; \
-	fi
-	@./scripts/utils.sh users:create $(user)
+logs: ## Follow logs (service=name for one)
+	@./scripts/utils.sh logs $(service)
 
-users-list: ## Listar usuarios de Headscale
-	@./scripts/utils.sh users:list
+restart: ## Restart services (service=name for one)
+	@./scripts/utils.sh restart $(service)
 
-nodes-list: ## Listar nodos de Headscale
-	@./scripts/utils.sh nodes:list
+health: ## Health of every container
+	@./scripts/utils.sh health
 
-routes-list: ## Listar rutas de Headscale
-	@./scripts/utils.sh routes:list
-
-preauth-key: ## Generar clave de pre-autenticación (user=nombre)
-	@if [ -z "$(user)" ]; then \
-		echo "Uso: make preauth-key user=nombre"; \
-		exit 1; \
-	fi
-	@./scripts/utils.sh preauth:create $(user)
-
-# Utilidades
-
-backup: ## Crear backup de datos
-	@./scripts/utils.sh backup
-
-update: ## Actualizar imágenes de Docker
+update: ## Pull new images and recreate containers
 	@./scripts/utils.sh update
 
-config-show: ## Mostrar configuración actual (.env)
+backup: ## Back up config and data (dir=path, default ./backups)
+	@./scripts/utils.sh backup $(dir)
+
+config: ## Show .env with secrets hidden
 	@./scripts/utils.sh config:show
 
-# Desarrollo
+# --- Headscale --------------------------------------------------------------------
 
-dev-shell-headscale: ## Abrir shell en contenedor Headscale
-	@docker exec -it headscale /bin/sh
+users: ## List users
+	@./scripts/utils.sh users:list
 
-dev-shell-portal: ## Abrir shell en el contenedor del panel Mi VPN
-	@docker exec -it mi-vpn /bin/sh
+nodes: ## List machines
+	@./scripts/utils.sh nodes:list $(user)
 
-dev-test: ## Ejecutar pruebas de configuración
-	@echo "Ejecutando pruebas de generación de configuración..."
-	@bash -c 'source scripts/test-config-generation.sh 2>/dev/null || echo "Script de prueba no encontrado"'
+routes: ## List subnet routes and exit nodes
+	@./scripts/utils.sh routes:list
+
+user: ## Create a user (name=...)
+	@test -n "$(name)" || { echo "Usage: make user name=alice"; exit 1; }
+	@./scripts/utils.sh users:create $(name)
+
+key: ## Create a reusable 24h auth key (user=...)
+	@test -n "$(user)" || { echo "Usage: make key user=alice"; exit 1; }
+	@./scripts/utils.sh preauth:create $(user)
+
+apikey: ## Create a Headscale API key
+	@./scripts/utils.sh apikey:create

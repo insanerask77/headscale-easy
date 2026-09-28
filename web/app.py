@@ -1,17 +1,21 @@
-"""Mi VPN: el panel de la VPN, con la estructura de la consola de Tailscale.
+"""Headscale Easy — the web UI for Headscale.
 
-  - Usuarios normales: ven y gestionan sólo SUS dispositivos y claves.
-  - Administradores: todos los dispositivos, usuarios, rutas, tags, política
-    de Control de acceso, DNS y API keys. Sustituye a Headplane.
+  - Members see and manage only THEIR machines and keys.
+  - Admins manage everything: machines, users, routes, tags, access control
+    policy, DNS and API keys.
 
-Inicio de sesión:
-  - OIDC (Authentik o el proveedor propio de Headscale), código + PKCE. El rol
-    sale de los grupos (PORTAL_ADMIN_GROUPS) o del email (PORTAL_ADMIN_EMAILS).
-  - API key de Headscale (PORTAL_API_KEY_LOGIN=true): sesión de administrador,
-    para instalaciones sin OIDC o como acceso de emergencia.
+Sign-in:
+  - OIDC (Authentik or your own provider), authorization code + PKCE. The role
+    comes from the groups (PORTAL_ADMIN_GROUPS) or the email
+    (PORTAL_ADMIN_EMAILS).
+  - Headscale API key (PORTAL_API_KEY_LOGIN=true): an admin session, for
+    installs without OIDC or as emergency access.
 
-Toda operación comprueba en el servidor el rol y, para usuarios normales, que
-el dispositivo o la clave es suyo. Sólo biblioteca estándar de Python.
+Every action checks the role on the server and, for members, that the machine
+or key is theirs. Standard library only.
+
+Headscale Easy · https://github.com/insanerask77/headscale-easy
+Made by Rafa Madolell (@insanerask77) · https://buymeacoffee.com/insanerask
 """
 
 from __future__ import annotations
@@ -34,14 +38,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-log = logging.getLogger("mi-vpn")
+log = logging.getLogger("headscale-easy")
 
-import headscale as hs  # noqa: E402  (después de configurar el logging)
-import views  # noqa: E402
-import views_admin  # noqa: E402
+import admin_pages  # noqa: E402  (after logging is configured)
+import headscale as hs  # noqa: E402
+import pages  # noqa: E402
+from i18n import LANGUAGES, _, pick_lang, set_lang  # noqa: E402
+from ui import BASE, esc, message_page  # noqa: E402
+from version import VERSION  # noqa: E402
 
 # -----------------------------------------------------------------------------
-# Configuración (entorno)
+# Configuration (environment)
 # -----------------------------------------------------------------------------
 
 
@@ -50,7 +57,6 @@ def _csv(name: str, default: str = "") -> set[str]:
 
 
 PUBLIC_URL = os.environ["PUBLIC_URL"].rstrip("/")
-BASE = views.BASE
 OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "")
 OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID", "")
 OIDC_CLIENT_SECRET = os.environ.get("OIDC_CLIENT_SECRET", "")
@@ -69,7 +75,7 @@ REDIRECT_URI = f"{PUBLIC_URL}{BASE}/callback"
 SERVER_HOST = urllib.parse.urlparse(PUBLIC_URL).hostname or ""
 CTX = {"public_url": PUBLIC_URL, "tailnet": TAILNET_NAME, "authentik": AUTHENTIK, "server_host": SERVER_HOST}
 
-# Nombres válidos: given name de nodo (etiqueta DNS) y usuario de Headscale
+# Valid names: node given name (DNS label) and Headscale user name
 NODE_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 USER_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._@-]{0,62}$")
 TAG_RE = re.compile(r"^tag:[a-z0-9][a-z0-9-]{0,62}$")
@@ -80,7 +86,7 @@ EXIT_ROUTES = ["0.0.0.0/0", "::/0"]
 
 
 # -----------------------------------------------------------------------------
-# Cookies firmadas
+# Signed cookies
 # -----------------------------------------------------------------------------
 
 def sign(data: dict) -> str:
@@ -100,16 +106,14 @@ def unsign(value: str | None) -> dict | None:
         data = json.loads(base64.urlsafe_b64decode(payload.encode()))
     except ValueError:
         return None
-    if data.get("exp", 0) < time.time():
-        return None
-    return data
+    return data if data.get("exp", 0) >= time.time() else None
 
 
 _discovery: dict | None = None
 
 
 def discovery() -> dict:
-    """Configuración OIDC del proveedor (se cachea tras la primera lectura)."""
+    """OIDC configuration of the provider (cached after the first read)."""
     global _discovery
     if _discovery is None:
         _discovery = hs.http_json("GET", OIDC_ISSUER.rstrip("/") + "/.well-known/openid-configuration")
@@ -117,23 +121,21 @@ def discovery() -> dict:
 
 
 # -----------------------------------------------------------------------------
-# Datos para las vistas
+# Data for the pages
 # -----------------------------------------------------------------------------
 
-def to_machines(nodes: list[dict]) -> list[views.Machine]:
+def to_machines(nodes: list[dict]) -> list[pages.Machine]:
     details = hs.host_details([str(n["id"]) for n in nodes])
     dns = hs.dns_config()
     latest = hs.latest_tailscale_version()
     regions = hs.derp_regions()
-    machines = [views.Machine(n, details.get(str(n["id"])), dns, latest, regions) for n in nodes]
+    machines = [pages.Machine(n, details.get(str(n["id"])), dns, latest, regions) for n in nodes]
     return sorted(machines, key=lambda m: (not m.online, m.name))
 
 
 def my_user(session: dict) -> dict | None:
-    """Usuario de Headscale de la sesión (None para sesiones con API key)."""
-    if not session.get("sub"):
-        return None
-    return hs.user_for_sub(session["sub"])
+    """The session's Headscale user (None for API key sessions)."""
+    return hs.user_for_sub(session["sub"]) if session.get("sub") else None
 
 
 def visible_nodes(session: dict) -> list[dict]:
@@ -144,30 +146,30 @@ def visible_nodes(session: dict) -> list[dict]:
 
 
 def node_for(session: dict, node_id: str) -> dict | None:
-    """El nodo si la sesión puede gestionarlo: cualquiera para un admin, sólo
-    los propios para un usuario. Toda acción sobre un nodo pasa por aquí."""
+    """The node if the session may manage it: any node for an admin, only
+    their own for a member. Every action on a node goes through here."""
     if session.get("admin"):
         return hs.get_node(node_id)
     return hs.owned_node(my_user(session), node_id)
 
 
 def dns_ctx() -> dict:
-    """¿Se puede editar el DNS desde aquí? Requiere el socket de Docker y el
-    bloque DNS marcado en config.yaml."""
+    """Can DNS be edited from here? Needs the Docker socket and the marked DNS
+    block in config.yaml."""
     ctx = dict(CTX)
     try:
         with open(hs.HEADSCALE_CONFIG, encoding="utf-8") as fh:
-            marked = hs.DNS_BEGIN in fh.read()
+            marked = hs.dns_block_present(fh.read())
         writable = os.access(hs.HEADSCALE_CONFIG, os.W_OK)
     except OSError:
         marked = writable = False
     if not marked:
-        ctx["dns_reason"] = "config.yaml no tiene el bloque DNS gestionado: reejecuta ./install.sh una vez para activarlo."
+        ctx["dns_reason"] = _("config.yaml has no managed DNS block: run ./install.sh once to enable it.")
     elif not writable:
-        ctx["dns_reason"] = "Mi VPN no tiene permiso de escritura sobre config.yaml."
+        ctx["dns_reason"] = _("Headscale Easy cannot write config.yaml.")
     elif not hs.docker_available():
-        ctx["dns_reason"] = "Mi VPN no tiene acceso a Docker para reiniciar Headscale."
-    ctx["dns_editable"] = marked and writable and "dns_reason" not in ctx
+        ctx["dns_reason"] = _("Headscale Easy has no access to Docker to restart Headscale.")
+    ctx["dns_editable"] = "dns_reason" not in ctx
     return ctx
 
 
@@ -175,15 +177,19 @@ def lines(value: str) -> list[str]:
     return [x.strip() for x in re.split(r"[\n,]", value or "") if x.strip()]
 
 
+def iso_in(days: int) -> str:
+    return (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 # -----------------------------------------------------------------------------
 # HTTP
 # -----------------------------------------------------------------------------
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "mi-vpn"
+    server_version = "headscale-easy"
     sys_version = ""
 
-    # --- respuesta ---
+    # --- responses ---
     def send(self, status: int, body: str | bytes, ctype="text/html; charset=utf-8", headers=None):
         data = body.encode() if isinstance(body, str) else body
         self.send_response(status)
@@ -210,7 +216,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def fail(self, status: int, title: str, text: str):
-        self.send(status, views.message_page(title, text))
+        self.send(status, message_page(title, text))
 
     def cookie(self, name: str) -> str | None:
         jar = cookies.SimpleCookie(self.headers.get("Cookie", ""))
@@ -224,25 +230,29 @@ class Handler(BaseHTTPRequestHandler):
         return ("Set-Cookie", "; ".join(attrs))
 
     def session(self) -> dict | None:
-        return unsign(self.cookie("mivpn_session"))
+        return unsign(self.cookie("hse_session"))
 
     def form(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
         if length > 262144:
             return {}
         data = urllib.parse.parse_qs(self.rfile.read(length).decode(), keep_blank_values=True)
-        # 'route' puede repetirse (checkboxes)
+        # 'route' can repeat (checkboxes)
         return {k: (v if k == "route" else v[0]) for k, v in data.items()}
 
     def log_message(self, fmt, *args):
         log.info("%s %s", self.address_string(), fmt % args)
+
+    def set_request_lang(self):
+        set_lang(pick_lang(self.cookie("hse_lang"), self.headers.get("Accept-Language")))
 
     # --- GET ---
     def do_HEAD(self):
         self.do_GET()
 
     def do_GET(self):
-        path, _, query = self.path.partition("?")
+        self.set_request_lang()
+        path, _q, query = self.path.partition("?")
         params = dict(urllib.parse.parse_qsl(query))
         flash = params.get("m", "")
         try:
@@ -253,7 +263,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == f"{BASE}/login":
                 if SSO and not API_KEY_LOGIN:
                     return self.start_sso()
-                return self.send(200, views_admin.login_page(SSO, API_KEY_LOGIN))
+                return self.send(200, admin_pages.login_page(SSO, API_KEY_LOGIN))
             if path == f"{BASE}/login/sso" and SSO:
                 return self.start_sso()
             if path == f"{BASE}/callback" and SSO:
@@ -269,50 +279,56 @@ class Handler(BaseHTTPRequestHandler):
             if path == f"{BASE}/machines":
                 users = hs.all_users() if admin else None
                 has_user = True if admin else my_user(session) is not None
-                page = views.machines_page(session, CTX, to_machines(visible_nodes(session)), has_user, flash, users)
-                return self.send(200, page)
+                return self.send(200, pages.machines_page(session, CTX, to_machines(visible_nodes(session)),
+                                                          has_user, flash, users))
+            if path == f"{BASE}/machines.csv":
+                data = pages.machines_csv(to_machines(visible_nodes(session)))
+                return self.send(200, data, "text/csv; charset=utf-8",
+                                 [("Content-Disposition", 'attachment; filename="machines.csv"')])
             m = re.fullmatch(rf"{BASE}/machines/(\d+)", path)
             if m:
                 node = node_for(session, m.group(1))
                 if node is None:
                     return self.redirect(f"{BASE}/machines?m=not-found")
-                return self.send(200, views.machine_page(session, CTX, to_machines([node])[0], flash))
+                return self.send(200, pages.machine_page(session, CTX, to_machines([node])[0], flash))
             if path == f"{BASE}/add":
-                return self.send(200, views.add_page(session, CTX))
+                return self.send(200, pages.add_page(session, CTX))
             if path == f"{BASE}/dns":
-                ctx = dns_ctx() if admin else CTX
-                return self.send(200, views.dns_page(session, ctx, hs.dns_config(),
+                return self.send(200, pages.dns_page(session, dns_ctx() if admin else CTX, hs.dns_config(),
                                                      to_machines(visible_nodes(session)), flash=flash))
             if path in (f"{BASE}/settings", f"{BASE}/settings/"):
                 return self.redirect(f"{BASE}/settings/general")
             if path == f"{BASE}/settings/general":
-                return self.send(200, views.general_page(session, CTX))
+                return self.send(200, pages.general_page(session, CTX, flash))
             if path == f"{BASE}/settings/keys":
-                return self.keys_view(session, flash)
+                return self.keys_view(session, flash, preselect=params.get("user", ""))
 
-            # --- sólo admins ---
+            # --- admins only ---
             if path in (f"{BASE}/users", f"{BASE}/acl") and not admin:
-                return self.fail(403, "Sin permiso", "Esta sección es sólo para administradores.")
+                return self.fail(403, _("No permission"), _("This section is for admins only."))
             if path == f"{BASE}/users":
-                return self.send(200, views_admin.users_page(session, CTX, hs.all_users(), hs.all_nodes(), flash))
+                return self.send(200, admin_pages.users_page(session, CTX, hs.all_users(), hs.all_nodes(), flash))
             if path == f"{BASE}/acl":
-                return self.send(200, views_admin.acl_page(session, CTX, hs.get_policy(), flash))
-            self.fail(404, "No encontrado", "Esa página no existe.")
-        except Exception:  # noqa: BLE001 - la UI no debe mostrar trazas
-            log.exception("error en GET %s", path)
-            self.fail(500, "Algo ha fallado", "No se pudo completar la operación. Vuelve a intentarlo en unos segundos.")
+                return self.send(200, admin_pages.acl_page(session, CTX, hs.get_policy(), flash))
+            self.fail(404, _("Not found"), _("That page does not exist."))
+        except Exception:  # noqa: BLE001 - never show tracebacks in the UI
+            log.exception("error on GET %s", path)
+            self.fail(500, _("Something went wrong"), _("The operation could not be completed. Try again in a few seconds."))
 
-    def keys_view(self, session: dict, flash: str, new_key: dict | None = None, new_apikey: str = ""):
+    def keys_view(self, session: dict, flash: str, new_key: dict | None = None, new_apikey: str = "",
+                  preselect: str = ""):
         if session.get("admin"):
-            page = views.keys_page(session, CTX, hs.all_keys(), flash, new_key, users=hs.all_users(),
-                                   apikeys=hs.api_keys(), own_prefix=hs.own_api_key_prefix(), new_apikey=new_apikey)
+            page = pages.keys_page(session, CTX, hs.all_keys(), flash, new_key, users=hs.all_users(),
+                                   apikeys=hs.api_keys(), own_prefix=hs.own_api_key_prefix(),
+                                   new_apikey=new_apikey, preselect=preselect)
         else:
             user = my_user(session)
-            page = views.keys_page(session, CTX, hs.user_keys(user) if user else None, flash, new_key)
+            page = pages.keys_page(session, CTX, hs.user_keys(user) if user else None, flash, new_key)
         self.send(200, page)
 
     # --- POST ---
     def do_POST(self):
+        self.set_request_lang()
         path = self.path.partition("?")[0]
         try:
             if path == f"{BASE}/login/apikey" and API_KEY_LOGIN:
@@ -322,12 +338,19 @@ class Handler(BaseHTTPRequestHandler):
             if not session:
                 return self.redirect(f"{BASE}/login")
             form = self.form()
-            # CSRF: el token del formulario debe coincidir con el de la sesión
+            # CSRF: the form token must match the session's
             if not hmac.compare_digest(str(form.get("csrf", "")), session["csrf"]):
-                return self.fail(403, "Sesión caducada", "Recarga la página e inténtalo de nuevo.")
+                return self.fail(403, _("Session expired"), _("Reload the page and try again."))
 
             if path == f"{BASE}/logout":
                 return self.logout(session)
+            if path == f"{BASE}/settings/language":
+                lang = str(form.get("lang", ""))
+                back = self.headers.get("Referer", "")
+                dest = urllib.parse.urlparse(back).path if back.startswith(PUBLIC_URL) else f"{BASE}/settings/general"
+                if not dest.startswith(BASE):
+                    dest = f"{BASE}/settings/general"
+                return self.redirect(dest, [self.set_cookie("hse_lang", lang if lang in LANGUAGES else "", 31536000)])
             if path == f"{BASE}/keys":
                 return self.create_key(session, form)
             m = re.fullmatch(rf"{BASE}/keys/(\d+)/revoke", path)
@@ -337,11 +360,11 @@ class Handler(BaseHTTPRequestHandler):
             if m:
                 return self.machine_action(session, m.group(1), m.group(2), form)
 
-            # --- sólo admins ---
+            # --- admins only ---
             if not session.get("admin"):
-                return self.fail(403, "Sin permiso", "Esta acción es sólo para administradores.")
+                return self.fail(403, _("No permission"), _("This action is for admins only."))
             if path == f"{BASE}/machines/register":
-                return self.register_node(form)
+                return self.register_node(session, form)
             if path == f"{BASE}/users":
                 return self.create_user(session, form)
             m = re.fullmatch(rf"{BASE}/users/(\d+)/(rename|delete)", path)
@@ -356,21 +379,23 @@ class Handler(BaseHTTPRequestHandler):
             m = re.fullmatch(rf"{BASE}/apikeys/(\d+)/expire", path)
             if m:
                 return self.expire_apikey(m.group(1))
-            self.send(404, "No encontrado", "text/plain")
+            self.send(404, "Not found", "text/plain")
         except Exception:  # noqa: BLE001
-            log.exception("error en POST %s", path)
+            log.exception("error on POST %s", path)
             self.redirect(f"{BASE}/machines?m=failed")
 
-    # --- estáticos ---
+    # --- static files ---
     def static(self, name: str):
         target = (STATIC_DIR / name).resolve()
         if STATIC_DIR.resolve() not in target.parents or not target.is_file():
-            return self.send(404, "No encontrado", "text/plain")
+            return self.send(404, "Not found", "text/plain")
         ctype = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
-        # Las URLs llevan ?v=<hash del contenido>: se pueden cachear sin límite
+        if target.suffix == ".woff2":
+            ctype = "font/woff2"
+        # URLs carry ?v=<content hash>: safe to cache forever
         self.send(200, target.read_bytes(), ctype, [("Cache-Control", "public, max-age=31536000, immutable")])
 
-    # --- inicio de sesión ---
+    # --- sign in ---
     def start_sso(self):
         verifier = secrets.token_urlsafe(48)
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
@@ -386,12 +411,12 @@ class Handler(BaseHTTPRequestHandler):
             "code_challenge_method": "S256",
         })
         tx = sign({"state": state, "verifier": verifier, "exp": time.time() + 600})
-        self.redirect(url, [self.set_cookie("mivpn_oidc", tx, 600)])
+        self.redirect(url, [self.set_cookie("hse_oidc", tx, 600)])
 
     def callback(self, params: dict):
-        tx = unsign(self.cookie("mivpn_oidc"))
+        tx = unsign(self.cookie("hse_oidc"))
         if not tx or not params.get("code") or not hmac.compare_digest(params.get("state", ""), tx["state"]):
-            return self.fail(400, "No se pudo iniciar sesión", "El inicio de sesión caducó o no es válido. Vuelve a intentarlo.")
+            return self.fail(400, _("Could not sign in"), _("The sign-in expired or is not valid. Please try again."))
 
         d = discovery()
         basic = base64.b64encode(f"{OIDC_CLIENT_ID}:{OIDC_CLIENT_SECRET}".encode()).decode()
@@ -404,12 +429,11 @@ class Handler(BaseHTTPRequestHandler):
             "redirect_uri": REDIRECT_URI,
             "code_verifier": tx["verifier"],
         }).encode())
-        # La identidad se toma de userinfo, pedido directamente al proveedor
-        # con el access token: no hace falta validar la firma del ID token.
+        # Identity comes from userinfo, requested directly from the provider
+        # with the access token: no need to verify the ID token signature.
         info = hs.http_json("GET", d["userinfo_endpoint"], headers={"Authorization": f"Bearer {token['access_token']}"})
         groups = sorted(info.get("groups") or [])
         email = (info.get("email") or "").lower()
-        admin = bool(set(groups) & ADMIN_GROUPS) or (email and email in ADMIN_EMAILS)
         self.start_session({
             "kind": "oidc",
             "sub": info["sub"],
@@ -417,7 +441,7 @@ class Handler(BaseHTTPRequestHandler):
             "name": info.get("name", ""),
             "email": info.get("email", ""),
             "groups": groups,
-            "admin": bool(admin),
+            "admin": bool(set(groups) & ADMIN_GROUPS) or bool(email and email in ADMIN_EMAILS),
             "idt": token.get("id_token", ""),
         })
 
@@ -432,24 +456,24 @@ class Handler(BaseHTTPRequestHandler):
             except (urllib.error.URLError, OSError):
                 valid = False
         if not valid:
-            time.sleep(1)  # frena intentos de adivinar
-            log.warning("login con API key rechazado desde %s", self.address_string())
-            return self.send(401, views_admin.login_page(SSO, API_KEY_LOGIN, "API key no válida o caducada."))
-        log.info("login con API key (%s…)", key[:14])
-        self.start_session({"kind": "apikey", "sub": "", "username": "admin", "name": "Administrador",
+            time.sleep(1)  # slow down guessing
+            log.warning("API key sign-in rejected from %s", self.address_string())
+            return self.send(401, admin_pages.login_page(SSO, API_KEY_LOGIN, _("Invalid or expired API key.")))
+        log.info("sign-in with API key (%s…)", key[:14])
+        self.start_session({"kind": "apikey", "sub": "", "username": "", "name": _("Administrator"),
                             "email": "", "groups": [], "admin": True})
 
     def start_session(self, data: dict):
         data.update(csrf=secrets.token_urlsafe(24), exp=time.time() + SESSION_TTL)
-        log.info("login: %s (%s%s)", data["username"] or data["name"], data["kind"], ", admin" if data["admin"] else "")
+        log.info("sign-in: %s (%s%s)", data["username"] or data["name"], data["kind"], ", admin" if data["admin"] else "")
         self.redirect(f"{BASE}/machines", [
-            self.set_cookie("mivpn_session", sign(data), SESSION_TTL),
-            self.set_cookie("mivpn_oidc", "", 0),
+            self.set_cookie("hse_session", sign(data), SESSION_TTL),
+            self.set_cookie("hse_oidc", "", 0),
         ])
 
     def logout(self, session: dict):
-        # Con OIDC cierra también la sesión del proveedor; si no, "Cerrar
-        # sesión" no permitiría entrar con otro usuario en el mismo navegador.
+        # With OIDC, also end the provider session; otherwise "Log out" would
+        # not let another user sign in on the same browser.
         target = f"{BASE}/login"
         if session.get("kind") == "oidc" and SSO:
             end = discovery().get("end_session_endpoint")
@@ -459,11 +483,11 @@ class Handler(BaseHTTPRequestHandler):
                     "post_logout_redirect_uri": f"{PUBLIC_URL}{BASE}/",
                     "client_id": OIDC_CLIENT_ID,
                 })
-        self.redirect(target, [self.set_cookie("mivpn_session", "", 0)])
+        self.redirect(target, [self.set_cookie("hse_session", "", 0)])
 
-    # --- dispositivos ---
+    # --- machines ---
     def machine_action(self, session: dict, node_id: str, action: str, form: dict):
-        # Tras la acción se vuelve a donde estaba el usuario (lista o detalle)
+        # Go back to where the user was (list or detail)
         back = str(form.get("back", "machines"))
         if not re.fullmatch(r"machines(/\d+)?", back) or action == "delete":
             back = "machines"
@@ -471,11 +495,9 @@ class Handler(BaseHTTPRequestHandler):
 
         node = node_for(session, node_id)
         if node is None:
-            log.warning("%s intentó '%s' sobre el nodo %s, que no puede gestionar",
-                        session["username"], action, node_id)
+            log.warning("%s tried '%s' on node %s, which they cannot manage", session["username"], action, node_id)
             return self.redirect(f"{BASE}/machines?m=not-found")
-        admin_only = {"expiry", "routes", "tags"}
-        if action in admin_only and not session.get("admin"):
+        if action in {"expiry", "routes", "tags"} and not session.get("admin"):
             return self.redirect(f"{dest}?m=forbidden")
         try:
             if action == "rename":
@@ -491,19 +513,18 @@ class Handler(BaseHTTPRequestHandler):
                 if form.get("disable") == "1":
                     hs.api("POST", f"/node/{node_id}/expire?disableExpiry=true")
                     return self.redirect(f"{dest}?m=expiry-off")
-                # Reactivar: caducidad dentro de 180 días (el valor por defecto de Tailscale)
-                until = (datetime.now(timezone.utc) + timedelta(days=180)).strftime("%Y-%m-%dT%H:%M:%SZ")
-                hs.api("POST", f"/node/{node_id}/expire?" + urllib.parse.urlencode({"expiry": until}))
+                # Re-enable: expire in 180 days (Tailscale's default)
+                hs.api("POST", f"/node/{node_id}/expire?" + urllib.parse.urlencode({"expiry": iso_in(180)}))
                 return self.redirect(f"{dest}?m=expiry-on")
             if action == "routes":
-                # Sólo se pueden aprobar rutas que el nodo anuncia
+                # Only routes the node advertises can be approved
                 available = set(node.get("availableRoutes") or [])
                 chosen = form.get("route") or []
                 routes = [r for r in chosen if r in available]
                 if "exit" in chosen:
                     routes += [r for r in EXIT_ROUTES if r in available]
                 hs.api("POST", f"/node/{node_id}/approve_routes", {"routes": sorted(set(routes))})
-                log.info("%s aprobó rutas %s en el nodo %s", session["username"], routes, node_id)
+                log.info("%s approved routes %s on node %s", session["username"], routes, node_id)
                 return self.redirect(f"{dest}?m=routes")
             if action == "tags":
                 tags = [t.lower() for t in lines(str(form.get("tags", "")))]
@@ -512,22 +533,20 @@ class Handler(BaseHTTPRequestHandler):
                 hs.api("POST", f"/node/{node_id}/tags", {"tags": tags})
                 return self.redirect(f"{dest}?m=tags")
             hs.api("DELETE", f"/node/{node_id}")
-            log.info("%s quitó el nodo %s", session["username"], node_id)
+            log.info("%s removed node %s", session["username"], node_id)
             return self.redirect(f"{BASE}/machines?m=removed")
         except urllib.error.HTTPError as exc:
             msg = hs.api_error(exc)
-            log.warning("headscale rechazó '%s' sobre %s: %s", action, node_id, msg)
+            log.warning("headscale rejected '%s' on %s: %s", action, node_id, msg)
             if action == "tags":
-                # El motivo (p. ej. tag sin dueño en tagOwners) es útil: se muestra
-                page = views.machine_page(session, CTX, to_machines([node])[0], "")
-                return self.send(400, page.replace('<main class="container">',
-                                 f'<main class="container"><div class="notice error">No se pudieron guardar los tags: {views.esc(msg)}</div>', 1))
+                # The reason (e.g. a tag without an owner in tagOwners) is useful
+                return self.send(400, pages.machine_page(session, CTX, to_machines([node])[0], "",
+                                                         error=_("Could not save the tags: {reason}", reason=msg)))
             return self.redirect(f"{dest}?m=failed")
 
-    def register_node(self, form: dict):
-        auth_id = str(form.get("auth_id", "")).strip()
-        # Admite la URL completa que imprime 'tailscale up'
-        auth_id = auth_id.rstrip("/").rsplit("/", 1)[-1]
+    def register_node(self, session: dict, form: dict):
+        # Accept the full URL printed by 'tailscale up'
+        auth_id = str(form.get("auth_id", "")).strip().rstrip("/").rsplit("/", 1)[-1]
         user = str(form.get("user", ""))
         if not AUTH_ID_RE.fullmatch(auth_id) or user not in {u["name"] for u in hs.all_users()}:
             return self.redirect(f"{BASE}/machines?m=failed")
@@ -535,14 +554,12 @@ class Handler(BaseHTTPRequestHandler):
             hs.api("POST", "/auth/register", {"user": user, "authId": auth_id})
         except urllib.error.HTTPError as exc:
             msg = hs.api_error(exc)
-            log.warning("registro con Auth ID rechazado: %s", msg)
-            session = self.session()
-            page = views.machines_page(session, CTX, to_machines(visible_nodes(session)), True, "",
-                                       hs.all_users(), error=f"No se pudo registrar: {msg}")
-            return self.send(400, page)
+            log.warning("Auth ID registration rejected: %s", msg)
+            return self.send(400, pages.machines_page(session, CTX, to_machines(visible_nodes(session)), True, "",
+                                                      hs.all_users(), error=_("Could not register: {reason}", reason=msg)))
         return self.redirect(f"{BASE}/machines?m=registered")
 
-    # --- claves ---
+    # --- keys ---
     def create_key(self, session: dict, form: dict):
         if session.get("admin"):
             uid = str(form.get("user_id", ""))
@@ -552,18 +569,16 @@ class Handler(BaseHTTPRequestHandler):
         if not user:
             return self.redirect(f"{BASE}/settings/keys?m=no-user")
         days = str(form.get("days", "90"))
-        if days not in KEY_DAYS:
-            days = "90"
-        expiration = (datetime.now(timezone.utc) + timedelta(days=int(days))).strftime("%Y-%m-%dT%H:%M:%SZ")
+        days = days if days in KEY_DAYS else "90"
         key = hs.api("POST", "/preauthkey", {
             "user": str(user["id"]),
             "reusable": form.get("reusable") == "1",
             "ephemeral": form.get("ephemeral") == "1",
-            "expiration": expiration,
+            "expiration": iso_in(int(days)),
         })["preAuthKey"]
-        log.info("%s generó una clave para %s (reusable=%s, efímera=%s, %s d)", session["username"],
+        log.info("%s generated an auth key for %s (reusable=%s, ephemeral=%s, %s d)", session["username"],
                  user["name"], key.get("reusable"), key.get("ephemeral"), days)
-        # Se muestra en esta misma respuesta: Headscale no vuelve a darla entera
+        # Shown in this very response: Headscale never returns it again
         self.keys_view(session, "", new_key=key)
 
     def revoke_key(self, session: dict, key_id: str):
@@ -572,18 +587,16 @@ class Handler(BaseHTTPRequestHandler):
         else:
             ok = hs.owned_key(my_user(session), key_id) is not None
         if not ok:
-            log.warning("%s intentó revocar la clave %s, que no puede gestionar", session["username"], key_id)
+            log.warning("%s tried to revoke key %s, which they cannot manage", session["username"], key_id)
             return self.redirect(f"{BASE}/settings/keys?m=not-found")
         hs.api("POST", "/preauthkey/expire", {"id": key_id})
         return self.redirect(f"{BASE}/settings/keys?m=key-revoked")
 
     def create_apikey(self, session: dict, form: dict):
         days = str(form.get("days", "90"))
-        if days not in APIKEY_DAYS:
-            days = "90"
-        expiration = (datetime.now(timezone.utc) + timedelta(days=int(days))).strftime("%Y-%m-%dT%H:%M:%SZ")
-        key = hs.api("POST", "/apikey", {"expiration": expiration})["apiKey"]
-        log.info("%s creó una API key (%s d)", session["username"], days)
+        days = days if days in APIKEY_DAYS else "90"
+        key = hs.api("POST", "/apikey", {"expiration": iso_in(int(days))})["apiKey"]
+        log.info("%s created an API key (%s d)", session["username"], days)
         self.keys_view(session, "", new_apikey=key)
 
     def expire_apikey(self, key_id: str):
@@ -596,7 +609,10 @@ class Handler(BaseHTTPRequestHandler):
         hs.api("POST", "/apikey/expire", {"id": key_id})
         return self.redirect(f"{BASE}/settings/keys?m=apikey-expired")
 
-    # --- usuarios ---
+    # --- users ---
+    def users_error(self, session: dict, msg: str):
+        return self.send(400, admin_pages.users_page(session, CTX, hs.all_users(), hs.all_nodes(), "", error=msg))
+
     def create_user(self, session: dict, form: dict):
         name = str(form.get("name", "")).strip().lower()
         if not USER_NAME_RE.fullmatch(name):
@@ -607,9 +623,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             hs.api("POST", "/user", body)
         except urllib.error.HTTPError as exc:
-            return self.send(400, views_admin.users_page(session, CTX, hs.all_users(), hs.all_nodes(), "",
-                                                         error=f"No se pudo crear: {hs.api_error(exc)}"))
-        log.info("%s creó el usuario local %s", session["username"], name)
+            return self.users_error(session, _("Could not create it: {reason}", reason=hs.api_error(exc)))
+        log.info("%s created local user %s", session["username"], name)
         return self.redirect(f"{BASE}/users?m=user-created")
 
     def user_action(self, session: dict, user_id: str, action: str, form: dict):
@@ -625,27 +640,25 @@ class Handler(BaseHTTPRequestHandler):
             if any(str((n.get("user") or {}).get("id")) == user_id for n in hs.all_nodes()):
                 return self.redirect(f"{BASE}/users?m=user-has-nodes")
             hs.api("DELETE", f"/user/{user_id}")
-            log.info("%s eliminó el usuario %s", session["username"], user_id)
+            log.info("%s deleted user %s", session["username"], user_id)
             return self.redirect(f"{BASE}/users?m=user-deleted")
         except urllib.error.HTTPError as exc:
-            return self.send(400, views_admin.users_page(session, CTX, hs.all_users(), hs.all_nodes(), "",
-                                                         error=hs.api_error(exc)))
+            return self.users_error(session, hs.api_error(exc))
 
-    # --- política ---
+    # --- policy ---
     def save_acl(self, session: dict, form: dict):
         policy = str(form.get("policy", ""))
-        action = form.get("action", "check")
         try:
-            if action == "save":
+            if form.get("action") == "save":
                 hs.api("PUT", "/policy", {"policy": policy})
-                log.info("%s guardó la política ACL", session["username"])
+                log.info("%s saved the ACL policy", session["username"])
                 return self.redirect(f"{BASE}/acl?m=acl-saved")
             hs.api("POST", "/policy/check", {"policy": policy})
-            result = ("ok", "La política es válida.")
+            result = ("ok", _("The policy is valid."))
         except urllib.error.HTTPError as exc:
             result = ("error", hs.api_error(exc))
-        # Se devuelve el borrador tal cual para no perder lo escrito
-        self.send(200, views_admin.acl_page(session, CTX, hs.get_policy(), "", draft=policy, result=result))
+        # Send the draft back as is so nothing typed is lost
+        self.send(200, admin_pages.acl_page(session, CTX, hs.get_policy(), "", draft=policy, result=result))
 
     # --- DNS ---
     def save_dns(self, session: dict, form: dict):
@@ -654,12 +667,12 @@ class Handler(BaseHTTPRequestHandler):
         cfg: dict | None = None
 
         def again(error: str):
-            # Se reenseña lo que el admin escribió, para que no lo pierda
+            # Show what the admin typed again so it is not lost
             draft = dict(current, **cfg) if cfg else current
-            return self.send(400, views.dns_page(session, ctx, draft, to_machines(visible_nodes(session)), error=error))
+            return self.send(400, pages.dns_page(session, ctx, draft, to_machines(visible_nodes(session)), error=error))
 
         if not ctx.get("dns_editable"):
-            return again(ctx.get("dns_reason", "La edición de DNS no está disponible."))
+            return again(ctx.get("dns_reason", _("Editing DNS is not available.")))
 
         cfg = {
             "magic_dns": form.get("magic_dns") == "1",
@@ -672,37 +685,38 @@ class Handler(BaseHTTPRequestHandler):
         for line in str(form.get("split", "")).splitlines():
             if not line.strip():
                 continue
-            domain, _, servers = line.partition(":")
+            domain, _sep, servers = line.partition(":")
             if not servers.strip() and domain.strip():
-                return again(f"Split DNS: falta el servidor en «{line.strip()}» (formato: dominio: servidor, servidor).")
+                return again(_("Split DNS: missing nameserver in \"{line}\" (format: domain: server, server).",
+                               line=line.strip()))
             cfg["split"][domain.strip().lower()] = lines(servers)
 
         if not hs.valid_domain(cfg["base_domain"]):
-            return again("El nombre de la red no es un dominio válido.")
+            return again(_("The tailnet DNS name is not a valid domain."))
         if cfg["base_domain"] == SERVER_HOST or SERVER_HOST.endswith("." + cfg["base_domain"]):
-            return again("El nombre de la red tiene que ser distinto del dominio del servidor.")
+            return again(_("The tailnet DNS name must differ from the server's domain."))
         bad = [ns for ns in cfg["nameservers"] + [s for v in cfg["split"].values() for s in v]
                if not hs.valid_nameserver(ns)]
         if bad:
-            return again(f"Servidor de nombres no válido: {bad[0]}")
+            return again(_("Invalid nameserver: {value}", value=bad[0]))
         bad = [d for d in cfg["search_domains"] + list(cfg["split"]) if not hs.valid_domain(d)]
         if bad:
-            return again(f"Dominio no válido: {bad[0]}")
+            return again(_("Invalid domain: {value}", value=bad[0]))
         if cfg["override_local_dns"] and not cfg["nameservers"]:
-            return again("Para usar estos servidores de nombres en los dispositivos hace falta al menos uno.")
+            return again(_("Overriding local DNS needs at least one global nameserver."))
 
         ok, error = hs.apply_dns(cfg)
         if not ok:
-            log.warning("%s intentó cambiar el DNS: %s", session["username"], error)
+            log.warning("%s tried to change DNS: %s", session["username"], error)
             return again(error)
-        log.info("%s cambió el DNS y reinició Headscale", session["username"])
+        log.info("%s changed DNS and restarted Headscale", session["username"])
         return self.redirect(f"{BASE}/dns?m=dns-saved")
 
 
 def main():
     port = int(os.environ.get("PORT", "8000"))
-    log.info("Mi VPN escuchando en :%d (pública: %s%s, SSO=%s, login con API key=%s)",
-             port, PUBLIC_URL, BASE, SSO, API_KEY_LOGIN)
+    log.info("Headscale Easy %s listening on :%d (public: %s%s, SSO=%s, API key sign-in=%s)",
+             VERSION, port, PUBLIC_URL, BASE, SSO, API_KEY_LOGIN)
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 

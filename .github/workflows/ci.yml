@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ShellCheck
+        run: shellcheck -S warning install.sh uninstall.sh scripts/*.sh
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Python syntax
+        run: python -m py_compile web/*.py scripts/check_i18n.py
+
+      - name: Translations
+        run: python scripts/check_i18n.py
+
+      - name: Project checks
+        run: ./scripts/validate.sh
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the console image
+        run: docker build -t headscale-easy:ci web
+
+      - name: Smoke test
+        run: |
+          docker run -d --name hse -e SESSION_SECRET=ci -e PUBLIC_URL=http://localhost \
+            -e HEADSCALE_URL=http://127.0.0.1:1 -e HEADSCALE_API_KEY=ci \
+            -e PORTAL_API_KEY_LOGIN=true -p 8000:8000 headscale-easy:ci
+          for i in $(seq 1 20); do
+            curl -fsS http://localhost:8000/admin/healthz && exit 0
+            sleep 1
+          done
+          docker logs hse
+          exit 1

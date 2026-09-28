@@ -1,36 +1,27 @@
-# Environment files
+# Secrets and generated configuration (written by install.sh)
 .env
 .env.local
-
-# Data directories
-data/
-config/
-
-# Generated configs
 headscale-config.yaml
-headplane-config.yaml
 Caddyfile
-
-# CA raíz exportada de Caddy (SSL_MODE=selfsigned)
-caddy-root-ca.crt
-
-# Configuración del proxy externo: generada, y contiene IPs de la
-# infraestructura (BACKEND_HOST, PROXY_CIDR)
-reverse-proxy/
-
-# Logs
-*.log
-
-# Docker (generado automáticamente por install.sh)
 docker-compose.override.yml
+caddy-root-ca.crt
+reverse-proxy/
+# Left by versions that used Headplane
+headplane-config.yaml
 
-# Backup files
+# Runtime data and backups
+data/
+backups/
+tailscale/
+*.log
 *.bak
 *.backup
 
-# OS files
+# Tooling
+__pycache__/
+*.pyc
+.venv/
+.idea/
+.vscode/
 .DS_Store
 Thumbs.db
-
-# Python
-__pycache__/

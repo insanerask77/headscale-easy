@@ -1,0 +1,23 @@
+name: 💡 Feature request
+description: Suggest an idea for Headscale Easy.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would it solve?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would you like to happen?
+      description: If Tailscale's console already does it, a link or screenshot helps a lot.
+    validations:
+      required: true
+  - type: checkboxes
+    id: headscale
+    attributes:
+      label: Headscale support
+      options:
+        - label: I checked that Headscale supports this (or that it only needs UI work).
