@@ -190,3 +190,12 @@ ak-locale-select {
     color: var(--hs-muted) !important;
     filter: none !important;
 }
+
+/* Hide the "Powered by authentik" footer text (footer links set in Authentik's
+   System → Settings still show). Inside the ak-brand-links web component. */
+li[data-kind="text"][data-track-name="start"] {
+    display: none !important;
+}
+ul[aria-label="Site links"][data-count="1"]:has(> li[data-kind="text"]) {
+    display: none !important;
+}
