@@ -105,9 +105,6 @@ volumen `headscale-data` y la base de datos de Authentik, y ejecuta `./install.s
 ./uninstall.sh --purge   # borra también volúmenes, configuración y ./data
 ```
 
-Las versiones que usaban Headplane dejaron un volumen `headplane-data`; bórralo
-con `docker volume rm headplane-data` cuando ya no lo necesites.
-
 ## Resolución de problemas { #troubleshooting }
 
 **Headscale nunca llega a estar sano (con OIDC).** No arranca hasta que puede

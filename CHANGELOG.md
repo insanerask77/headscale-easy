@@ -24,10 +24,4 @@ First release as **Headscale Easy**.
 - Documentation site on GitHub Pages, in English and Spanish:
   https://insanerask77.github.io/headscale-easy/
 
-### Changed
-- Headplane is no longer part of the stack: the console replaces it. Existing
-  installations are migrated by `./install.sh` (the `headplane-data` volume is
-  kept).
-- The console moved from `/mi-vpn` to `/admin` (old links redirect).
-
 [1.0.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.0

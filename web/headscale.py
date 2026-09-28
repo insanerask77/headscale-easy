@@ -335,8 +335,6 @@ def restart_headscale(wait: float = 120) -> bool:
 
 DNS_BEGIN = "# >>> dns: managed by Headscale Easy (do not edit between these markers)"
 DNS_END = "# <<< dns"
-# Marker written by earlier versions of the project
-LEGACY_DNS_BEGIN = "# >>> dns: gestionado por Mi VPN (no edites entre estos marcadores a mano)"
 
 _DOMAIN_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 _dns_lock = threading.Lock()
@@ -435,14 +433,13 @@ def render_dns_block(cfg: dict) -> str:
 
 
 def dns_block_present(text: str) -> bool:
-    return (DNS_BEGIN in text or LEGACY_DNS_BEGIN in text) and DNS_END in text
+    return DNS_BEGIN in text and DNS_END in text
 
 
 def replace_dns_block(text: str, block: str) -> str | None:
     """Replace the marked block. None if the file has no markers (a config
     older than this feature: run install.sh once)."""
-    begin = DNS_BEGIN if DNS_BEGIN in text else LEGACY_DNS_BEGIN
-    start, end = text.find(begin), text.find(DNS_END)
+    start, end = text.find(DNS_BEGIN), text.find(DNS_END)
     if start < 0 or end < start:
         return None
     return text[:start] + block + text[end + len(DNS_END):]
