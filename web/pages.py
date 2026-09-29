@@ -9,6 +9,7 @@ import io
 import ipaddress
 from datetime import datetime, timezone
 
+import expiry
 from i18n import LANGUAGES, _, get_lang, ngettext
 from ui import (BASE, LOGO, badge, copy_btn, csrf_input, docs_url, esc, flash_html, icon, initials, layout, notice,
                 page_head, parse_time, relative, time_tag, user_label)
@@ -49,6 +50,8 @@ class Machine:
         self.expiry = parse_time(node.get("expiry"))
         self.expiry_disabled = self.expiry is None
         self.expired = self.expiry is not None and self.expiry < datetime.now(timezone.utc)
+        self.expiring_soon = expiry.expires_soon(node)
+        self.inactive = expiry.is_inactive(node)
 
         os_raw = (hi.get("OS") or "").lower()
         self.os = OS_NAMES.get(os_raw, hi.get("OS") or "")
@@ -85,6 +88,8 @@ class Machine:
         out = []
         if self.expired:
             out.append(badge(_("Expired"), "red"))
+        elif self.expiring_soon:
+            out.append(badge(_("Expires soon"), "orange", expiry.soon_badge_tip(self.node)))
         elif self.expiry_disabled:
             out.append(badge(_("Expiry disabled")))
         if self.subnets:
@@ -231,7 +236,7 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
                      add, (_("See how to manage devices"), docs_url("operations/#managing-machines")))
     head += register_dialog(session, users or []) if admin else ""
     head += notice("error", error) if error else ""
-    head += flash_html(flash)
+    head += flash_html(flash) or expiry.flash_html(flash)
 
     if not machines:
         text = (_("No machines are connected to the tailnet yet.") if admin else
@@ -263,6 +268,7 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
           <label class="check"><input type="checkbox" data-f="update"><span>{esc(_("Needs update"))}</span></label>
           <label class="check"><input type="checkbox" data-f="routes"><span>{esc(_("Has routes (subnets or exit node)"))}</span></label>
           <label class="check"><input type="checkbox" data-f="expired"><span>{esc(_("Key expired"))}</span></label>
+          {expiry.filter_options()}
           <button type="button" class="btn small" data-f-clear>{esc(_("Clear filters"))}</button>
         </div>
       </details>"""
@@ -272,7 +278,8 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
         rows.append(f"""
         <tr data-href="{BASE}/machines/{m.id}" data-search="{esc(m.search_text())}" data-status="{'on' if m.online else 'off'}"
             data-owner="{esc(m.owner.get('id'))}" data-update="{int(m.update_available)}"
-            data-routes="{int(m.exit_node or bool(m.subnets))}" data-expired="{int(m.expired)}">
+            data-routes="{int(m.exit_node or bool(m.subnets))}" data-expired="{int(m.expired)}"
+            data-expiring="{int(m.expiring_soon)}" data-inactive="{int(m.inactive)}">
           <td><a class="name" href="{BASE}/machines/{m.id}">{esc(m.name)}</a>
             <div class="owner">{esc(m.owner_label)}</div>
             <div class="badges">{m.badges()}</div></td>
@@ -284,6 +291,7 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
         dialogs.append(machine_dialogs(m, session, "machines"))
 
     body = head + f"""
+    <div data-live="expiry-notice">{expiry.notice_html([m.node for m in machines], admin)}</div>
     <div class="toolbar">
       <label class="search">{icon("search")}<input type="search" placeholder="{esc(_("Search by name, owner, tag, version…"))}" data-filter aria-label="{esc(_("Search machines"))}"></label>
       {filters}
@@ -302,7 +310,8 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
       </table>
     </div>
     <p class="no-results muted" hidden>{esc(_("No machines match the current filters."))}</p>
-    <div data-live="dialogs">{"".join(dialogs)}</div>"""
+    <div data-live="dialogs">{"".join(dialogs)}</div>
+    {f'<div data-live="inactive">{expiry.remove_inactive_dialog(machines, session)}</div>' if admin else ""}"""
     return layout(_("Machines"), "machines", body, session, ctx)
 
 

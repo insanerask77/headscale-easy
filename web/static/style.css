@@ -669,3 +669,12 @@ body.bare { background: var(--side); }
     .dropdown-body.wide { min-width: 16rem; }
     .search { flex-basis: 100%; }
 }
+
+/* ---- expiry ---- */
+.notice.warn { color: var(--ink); background: color-mix(in srgb, var(--b-orange) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--b-orange) 55%, transparent); }
+.expiry-notice p { margin: 0; }
+.expiry-notice p + p { margin-top: 0.35rem; }
+.expiry-notice .link { padding: 0; border: 0; background: none; font: inherit; color: var(--link);
+    text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.inactive-list { display: grid; gap: 0.6rem; max-height: 50vh; overflow-y: auto; padding: 0.2rem 0; }

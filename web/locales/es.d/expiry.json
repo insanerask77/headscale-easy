@@ -1,0 +1,21 @@
+{
+  "Expires soon": "Caduca pronto",
+  "Expiring soon": "Caduca pronto",
+  "Last seen {when}": "Última conexión {when}",
+  "Nothing was removed: none of the selected machines is inactive any more.": "No se ha quitado nada: ninguno de los dispositivos seleccionados sigue inactivo.",
+  "Offline for {days}+ days": "Desconectado más de {days} días",
+  "Remove inactive machines": "Quitar dispositivos inactivos",
+  "Remove inactive machines…": "Quitar dispositivos inactivos…",
+  "Remove selected": "Quitar seleccionados",
+  "Show only these": "Mostrar solo estos",
+  "The key expires {when}. Sign in again on the device (or disable key expiry) to keep it connected.": "La clave caduca {when}. Vuelve a iniciar sesión en el dispositivo (o desactiva la caducidad de la clave) para que siga conectado.",
+  "These machines have been offline for more than {days} days. The selected ones are removed from the tailnet; to use one again it has to be connected again.": "Estos dispositivos llevan más de {days} días desconectados. Los seleccionados se quitan de la tailnet; para volver a usar uno hay que conectarlo de nuevo.",
+  "{n} inactive machine removed.": "{n} dispositivo inactivo quitado.",
+  "{n} inactive machines removed.": "{n} dispositivos inactivos quitados.",
+  "{n} machine has been offline for more than {days} days.": "{n} dispositivo lleva más de {days} días desconectado.",
+  "{n} machines have been offline for more than {days} days.": "{n} dispositivos llevan más de {days} días desconectados.",
+  "{n} machine expires in the next {days} days.": "{n} dispositivo caduca en los próximos {days} días.",
+  "{n} machines expire in the next {days} days.": "{n} dispositivos caducan en los próximos {days} días.",
+  "{n} machine has an expired key and cannot connect until it signs in again.": "{n} dispositivo tiene la clave caducada y no podrá conectarse hasta que vuelva a iniciar sesión.",
+  "{n} machines have an expired key and cannot connect until they sign in again.": "{n} dispositivos tienen la clave caducada y no podrán conectarse hasta que vuelvan a iniciar sesión."
+}

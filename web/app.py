@@ -44,6 +44,7 @@ log = logging.getLogger("headscale-easy")
 import admin_pages  # noqa: E402  (after logging is configured)
 import headscale as hs  # noqa: E402
 import apikey  # noqa: E402
+import expiry  # noqa: E402
 import mfa  # noqa: E402
 import naming  # noqa: E402
 import pages  # noqa: E402
@@ -402,6 +403,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.fail(403, _("No permission"), _("This action is for admins only."))
             if path == f"{BASE}/machines/register":
                 return self.register_node(session, form)
+            if path == f"{BASE}/machines/remove-inactive":
+                return self.remove_inactive(session, form)
             if path == f"{BASE}/settings/key-expiry":
                 return self.save_key_expiry(session, form)
             if path == f"{BASE}/settings/mfa":
@@ -644,6 +647,25 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(400, pages.machines_page(session, CTX, to_machines(visible_nodes(session)), True, "",
                                                       hs.all_users(), error=_("Could not register: {reason}", reason=msg)))
         return self.redirect(f"{BASE}/machines?m=registered")
+
+    def remove_inactive(self, session: dict, form: dict):
+        """Admin: remove the ticked machines of "Remove inactive machines…".
+        Checked again now: a machine that came back online (or was seen within
+        INACTIVE_DAYS) since the dialog was opened is kept."""
+        wanted = expiry.selected_ids(form)
+        removed, failed = [], []
+        for node in expiry.inactive_nodes(hs.all_nodes()):
+            node_id = str(node.get("id"))
+            if node_id not in wanted:
+                continue
+            try:
+                hs.api("DELETE", f"/node/{node_id}")
+                removed.append(node.get("givenName") or node.get("name") or node_id)
+            except urllib.error.HTTPError as exc:
+                log.warning("headscale rejected removing inactive node %s: %s", node_id, hs.api_error(exc))
+                failed.append(node_id)
+        log.info("%s removed %d inactive machine(s): %s", session["username"], len(removed), ", ".join(removed))
+        return self.redirect(f"{BASE}/machines?m={expiry.remove_result(len(removed), len(failed))}")
 
     # --- keys ---
     def create_key(self, session: dict, form: dict):
