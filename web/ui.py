@@ -182,6 +182,7 @@ def flash_html(code: str) -> str:
         "dns-saved": ("ok", _("DNS saved. Headscale restarted with the new settings.")),
         "key-expiry-saved": ("ok", _("Key expiry saved. It applies to devices added from now on.")),
         "apikey-expired": ("ok", _("API key expired.")),
+        "mfa-saved": ("ok", _("Two-factor authentication saved. It applies from the next sign-in.")),
         "bad-name": ("error", _("Invalid name: lowercase letters, digits and dashes only (max. 63).")),
         "bad-user": ("error", _("Invalid user name: lowercase letters, digits, dots, dashes and @.")),
         "not-found": ("error", _("That item does not exist or is not yours.")),

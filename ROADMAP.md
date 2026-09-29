@@ -17,10 +17,15 @@ Effort: **S** = hours · **M** = one or two days · **L** = several days.
   `make backup` exists but is manual. Scheduled backups (daily, N days of
   retention), local or remote target (S3, rsync) and a tested `make restore`.
   Losing Headscale's database means re-registering every device.
+  *Status:* backup container (cron, retention) and `scripts/restore.sh`
+  written; S3/rsync targets, `make restore`, `.env`/installer wiring, docs,
+  CHANGELOG and tests pending.
 - [x] **3. Two-factor authentication (MFA) in Authentik** · S — *1.0.5*
   The web UI controls the whole network behind a password. Authentik already
   has TOTP and passkeys: enable them in the blueprint, optional for members and
   required for admins.
+  The mode (admins, everyone or optional) can be changed live by admins from
+  Settings → General in the web UI.
 
 ## 🟠 High — what daily use misses most
 

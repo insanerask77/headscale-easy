@@ -32,7 +32,7 @@ required_files=(
     templates/front-npm.md.tmpl templates/front-traefik.yml.tmpl
     authentik/blueprints/headscale.yaml authentik/branding/custom.css
     web/Dockerfile web/app.py web/headscale.py web/pages.py web/admin_pages.py
-    web/ui.py web/i18n.py web/version.py web/locales/es.json
+    web/ui.py web/i18n.py web/version.py web/mfa.py web/locales/es.json
     web/static/style.css web/static/app.js web/static/theme.js
     scripts/utils.sh scripts/check_i18n.py scripts/restore.sh
     backup/Dockerfile backup/backup.sh backup/entrypoint.sh backup/pg-client.sh

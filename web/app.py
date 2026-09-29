@@ -43,6 +43,7 @@ log = logging.getLogger("headscale-easy")
 import admin_pages  # noqa: E402  (after logging is configured)
 import headscale as hs  # noqa: E402
 import apikey  # noqa: E402
+import mfa  # noqa: E402
 import naming  # noqa: E402
 import pages  # noqa: E402
 from i18n import LANGUAGES, _, pick_lang, set_lang  # noqa: E402
@@ -179,6 +180,21 @@ def dns_ctx() -> dict:
     return ctx
 
 
+def mfa_state() -> dict | None:
+    """Two-factor mode for Settings -> General (admins). None without the
+    built-in Authentik: then two-factor is up to the identity provider."""
+    if not AUTHENTIK:
+        return None
+    if not mfa.available():
+        return {"mode": mfa.DEFAULT, "editable": False,
+                "reason": _("Set when installing (MFA_REQUIRED). To change it from here, run ./install.sh once: "
+                            "it gives the web UI access to Authentik.")}
+    try:
+        return {"mode": mfa.current(), "editable": True}
+    except mfa.MfaError as exc:
+        return {"mode": mfa.saved() or mfa.DEFAULT, "editable": False, "reason": str(exc)}
+
+
 def lines(value: str) -> list[str]:
     return [x.strip() for x in re.split(r"[\n,]", value or "") if x.strip()]
 
@@ -309,7 +325,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.redirect(f"{BASE}/settings/general")
             if path == f"{BASE}/settings/general":
                 return self.send(200, pages.general_page(session, CTX, flash,
-                                                         key_expiry=hs.key_expiry_days() if admin else None))
+                                                         key_expiry=hs.key_expiry_days() if admin else None,
+                                                         mfa=mfa_state() if admin else None))
             if path == f"{BASE}/settings/keys":
                 return self.keys_view(session, flash, preselect=params.get("user", ""))
 
@@ -386,6 +403,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.register_node(session, form)
             if path == f"{BASE}/settings/key-expiry":
                 return self.save_key_expiry(session, form)
+            if path == f"{BASE}/settings/mfa":
+                return self.save_mfa(session, form)
             if path == f"{BASE}/users":
                 return self.create_user(session, form)
             m = re.fullmatch(rf"{BASE}/users/(\d+)/(rename|delete)", path)
@@ -409,7 +428,8 @@ class Handler(BaseHTTPRequestHandler):
         days = _key_expiry_days(form)
 
         def again(error: str):
-            return self.send(200, pages.general_page(session, CTX, key_expiry=hs.key_expiry_days(), error=error))
+            return self.send(200, pages.general_page(session, CTX, key_expiry=hs.key_expiry_days(), error=error,
+                                                     mfa=mfa_state()))
 
         if days is None:
             return again(_("Enter a number of days between 1 and {max}.", max=hs.KEY_EXPIRY_MAX_DAYS))
@@ -420,6 +440,27 @@ class Handler(BaseHTTPRequestHandler):
         log.info("%s set the device key expiry to %s and restarted Headscale", session["username"],
                  f"{days} days" if days else "never")
         return self.redirect(f"{BASE}/settings/general?m=key-expiry-saved")
+
+    def save_mfa(self, session: dict, form: dict):
+        mode = str(form.get("mode", ""))
+
+        def again(error: str):
+            return self.send(400, pages.general_page(session, CTX, key_expiry=hs.key_expiry_days(), error=error,
+                                                     mfa=mfa_state()))
+
+        if not AUTHENTIK or not mfa.available():
+            return again(_("Two-factor authentication can only be changed here with the built-in Authentik, "
+                           "once ./install.sh has given the web UI access to it."))
+        if mode not in mfa.MODES:
+            return again(_("Choose one of the options."))
+        try:
+            changed = mfa.set_mode(mode)
+        except mfa.MfaError as exc:
+            log.warning("%s tried to set two-factor to '%s': %s", session["username"] or session["name"], mode, exc)
+            return again(str(exc))
+        if changed:
+            log.info("%s set two-factor authentication to '%s'", session["username"] or session["name"], mode)
+        return self.redirect(f"{BASE}/settings/general?m=mfa-saved")
 
     # --- static files ---
     def static(self, name: str):
