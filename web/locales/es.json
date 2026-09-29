@@ -37,7 +37,6 @@
   "Awaiting approval": "Pendiente de aprobación",
   "Back": "Volver",
   "Browser sign-in": "Inicio de sesión en el navegador",
-  "Buy me a coffee": "Invítame a un café",
   "By default, the language of your browser.": "Por defecto, el idioma de tu navegador.",
   "Cancel": "Cancelar",
   "Check": "Comprobar",
@@ -373,5 +372,6 @@
   "A code from an authenticator app or a passkey after the password, when signing in with Authentik. Users who already set one up are always asked for it.": "Un código de una app de autenticación o una passkey después de la contraseña, al entrar con Authentik. A quien ya lo configuró siempre se le pide.",
   "Applied in Authentik right away: it affects the next sign-in, nobody is signed out.": "Se aplica en Authentik al momento: afecta al siguiente inicio de sesión, no se cierra la sesión de nadie.",
   "Mode": "Modo",
-  "Two-factor authentication saved. It applies from the next sign-in.": "Verificación en dos pasos guardada. Se aplica desde el siguiente inicio de sesión."
+  "Two-factor authentication saved. It applies from the next sign-in.": "Verificación en dos pasos guardada. Se aplica desde el siguiente inicio de sesión.",
+  "Buy me a coffee on Ko-fi": "Invítame a un café en Ko-fi"
 }

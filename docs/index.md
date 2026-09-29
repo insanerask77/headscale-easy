@@ -16,7 +16,7 @@ Tailscale's — user accounts, Google sign-in and HTTPS included. One command to
 
 [Get started](getting-started.md){ .md-button .md-button--primary }
 [GitHub](https://github.com/insanerask77/headscale-easy){ .md-button }
-[:simple-buymeacoffee: Buy me a coffee](https://buymeacoffee.com/insanerask){ .md-button }
+[:simple-kofi: Buy me a coffee on Ko-fi](https://ko-fi.com/rafaelmadolell){ .md-button }
 
 </div>
 
@@ -98,7 +98,7 @@ official Tailscale apps on every device; only the server is yours.
 Headscale Easy is built and maintained in my spare time by
 **[Rafa Madolell](https://github.com/insanerask77)**. If it saves you time or money,
 ⭐ [star the repository](https://github.com/insanerask77/headscale-easy) and
-☕ [buy me a coffee](https://buymeacoffee.com/insanerask).
+☕ [buy me a coffee on Ko-fi](https://ko-fi.com/rafaelmadolell).
 
 <small>Headscale Easy is an independent project, not affiliated with Tailscale Inc.
 or the Headscale project. "Tailscale" is a trademark of Tailscale Inc.</small>

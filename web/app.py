@@ -15,7 +15,7 @@ Every action checks the role on the server and, for members, that the machine
 or key is theirs. Standard library only.
 
 Headscale Easy · https://github.com/insanerask77/headscale-easy
-Made by Rafa Madolell (@insanerask77) · https://buymeacoffee.com/insanerask
+Made by Rafa Madolell (@insanerask77) · https://ko-fi.com/rafaelmadolell
 """
 
 from __future__ import annotations

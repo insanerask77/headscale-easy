@@ -11,7 +11,7 @@ translation and pull request makes it better.
 - 🌍 [Translate the console](#translations)
 - 📝 Improve the documentation
 - 🔧 Send a pull request
-- ⭐ Star the repository and ☕ [buy me a coffee](https://buymeacoffee.com/insanerask)
+- ⭐ Star the repository and ☕ [buy me a coffee on Ko-fi](https://ko-fi.com/rafaelmadolell)
 
 ## Project layout
 

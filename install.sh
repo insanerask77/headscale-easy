@@ -4,7 +4,7 @@
 #  The open source Tailscale alternative: Headscale + a built-in web UI.
 #
 #  https://github.com/insanerask77/headscale-easy
-#  Made by Rafa Madolell (@insanerask77) · https://buymeacoffee.com/insanerask
+#  Made by Rafa Madolell (@insanerask77) · https://ko-fi.com/rafaelmadolell
 #  MIT License
 #
 #  Usage: ./install.sh
@@ -22,7 +22,7 @@ TEMPLATES_DIR="${SCRIPT_DIR}/templates"
 
 INSTALLER_VERSION="1.0.6"
 PROJECT_URL="https://github.com/insanerask77/headscale-easy"
-SPONSOR_URL="https://buymeacoffee.com/insanerask"
+SPONSOR_URL="https://ko-fi.com/rafaelmadolell"
 DOCS_URL="https://insanerask77.github.io/headscale-easy/"
 
 RED='\033[0;31m'
@@ -1258,7 +1258,7 @@ show_summary() {
     echo -e "  ${BOLD}$(t "Useful commands" "Comandos útiles"):${NC} docker compose ps · docker compose logs -f · ./install.sh"
     echo ""
     echo -e "  ${CYAN}Headscale Easy v${INSTALLER_VERSION}${NC} · $(t "by" "por") Rafa Madolell · ${PROJECT_URL}"
-    echo -e "  ☕ $(t "If it saves you time, buy me a coffee:" "Si te ahorra tiempo, invítame a un café:") ${SPONSOR_URL}"
+    echo -e "  ☕ $(t "If it saves you time, buy me a coffee on Ko-fi:" "Si te ahorra tiempo, invítame a un café en Ko-fi:") ${SPONSOR_URL}"
     echo -e "  ⭐ $(t "And a star on GitHub helps a lot." "Y una estrella en GitHub ayuda mucho.")"
     echo ""
 }

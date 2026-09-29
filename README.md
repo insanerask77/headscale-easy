@@ -17,7 +17,7 @@
   <a href="https://insanerask77.github.io/headscale-easy/"><img src="https://img.shields.io/badge/docs-github.io-3f6fe0" alt="Documentation"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
   <a href="https://github.com/insanerask77/headscale-easy/stargazers"><img src="https://img.shields.io/github/stars/insanerask77/headscale-easy?style=social" alt="GitHub stars"></a>
-  <a href="https://buymeacoffee.com/insanerask"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-☕-FFDD00" alt="Buy me a coffee"></a>
+  <a href="https://ko-fi.com/rafaelmadolell"><img src="https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=kofi&logoColor=white" alt="Support on Ko-fi"></a>
 </p>
 
 <p align="center">
@@ -152,11 +152,11 @@ Headscale Easy is built and maintained in my spare time by
 money:
 
 - ⭐ **Star the repo** — it really helps others find it.
-- ☕ **[Buy me a coffee](https://buymeacoffee.com/insanerask)**.
+- ☕ **[Buy me a coffee on Ko-fi](https://ko-fi.com/rafaelmadolell)**.
 - 🐛 Report bugs, suggest features, or send a pull request.
 - 🌍 Translate the console into your language (see [CONTRIBUTING](CONTRIBUTING.md#translations)).
 
-<a href="https://buymeacoffee.com/insanerask"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-insanerask-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy me a coffee"></a>
+<a href="https://ko-fi.com/rafaelmadolell"><img src="https://img.shields.io/badge/Ko--fi-rafaelmadolell-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white" alt="Support on Ko-fi"></a>
 
 ## ⚖️ License and credits
 
