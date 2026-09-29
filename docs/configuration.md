@@ -216,7 +216,7 @@ Each user reaches only their own devices — admins included. An existing policy
 is never overwritten. Edit it in **Access controls**; the syntax is
 [Tailscale's](https://tailscale.com/kb/1337/policy-syntax).
 
-**Access controls** has four tabs:
+**Access controls** has five tabs:
 
 - **Rules**, **Groups & tags**: forms for the common cases — who can reach
   what, reusable groups of users, who owns each tag — without writing HuJSON.
@@ -226,6 +226,12 @@ is never overwritten. Edit it in **Access controls**; the syntax is
   wrote by hand — exactly as it was. A rule whose destinations mix different
   ports (something the forms cannot represent) can still be deleted from here,
   but only edited in Advanced.
+- **Auto-approval**: declare which tag, group or user gets a subnet route (or
+  the exit node role) approved automatically, instead of approving each
+  device by hand from its machine page (see [Managing
+  machines](operations.md#managing-machines) for that manual, double opt-in
+  flow). This is Headscale's [`autoApprovers` policy
+  section](https://headscale.net/stable/ref/routes/).
 - **Test access**: pick a source and a destination (a device name, a user, a
   tag…) and it says whether the policy allows it and which rule matched. This
   is a **simulation** over the saved policy, not a live packet test — for
@@ -233,8 +239,8 @@ is never overwritten. Edit it in **Access controls**; the syntax is
   the service).
 - **Advanced (HuJSON)**: the original text editor, unchanged. It is the full
   escape hatch: anything the visual editor cannot represent — `ssh` rules,
-  `autoApprovers`, hand-written comments — is only ever edited here, and
-  nothing is lost by having both.
+  hand-written comments — is only ever edited here, and nothing is lost by
+  having both.
 
 ## Device key expiry
 

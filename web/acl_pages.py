@@ -176,6 +176,64 @@ def groups_panel(session: dict, pol: dict) -> str:
 
 
 # -----------------------------------------------------------------------------
+# Auto-approval
+# -----------------------------------------------------------------------------
+
+def _route_dialog(dialog_id: str, session: dict, title: str, cidr: str, approvers: list[str]) -> str:
+    return dialog(dialog_id, title,
+                 esc(_("Devices matching an approver that advertise this subnet are approved automatically.")),
+                 f"{BASE}/acl/autoapprove/routes", session, submit=_("Save"),
+                 fields=f"""<input type="hidden" name="orig_name" value="{esc(cidr)}">
+        <label class="field">{esc(_("Subnet"))}<input name="cidr" value="{esc(cidr)}"
+          placeholder="192.168.0.0/24" required autocomplete="off" spellcheck="false"></label>
+        <label class="field">{esc(_("Approvers"))}<input name="approvers" list="acl-targets" value="{esc(', '.join(approvers))}"
+          placeholder="tag:router, group:admins" required autocomplete="off" spellcheck="false"></label>""")
+
+
+def auto_approve_panel(session: dict, pol: dict) -> str:
+    auto = pol.get("autoApprovers") or {}
+    routes: dict[str, list[str]] = auto.get("routes") or {}
+    exit_node: list[str] = auto.get("exitNode") or []
+
+    rows, dialogs = [], []
+    for cidr, approvers in sorted(routes.items()):
+        rows.append(f"""
+        <tr><td><code>{esc(cidr)}</code></td><td>{_chips(approvers)}</td>
+          <td class="actions">
+            <details class="dropdown">
+              <summary class="icon-btn" aria-label="{esc(_("Actions"))}">{icon("more")}</summary>
+              <div class="dropdown-body right">
+                <button type="button" data-open="acl-route-{esc(cidr)}">{esc(_("Edit…"))}</button><hr>
+                <form method="post" action="{BASE}/acl/autoapprove/routes">{csrf_input(session)}
+                  <input type="hidden" name="op" value="delete"><input type="hidden" name="orig_name" value="{esc(cidr)}">
+                  <button type="submit" class="danger">{esc(_("Delete…"))}</button></form>
+              </div>
+            </details>
+          </td></tr>""")
+        dialogs.append(_route_dialog(f"acl-route-{cidr}", session, _("Edit auto-approved route"), cidr, approvers))
+    dialogs.append(_route_dialog("acl-route-new", session, _("Add auto-approved route"), "", []))
+
+    return f"""<div class="stack">
+      <div class="card-title"><h2>{esc(_("Auto-approved routes"))}</h2>
+        <button class="btn primary small" type="button" data-open="acl-route-new">{icon("plus")} {esc(_("Add route"))}</button></div>
+      <p class="muted small">{esc(_("A device that advertises one of these subnets is approved automatically if it matches an approver -- no per-device approval needed."))}</p>
+      {_table(rows, [_("Subnet"), _("Approvers"), ""], _("No auto-approved routes yet."))}
+    </div>
+    <hr>
+    <div class="stack">
+      <h2>{esc(_("Auto-approved exit node"))}</h2>
+      <p class="muted small">{esc(_("A device advertising itself as an exit node is approved automatically if it matches one of these. Leave it empty to turn auto-approval off."))}</p>
+      <form method="post" action="{BASE}/acl/autoapprove/exit-node" class="stack">
+        {csrf_input(session)}
+        <label class="field">{esc(_("Approvers"))}<input name="approvers" list="acl-targets" value="{esc(', '.join(exit_node))}"
+          placeholder="tag:exit, group:admins" autocomplete="off" spellcheck="false"></label>
+        <div class="form-foot"><button class="btn primary" type="submit">{esc(_("Save"))}</button></div>
+      </form>
+    </div>
+    {"".join(dialogs)}"""
+
+
+# -----------------------------------------------------------------------------
 # Test access
 # -----------------------------------------------------------------------------
 

@@ -112,6 +112,39 @@ class SpliceTests(unittest.TestCase):
         with self.assertRaises(policy.PolicyError):
             policy.replace_block("{ not json", "acls", "[]")
 
+    def test_editing_auto_approvers_preserves_comments_and_other_sections(self):
+        rendered = policy.render_auto_approvers({"routes": {"192.168.0.0/24": ["tag:router"]}, "exitNode": []})
+        result = policy.replace_block(WITH_SSH, "autoApprovers", rendered)
+        self.assertIn("// do not touch this comment", result)
+        self.assertIn('"ssh": [', result)
+        self.assertIn('"users": ["root"]', result)
+        self.assertEqual(policy.parse(result)["autoApprovers"], {"routes": {"192.168.0.0/24": ["tag:router"]}})
+        self.assertEqual(policy.parse(result)["groups"], policy.parse(WITH_SSH)["groups"])
+
+
+class AutoApproveRenderTests(unittest.TestCase):
+    def test_routes_and_exit_node_round_trip(self):
+        cfg = {"routes": {"192.168.0.0/24": ["tag:router"], "10.0.0.0/8": ["group:it", "alice@"]},
+               "exitNode": ["tag:exit"]}
+        rendered = policy.render_auto_approvers(cfg)
+        self.assertEqual(policy.parse("{" + f'"autoApprovers": {rendered}' + "}")["autoApprovers"], cfg)
+
+    def test_routes_only(self):
+        cfg = {"routes": {"10.0.0.0/8": ["tag:router"]}}
+        rendered = policy.render_auto_approvers(cfg)
+        self.assertNotIn("exitNode", rendered)
+        self.assertEqual(policy.parse("{" + f'"autoApprovers": {rendered}' + "}")["autoApprovers"], cfg)
+
+    def test_exit_node_only(self):
+        cfg = {"exitNode": ["tag:exit"]}
+        rendered = policy.render_auto_approvers(cfg)
+        self.assertNotIn("routes", rendered)
+        self.assertEqual(policy.parse("{" + f'"autoApprovers": {rendered}' + "}")["autoApprovers"], cfg)
+
+    def test_empty_renders_as_empty_object(self):
+        self.assertEqual(policy.render_auto_approvers({}), "{}")
+        self.assertEqual(policy.render_auto_approvers({"routes": {}, "exitNode": []}), "{}")
+
 
 class RuleViewTests(unittest.TestCase):
     def test_single_port_is_editable(self):
@@ -221,6 +254,34 @@ class FormTests(unittest.TestCase):
         _, _, error = app.acl_tag_owner_from_form({"name": "nas", "owners": "alice@"})
         self.assertIn("tag:", error)
 
+    def test_auto_route_from_form(self):
+        cidr, approvers, error = app.acl_auto_route_from_form({"cidr": "10.0.0.0/24", "approvers": "tag:router, alice@"})
+        self.assertEqual((cidr, approvers, error), ("10.0.0.0/24", ["tag:router", "alice@"], ""))
+
+    def test_auto_route_accepts_a_bare_ip_as_a_slash_32(self):
+        cidr, _, error = app.acl_auto_route_from_form({"cidr": "10.0.0.5", "approvers": "tag:router"})
+        self.assertEqual((cidr, error), ("10.0.0.5", ""))
+
+    def test_auto_route_rejects_bad_cidr_and_tag_and_empty_approvers(self):
+        _, _, error = app.acl_auto_route_from_form({"cidr": "not-a-cidr", "approvers": "tag:router"})
+        self.assertIn("subnet", error)
+        _, _, error = app.acl_auto_route_from_form({"cidr": "10.0.0.0/24", "approvers": ""})
+        self.assertIn("approver", error)
+        _, _, error = app.acl_auto_route_from_form({"cidr": "10.0.0.0/24", "approvers": "tag:Bad Name"})
+        self.assertIn("tag", error)
+
+    def test_auto_exit_node_from_form(self):
+        approvers, error = app.acl_auto_exit_node_from_form({"approvers": "tag:exit, group:admins"})
+        self.assertEqual((approvers, error), (["tag:exit", "group:admins"], ""))
+
+    def test_auto_exit_node_empty_list_is_valid(self):
+        approvers, error = app.acl_auto_exit_node_from_form({"approvers": ""})
+        self.assertEqual((approvers, error), ([], ""))
+
+    def test_auto_exit_node_rejects_bad_tag(self):
+        _, error = app.acl_auto_exit_node_from_form({"approvers": "tag:Bad Name"})
+        self.assertIn("tag", error)
+
 
 class RenderTests(unittest.TestCase):
     def setUp(self):
@@ -240,9 +301,24 @@ class RenderTests(unittest.TestCase):
         self.assertIn('data-open="acl-group-new"', panel)
         self.assertIn('data-open="acl-tag-new"', panel)
 
+    def test_auto_approve_panel_renders_routes_and_exit_node(self):
+        pol = {"autoApprovers": {"routes": {"192.168.0.0/24": ["tag:router"]}, "exitNode": ["tag:exit"]}}
+        panel = acl_pages.auto_approve_panel(SESSION_ADMIN, pol)
+        self.assertIn("192.168.0.0/24", panel)
+        self.assertIn("tag:exit", panel)
+        self.assertIn('data-open="acl-route-new"', panel)
+        self.assertIn(f"{acl_pages.BASE}/acl/autoapprove/exit-node", panel)
+
+    def test_auto_approve_panel_escapes_and_empty_state(self):
+        pol = {"autoApprovers": {"routes": {"10.0.0.0/8": ["<script>x"]}}}
+        panel = acl_pages.auto_approve_panel(SESSION_ADMIN, pol)
+        self.assertNotIn("<script>x", panel)
+        self.assertIn("&lt;script&gt;x", panel)
+        self.assertIn("No auto-approved routes yet.", acl_pages.auto_approve_panel(SESSION_ADMIN, {}))
+
     def test_acl_page_renders_every_tab(self):
         policy_data = {"policy": ISOLATION, "updatedAt": ""}
-        for active in ("rules", "groups", "test", "raw"):
+        for active in ("rules", "groups", "auto", "test", "raw"):
             page = admin_pages.acl_page(SESSION_ADMIN, CTX, policy_data, NODES, USERS, "", active=active)
             self.assertNotIn("<script>", page)
             self.assertIn('id="acl-targets"', page)
