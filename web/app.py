@@ -50,6 +50,7 @@ import audit  # noqa: E402
 import mfa  # noqa: E402
 import naming  # noqa: E402
 import pages  # noqa: E402
+import policy  # noqa: E402
 from i18n import LANGUAGES, _, pick_lang, set_lang  # noqa: E402
 from ui import BASE, esc, message_page  # noqa: E402
 from version import VERSION  # noqa: E402
@@ -344,7 +345,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == f"{BASE}/users":
                 return self.users_view(session, flash=flash)
             if path == f"{BASE}/acl":
-                return self.send(200, admin_pages.acl_page(session, CTX, hs.get_policy(), flash))
+                return self.send(200, admin_pages.acl_page(session, CTX, hs.get_policy(), hs.all_nodes(), hs.all_users(),
+                                                           flash, active=params.get("tab") or "rules"))
             if path == f"{BASE}/logs":
                 return self.send(200, audit.page(session, CTX, params))
             if path == f"{BASE}/logs.csv":
@@ -435,6 +437,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.recovery_link(session, m.group(1), form)
             if path == f"{BASE}/acl":
                 return self.save_acl(session, form)
+            if path == f"{BASE}/acl/rules":
+                return self.acl_edit(session, form, "rule")
+            if path == f"{BASE}/acl/groups":
+                return self.acl_edit(session, form, "group")
+            if path == f"{BASE}/acl/tags":
+                return self.acl_edit(session, form, "tag")
+            if path == f"{BASE}/acl/test":
+                return self.acl_test(session, form)
             if path == f"{BASE}/dns":
                 return self.save_dns(session, form)
             if path == f"{BASE}/apikeys":
@@ -865,22 +875,104 @@ class Handler(BaseHTTPRequestHandler):
             "kind": "reset", "link": link, "expires": iso_in_hours(int(hours)), "username": acct["username"],
             "email": acct["email"], "sent": sent})
 
-    # --- policy ---
+    # --- policy: Advanced (raw HuJSON) tab ---
     def save_acl(self, session: dict, form: dict):
-        policy = str(form.get("policy", ""))
+        policy_text = str(form.get("policy", ""))
         try:
             if form.get("action") == "save":
                 before = hs.get_policy().get("policy", "")
-                hs.api("PUT", "/policy", {"policy": policy})
-                audit.request_event(self, session, "acl.save", _("Access control policy"), audit.text_diff(before, policy))
+                hs.api("PUT", "/policy", {"policy": policy_text})
+                audit.request_event(self, session, "acl.save", _("Access control policy"), audit.text_diff(before, policy_text))
                 log.info("%s saved the ACL policy", session["username"])
-                return self.redirect(f"{BASE}/acl?m=acl-saved")
-            hs.api("POST", "/policy/check", {"policy": policy})
+                return self.redirect(f"{BASE}/acl?m=acl-saved&tab=raw")
+            hs.api("POST", "/policy/check", {"policy": policy_text})
             result = ("ok", _("The policy is valid."))
         except urllib.error.HTTPError as exc:
             result = ("error", hs.api_error(exc))
         # Send the draft back as is so nothing typed is lost
-        self.send(200, admin_pages.acl_page(session, CTX, hs.get_policy(), "", draft=policy, result=result))
+        self.send(200, admin_pages.acl_page(session, CTX, hs.get_policy(), hs.all_nodes(), hs.all_users(), "",
+                                            draft=policy_text, result=result, active="raw"))
+
+    # --- policy: visual editor (Rules / Groups & tags) ---
+    def acl_edit(self, session: dict, form: dict, kind: str):
+        """Shared save path for the visual ACL editor's small dialogs (rules,
+        groups, tag owners). The policy is re-read straight from Headscale
+        (never hs.get_policy(), which turns a failed request into an empty
+        policy -- building on that would risk overwriting a real one), the
+        change is spliced in with policy.replace_block, and it is validated
+        and saved exactly like the raw editor's Save button."""
+        tab = "rules" if kind == "rule" else "groups"
+        try:
+            current = hs.api("GET", "/policy")
+        except urllib.error.HTTPError as exc:
+            log.error("could not read the policy before a visual ACL edit: %s", hs.api_error(exc))
+            return self.redirect(f"{BASE}/acl?m=acl-unreachable&tab={tab}")
+        text = current.get("policy") or ""
+        try:
+            parsed = policy.parse(text)
+        except policy.PolicyError:
+            return self.redirect(f"{BASE}/acl?m=acl-unreadable&tab={tab}")
+
+        is_delete = str(form.get("op", "")) == "delete"
+        if kind == "rule":
+            acls = list(parsed.get("acls") or [])
+            idx = str(form.get("index", ""))
+            if is_delete:
+                if not (idx.isdigit() and int(idx) < len(acls)):
+                    return self.redirect(f"{BASE}/acl?m=acl-not-found&tab={tab}")
+                del acls[int(idx)]
+            else:
+                rule, error = acl_rule_from_form(form)
+                if error:
+                    return self.redirect(f"{BASE}/acl?m=acl-invalid&tab={tab}")
+                if idx.isdigit() and int(idx) < len(acls):
+                    acls[int(idx)] = rule
+                else:
+                    acls.append(rule)
+            new_text = policy.replace_block(text, "acls", policy.render_acls(acls))
+        else:
+            key = "groups" if kind == "group" else "tagOwners"
+            mapping = dict(parsed.get(key) or {})
+            orig = str(form.get("orig_name", "")).strip()
+            if is_delete:
+                if orig not in mapping:
+                    return self.redirect(f"{BASE}/acl?m=acl-not-found&tab={tab}")
+                del mapping[orig]
+            else:
+                name, members, error = (acl_group_from_form(form) if kind == "group" else acl_tag_owner_from_form(form))
+                if error:
+                    return self.redirect(f"{BASE}/acl?m=acl-invalid&tab={tab}")
+                if orig and orig != name:
+                    mapping.pop(orig, None)
+                mapping[name] = members
+            renderer = policy.render_groups if kind == "group" else policy.render_tag_owners
+            new_text = policy.replace_block(text, key, renderer(mapping))
+
+        try:
+            hs.api("POST", "/policy/check", {"policy": new_text})
+            hs.api("PUT", "/policy", {"policy": new_text})
+        except urllib.error.HTTPError as exc:
+            log.warning("Headscale rejected a visual ACL edit: %s", hs.api_error(exc))
+            return self.redirect(f"{BASE}/acl?m=acl-rejected&tab={tab}")
+        audit.request_event(self, session, f"acl.{kind}_{'delete' if is_delete else 'save'}",
+                            _("Access control policy"), audit.text_diff(text, new_text))
+        log.info("%s %s an ACL %s", session["username"], "deleted" if is_delete else "saved", kind)
+        return self.redirect(f"{BASE}/acl?m={'acl-deleted' if is_delete else 'acl-saved'}&tab={tab}")
+
+    def acl_test(self, session: dict, form: dict):
+        current = hs.get_policy()
+        nodes, users = hs.all_nodes(), hs.all_users()
+        try:
+            parsed = policy.parse(current.get("policy") or "")
+        except policy.PolicyError:
+            parsed = {}
+        src = str(form.get("test_src", "")).strip()
+        dst = str(form.get("test_dst", "")).strip()
+        port = str(form.get("test_port", "")).strip()
+        proto = str(form.get("test_proto", "")).strip()
+        verdict = policy.evaluate(parsed, nodes, users, src, dst, port or None, proto or None) if src and dst else None
+        self.send(200, admin_pages.acl_page(session, CTX, current, nodes, users, "",
+                                            test=(src, dst, port, proto, verdict), active="test"))
 
     # --- DNS ---
     def save_dns(self, session: dict, form: dict):
@@ -986,6 +1078,62 @@ def dns_cfg_from_form(form: dict, current: dict) -> tuple[dict, str]:
             except ValueError:
                 error = _("Custom records: {value} is not an IP address.", value=value)
     return cfg, error
+
+
+ACL_PORT_RE = re.compile(r"^(\*|\d+(-\d+)?(,\s*\d+(-\d+)?)*)$")
+ACL_PROTOS = {"", "tcp", "udp", "icmp"}
+GROUP_NAME_RE = re.compile(r"^group:[a-z0-9][a-z0-9-]{0,62}$")
+
+
+def acl_rule_from_form(form: dict) -> tuple[dict, str]:
+    """One ACL rule (Headscale's shape) from the rule dialog's fields, and
+    the first input error ("" if none). The dialog's single 'port' field is
+    appended to every destination entry ('tag:nas' + ':445' -> 'tag:nas:445'),
+    which is what Headscale's dst syntax expects."""
+    src = policy.split_list(str(form.get("src", "")))
+    dst = policy.split_list(str(form.get("dst", "")))
+    port = str(form.get("port", "")).strip() or "*"
+    proto = str(form.get("proto", "")).strip().lower()
+    if not src:
+        return {}, _("Add at least one source.")
+    if not dst:
+        return {}, _("Add at least one destination.")
+    if not ACL_PORT_RE.fullmatch(port):
+        return {}, _("Invalid port: use *, a number, a list (80,443) or a range (1000-2000).")
+    if proto not in ACL_PROTOS:
+        return {}, _("Invalid protocol.")
+    bad = [t for t in src + dst if t.startswith("tag:") and not TAG_RE.fullmatch(t)]
+    if bad:
+        return {}, _("Invalid tag: {value}", value=bad[0])
+    rule = {"action": "accept", "src": src, "dst": [f"{d}:{port}" for d in dst]}
+    if proto:
+        rule["proto"] = proto
+    return rule, ""
+
+
+def acl_group_from_form(form: dict) -> tuple[str, list[str], str]:
+    """(name, members, error) for the Groups dialog. name always carries the
+    group: prefix even if the field left it out."""
+    name = str(form.get("name", "")).strip().lower()
+    if name and not name.startswith("group:"):
+        name = f"group:{name}"
+    members = policy.split_list(str(form.get("members", "")))
+    if not GROUP_NAME_RE.fullmatch(name):
+        return "", [], _("Invalid group name: lowercase letters, digits and dashes, after group:.")
+    if not members:
+        return "", [], _("Add at least one member.")
+    return name, members, ""
+
+
+def acl_tag_owner_from_form(form: dict) -> tuple[str, list[str], str]:
+    """(tag, owners, error) for the Tag owners dialog."""
+    name = str(form.get("name", "")).strip().lower()
+    owners = policy.split_list(str(form.get("owners", "")))
+    if not TAG_RE.fullmatch(name):
+        return "", [], _("Invalid tag: use the tag: prefix, lowercase letters, digits and dashes.")
+    if not owners:
+        return "", [], _("Add at least one owner.")
+    return name, owners, ""
 
 
 def _key_expiry_days(form: dict) -> int | None:

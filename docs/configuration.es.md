@@ -217,8 +217,29 @@ política la primera vez:
 ```
 
 Cada usuario sólo alcanza sus dispositivos, admins incluidos. Una política
-existente nunca se sobrescribe. Edítala en **Control de acceso → Editor de
-políticas**; la sintaxis es la [de Tailscale](https://tailscale.com/kb/1337/policy-syntax).
+existente nunca se sobrescribe. Edítala en **Control de acceso**; la sintaxis
+es la [de Tailscale](https://tailscale.com/kb/1337/policy-syntax).
+
+**Control de acceso** tiene cuatro pestañas:
+
+- **Reglas**, **Grupos y etiquetas**: formularios para los casos habituales
+  —quién puede llegar a qué, grupos reutilizables de usuarios, quién es dueño
+  de cada etiqueta— sin escribir HuJSON. Editan la misma política que usa
+  Headscale: por debajo, cada guardado reescribe solo el bloque `acls`,
+  `groups` o `tagOwners` que tocó y deja el resto del archivo —comentarios,
+  orden de las claves, una sección `ssh` o `autoApprovers` escrita a mano—
+  exactamente igual. Una regla cuyos destinos mezclan puertos distintos (algo
+  que los formularios no pueden representar) se puede eliminar desde aquí,
+  pero solo se edita en Avanzado.
+- **Probar acceso**: elige un origen y un destino (un dispositivo, un
+  usuario, una etiqueta…) y dice si la política lo permite y qué regla
+  coincidió. Es una **simulación** sobre la política guardada, no una prueba
+  real de paquetes; para tener certeza, pruébalo desde los dispositivos
+  reales (`tailscale ping`, o intenta llegar al servicio).
+- **Avanzado (HuJSON)**: el editor de texto original, sin cambios. Es la vía
+  de escape completa: cualquier cosa que el editor visual no pueda
+  representar —reglas `ssh`, `autoApprovers`, comentarios escritos a mano—
+  solo se edita aquí, y no se pierde nada por tener ambos.
 
 ## Caducidad de la clave de los dispositivos { #device-key-expiry }
 

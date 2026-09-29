@@ -4,6 +4,8 @@ app.py checks the role before rendering any of them."""
 from __future__ import annotations
 
 import accounts as acc
+import acl_pages
+import policy
 from i18n import _, ngettext
 from pages import dialog
 from ui import (BASE, LOGO, badge, bare_page, csrf_input, esc, flash_html, icon, initials, layout, notice,
@@ -117,18 +119,13 @@ ISOLATION = """{
 }"""
 
 
-def acl_page(session: dict, ctx: dict, policy: dict, flash: str, draft: str | None = None,
-             result: tuple[str, str] | None = None) -> str:
-    text = draft if draft is not None else (policy.get("policy") or "")
+def _raw_panel(session: dict, text: str, updated: str | None, result: tuple[str, str] | None) -> str:
     res = ""
     if result:
         kind, msg = result
         res = f'<div class="notice {kind}" role="status"><pre class="plainpre">{esc(msg)}</pre></div>'
-    updated = policy.get("updatedAt")
-    body = page_head(_("Policy editor"),
-                     esc(_("Who can connect to what inside the tailnet. The policy is HuJSON (JSON with comments), same as in Tailscale.")),
-                     link=(_("Learn more"), "https://headscale.net/stable/ref/acls/")) + flash_html(flash) + res + f"""
-    <form method="post" action="{BASE}/acl" class="card stack">
+    return res + f"""
+    <form method="post" action="{BASE}/acl" class="stack">
       {csrf_input(session)}
       <div class="card-title"><h2>{esc(_("Policy file"))}</h2>
         <span class="muted small">{(esc(_("Updated")) + " " + time_tag(updated)) if updated else esc(_("No policy: every machine can reach every other one"))}</span></div>
@@ -138,7 +135,8 @@ def acl_page(session: dict, ctx: dict, policy: dict, flash: str, draft: str | No
         <button class="btn primary" type="submit" name="action" value="save">{esc(_("Save"))}</button>
       </div>
     </form>
-    <section class="card">
+    <hr>
+    <div class="stack">
       <h2>{esc(_("Quick reference"))}</h2>
       <dl class="kvs">
         <div class="kv"><dt><code>autogroup:member</code></dt><dd>{esc(_("Machines of any user (without tags)."))}</dd></div>
@@ -149,8 +147,59 @@ def acl_page(session: dict, ctx: dict, policy: dict, flash: str, draft: str | No
       </dl>
       <p class="muted small">{esc(_("Per-user isolation (the installer's default policy):"))}</p>
       <div class="code"><code class="pre">{esc(ISOLATION)}</code></div>
-    </section>"""
-    return layout(_("Policy editor"), "acl", body, session, ctx)
+    </div>"""
+
+
+_TAB_KEYS = ("rules", "groups", "test", "raw")
+
+
+def _tab_label(key: str) -> str:
+    return {
+        "rules": _("Rules"),
+        "groups": _("Groups & tags"),
+        "test": _("Test access"),
+        "raw": _("Advanced (HuJSON)"),
+    }[key]
+
+
+def acl_page(session: dict, ctx: dict, policy_data: dict, nodes: list[dict], users: list[dict], flash: str,
+            draft: str | None = None, result: tuple[str, str] | None = None, test: tuple | None = None,
+            active: str = "rules") -> str:
+    text = draft if draft is not None else (policy_data.get("policy") or "")
+    broken = ""
+    try:
+        parsed = policy.parse(text)
+    except policy.PolicyError as exc:
+        parsed, broken = {}, str(exc)
+    vocab = policy.vocabulary(parsed, nodes, users)
+    if active not in _TAB_KEYS:
+        active = "rules"
+
+    tabs = "".join(
+        f'<button type="button" role="tab" data-tab="{k}" class="{"active" if k == active else ""}">{esc(_tab_label(k))}</button>'
+        for k in _TAB_KEYS)
+
+    if broken:
+        note = (f'<div class="notice error" role="status">'
+               f'{esc(_("This policy could not be read as HuJSON ({error}). Fix it in Advanced.", error=broken))}</div>')
+        rules_body = groups_body = note
+    else:
+        rules_body = acl_pages.rules_panel(session, parsed)
+        groups_body = acl_pages.groups_panel(session, parsed)
+    panels_by_key = {
+        "rules": rules_body,
+        "groups": groups_body,
+        "test": acl_pages.test_panel(session, test),
+        "raw": _raw_panel(session, text, policy_data.get("updatedAt"), result),
+    }
+    panels = "".join(f'<div class="tab-panel" data-panel="{k}" {"" if k == active else "hidden"}>{panels_by_key[k]}</div>'
+                     for k in _TAB_KEYS)
+
+    body = page_head(_("Access controls"),
+                     esc(_("Who can connect to what inside the tailnet.")),
+                     link=(_("Learn more"), "https://headscale.net/stable/ref/acls/")) + flash_html(flash) + \
+           acl_pages.datalist(vocab) + f'<section class="card acl-editor"><div class="ostabs" role="tablist">{tabs}</div>{panels}</section>'
+    return layout(_("Access controls"), "acl", body, session, ctx)
 
 
 # -----------------------------------------------------------------------------
