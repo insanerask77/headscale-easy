@@ -56,7 +56,9 @@ panel. Use the official Tailscale apps on every device; only the server is yours
   devices by auth ID.
 - 🌐 **DNS**: MagicDNS, tailnet domain, nameservers, split DNS, search domains —
   validated with `headscale configtest` and rolled back if Headscale refuses them.
-- 📝 **Policy editor** for the HuJSON ACL policy.
+- 📝 **Access controls**: visual editor for rules, groups and tag owners, a
+  test-access simulator ("can ana reach nas:445?"), and the raw HuJSON editor
+  as a full fallback.
 - 🔐 **HTTPS your way**: Let's Encrypt, self-signed, behind your existing proxy
   (Nginx Proxy Manager, nginx, Traefik, Caddy — the snippet is generated for
   you), or plain HTTP on a LAN.
@@ -73,8 +75,8 @@ panel. Use the official Tailscale apps on every device; only the server is yours
 | ![Machines, light theme](docs/images/machines-light.png) | ![Machine details](docs/images/machine-detail.png) |
 | **Users** | **DNS** |
 | ![Users](docs/images/users.png) | ![DNS](docs/images/dns.png) |
-| **Policy editor** | **Keys** |
-| ![Policy editor](docs/images/access-controls.png) | ![Keys](docs/images/keys.png) |
+| **Access controls** | **Keys** |
+| ![Access controls](docs/images/access-controls.png) | ![Keys](docs/images/keys.png) |
 | **Sign in (Authentik, themed)** | **Add device** |
 | ![Sign in](docs/images/sign-in.png) | ![Add device](docs/images/add-device.png) |
 

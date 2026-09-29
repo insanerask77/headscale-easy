@@ -87,8 +87,8 @@ En los dispositivos usas las apps oficiales de Tailscale; sólo el servidor es t
     ![Usuarios](images/users.png){ .hse-shot }
 === "DNS"
     ![DNS](images/dns.png){ .hse-shot }
-=== "Editor de políticas"
-    ![Editor de políticas](images/access-controls.png){ .hse-shot }
+=== "Control de acceso"
+    ![Control de acceso](images/access-controls.png){ .hse-shot }
 === "Claves"
     ![Claves](images/keys.png){ .hse-shot }
 === "Inicio de sesión"
