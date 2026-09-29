@@ -494,6 +494,7 @@ def dns_form(session: dict, ctx: dict, dns: dict, error: str) -> str:
     if not ctx.get("dns_editable"):
         return notice("error", ctx.get("dns_reason") or _("Editing DNS is not available."))
     split = "\n".join(f"{d}: {', '.join(v)}" for d, v in (dns.get("split") or {}).items())
+    records = "\n".join(f"{r.get('name', '')} {r.get('value', '')}" for r in dns.get("extra_records") or [])
     return f"""{notice("error", error) if error else ""}
     <form method="post" action="{BASE}/dns" class="card stack" data-busy>
       {csrf_input(session)}
@@ -511,6 +512,9 @@ def dns_form(session: dict, ctx: dict, dns: dict, error: str) -> str:
       <label class="field">{esc(_("Split DNS"))}
         <textarea name="split" rows="3" spellcheck="false" placeholder="corp.lan: 10.0.0.53, 10.0.0.54">{esc(split)}</textarea>
         <span class="muted small">{esc(_("One line per domain: domain: server, server"))}</span></label>
+      <label class="field">{esc(_("Custom records"))}
+        <textarea name="extra_records" rows="3" spellcheck="false" placeholder="nas.example.com 100.64.0.5">{esc(records)}</textarea>
+        <span class="muted small">{esc(_("One per line: name address. They resolve on every device of the tailnet (A or AAAA, from the address)."))}</span></label>
       <label class="field">{esc(_("Search domains"))}
         <textarea name="search_domains" rows="2" spellcheck="false" placeholder="corp.lan">{esc(chr(10).join(dns.get("search_domains") or []))}</textarea>
         <span class="muted small">{esc(_("One per line."))}</span></label>
@@ -527,6 +531,8 @@ def dns_page(session: dict, ctx: dict, dns: dict, machines: list[Machine], error
     magic = dns.get("magic_dns")
     ns = "".join(f"<li><code>{esc(n)}</code></li>" for n in dns.get("nameservers") or [])
     search = "".join(f"<li><code>{esc(d)}</code></li>" for d in dns.get("search_domains") or [])
+    record_rows = "".join(f"<tr><td><code>{esc(r.get('name'))}</code></td><td>{esc(r.get('type'))}</td><td><code>{esc(r.get('value'))}</code></td></tr>"
+                          for r in dns.get("extra_records") or [])
     split_rows = "".join(f"<tr><td><code>{esc(d)}</code></td><td>{esc(', '.join(v))}</td></tr>"
                          for d, v in (dns.get("split") or {}).items())
     names = "".join(f'<tr><td>{esc(m.name)}</td><td><code>{esc(m.fqdn)}</code></td><td class="actions">{copy_btn(m.fqdn)}</td></tr>'
@@ -550,6 +556,7 @@ def dns_page(session: dict, ctx: dict, dns: dict, machines: list[Machine], error
         {f'<ul class="plain">{search}</ul>' if search else f'<p class="muted">{esc(_("None."))}</p>'}</section>
     </div>
     {f'<section class="card"><h2>{esc(_("Split DNS"))}</h2><table class="simple"><thead><tr><th>{esc(_("Domain"))}</th><th>{esc(_("Nameservers"))}</th></tr></thead><tbody>{split_rows}</tbody></table></section>' if split_rows else ""}
+    {f'<section class="card"><h2>{esc(_("Custom records"))}</h2><table class="simple"><thead><tr><th>{esc(_("Name"))}</th><th>{esc(_("Type"))}</th><th>{esc(_("Address"))}</th></tr></thead><tbody>{record_rows}</tbody></table></section>' if record_rows else ""}
     {dns_form(session, ctx, dns, error) if admin else ""}"""
     return layout(_("DNS"), "dns", body, session, ctx)
 

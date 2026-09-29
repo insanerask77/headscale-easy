@@ -43,7 +43,7 @@ Effort: **S** = hours · **M** = one or two days · **L** = several days.
   key expired, client version changes) and sign-ins from Authentik. Page with
   search, filters, CSV export and retention. Network flow logs are not feasible
   with Headscale.
-- [ ] **7. Custom DNS records** · S
+- [x] **7. Custom DNS records** · S — *1.0.7*
   Headscale supports `dns.extra_records` (e.g. `nas.example` → `100.64.0.5`);
   the web UI always writes it empty.
 - [ ] **8. Add devices with a QR code** · S
