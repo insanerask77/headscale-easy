@@ -35,7 +35,8 @@ La página **Máquinas** lista todos los dispositivos que puedes ver (los admins
 todos) y se actualiza sola cada pocos segundos: las máquinas nuevas aparecen y
 su estado cambia sin recargar. Busca por nombre, propietario, dirección, etiqueta o versión, y acota la
 lista con **Filtros** (estado, propietario, necesita actualización, tiene rutas,
-clave caducada). El botón de descarga exporta la lista actual en CSV.
+clave caducada, caduca pronto, desconectado más de 30 días). El botón de
+descarga exporta la lista actual en CSV.
 
 Las etiquetas bajo cada nombre indican lo que tiene de especial una máquina:
 
@@ -43,6 +44,7 @@ Las etiquetas bajo cada nombre indican lo que tiene de especial una máquina:
 |---|---|
 | Caducidad desactivada | Su clave no caduca nunca |
 | Caducada | Su clave caducó: tiene que volver a iniciar sesión |
+| Caduca pronto | Su clave caduca en menos de 14 días: vuelve a iniciar sesión en ella (o desactiva la caducidad) para que siga conectada |
 | Efímera | Se elimina sola cuando se desconecta |
 | Subredes / Exit Node | Anuncia rutas; en naranja, alguna espera aprobación |
 | `tag:…` | Etiquetas ACL |
@@ -52,6 +54,16 @@ El menú **⋯** (y la página de la máquina) permite renombrarla, expirar su c
 aprobar **rutas de subred y exit nodes** o eliminarla. Los miembros pueden
 renombrar, expirar y eliminar sus máquinas; rutas, etiquetas y caducidad son
 sólo para admins, como en Tailscale.
+
+**Máquinas que caducan e inactivas.** Cuando alguna de las máquinas que ves
+caduca en los próximos 14 días o ya caducó, un aviso arriba de la lista dice
+cuántas son, con un enlace que las filtra (los miembros lo ven para sus propias
+máquinas). Una máquina está *inactiva* si lleva más de 30 días desconectada
+(contando desde su registro si nunca llegó a conectarse); los admins tienen
+**Quitar dispositivos inactivos…**, que las lista todas marcadas para que
+desmarques las que quieras conservar. Una máquina que ha vuelto a conectarse
+entretanto nunca se elimina. Cambia los plazos con `EXPIRY_WARNING_DAYS` e
+`INACTIVE_DAYS` en `.env` (y luego `docker compose up -d`).
 
 Las apps de Tailscale que no pueden leer el nombre del dispositivo (iPhone,
 iPad, Apple TV y la versión de la App Store para Mac) se registran como
@@ -140,6 +152,49 @@ seguridad y ejecuta el mismo comando; no hace falta pasar antes el instalador.
 ./uninstall.sh           # elimina los contenedores, conserva datos y configuración
 ./uninstall.sh --purge   # borra también volúmenes, configuración y ./data
 ```
+
+## Registro de actividad { #activity-log }
+
+**Registros** (solo admins, en la barra lateral) es el registro de actividad
+de la tailnet, como el registro de auditoría de configuración de la consola de
+Tailscale. Guarda:
+
+- **Configuración**: cada cambio hecho desde la interfaz web — máquinas
+  renombradas, eliminadas o caducadas, cambios de rutas, etiquetas y caducidad
+  de la clave, máquinas registradas con un Auth ID; usuarios creados,
+  renombrados y eliminados; claves de autenticación y de API creadas,
+  revocadas o caducadas; la política de control de acceso (con el diff del
+  cambio), el DNS (cada ajuste antes y después), la caducidad de las claves de
+  dispositivo y el modo de verificación en dos pasos. Los renombrados
+  automáticos de máquinas llamadas `localhost` aparecen como *Headscale Easy
+  (automático)*.
+- **Inicio de sesión**: inicios y cierres de sesión en la consola, e inicios
+  de sesión fallidos con clave de API.
+- **Dispositivos**: cada 30 segundos la interfaz web compara el estado de
+  Headscale y registra los dispositivos que se registran, se eliminan, se
+  conectan o desconectan, cuya clave caduca, cuya versión de Tailscale cambia
+  o que se renombran fuera de la interfaz web (por ejemplo con
+  `headscale nodes rename`).
+
+Cada evento tiene la hora, el autor (el nombre de usuario, `Clave de API
+<prefijo>` en las sesiones con clave de API, o *Headscale* en los eventos de
+dispositivos), la IP del cliente, el objetivo y los detalles. Nunca se guardan
+secretos: de las claves de autenticación, de API y de los Auth ID solo se
+guarda el prefijo.
+
+Busca, filtra por categoría, autor y fechas (UTC), y descarga los eventos que
+coinciden con el botón CSV. La primera página se actualiza sola.
+
+El registro está en `./data/web/audit.db` (SQLite). Los eventos más antiguos
+que `AUDIT_RETENTION_DAYS` de `.env` (por defecto `90`; `0` los guarda para
+siempre) se borran automáticamente. Los cambios hechos fuera de la interfaz web
+(el CLI `headscale`, la API) no son eventos de configuración, pero su efecto en
+los dispositivos sí se registra.
+
+!!! note "Nota"
+    Headscale no tiene registros de flujos de red (qué dispositivo habló con
+    cuál y cuándo): hacen falta datos de los clientes que solo recoge el
+    servidor de coordinación de Tailscale.
 
 ## Resolución de problemas { #troubleshooting }
 

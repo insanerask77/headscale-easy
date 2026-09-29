@@ -14,7 +14,8 @@ Las preguntas, por orden:
 3. **Quién pone el HTTPS**: ver [Modos de HTTPS](#https-modes).
 4. **Puertos**: Enter acepta los valores por defecto.
 5. **Tailnet**: nombre de la organización, usuario inicial de Headscale, rangos de direcciones.
-6. **Inicio de sesión**: Authentik, tu propio proveedor OIDC o sólo API key.
+6. **Inicio de sesión**: Authentik, tu propio proveedor OIDC o sólo API key. Con
+   Authentik, opcionalmente un servidor SMTP para el email ("¿Olvidaste la contraseña?").
 7. **Aislamiento de red**: si cada usuario sólo alcanza sus dispositivos.
 8. **Copias de seguridad**: si se hace una copia diaria (desactivada por
    defecto, recomendada) y, en ese caso, a qué hora, en qué carpeta y cuántos
@@ -73,7 +74,10 @@ pon en `FRONT_PROXY_IP` la IP del proxy en la LAN.
 
 - El primer admin es `akadmin`; el instalador muestra su contraseña del primer
   arranque. Cámbiala en `/authentik/if/user/`.
-- Da de alta a la gente en **`/add-user`** (o **Usuarios → Añadir usuario** en la
+- Invita a la gente desde la consola (**Usuarios → Invitar usuario**): cada
+  uno elige su usuario y su contraseña; ver [Invitaciones y restablecer la
+  contraseña](#invitations-and-password-reset).
+- O dalos de alta tú en **`/add-user`** (o **Usuarios → Añadir usuario** en la
   consola): un formulario sencillo con nombre, usuario, email, contraseña y si es
   admin. Sin entrar en la administración de Authentik. El email y el usuario
   deben ser únicos.
@@ -83,6 +87,48 @@ pon en `FRONT_PROXY_IP` la IP del proxy en la LAN.
   sesión usan flujos propios de Headscale Easy (`headscale-easy-sign-in`,
   `headscale-easy-sign-out`): Authentik restablece sus flujos por defecto de vez
   en cuando.
+
+### Invitaciones y restablecer la contraseña { #invitations-and-password-reset }
+
+**Invitaciones.** En **Usuarios → Invitar usuario** elige el acceso (miembro o
+admin), opcionalmente un email, y cuánto tiempo vale el enlace (1, 7 o 30 días;
+7 por defecto). La consola muestra un enlace para copiar y enviar; quien lo abre
+ve *Create your account* (flujo `headscale-easy-invitation`), elige usuario y
+contraseña (las mismas reglas que `/add-user`: al menos 10 caracteres, usuario y
+email únicos) y entra directamente en la consola, en el grupo que elegiste
+(`headscale-users` o `vpn-admins`). Si la invitación lleva email, la cuenta
+tiene que usarlo (el campo está bloqueado). El enlace sirve una vez: se gasta
+al crear la cuenta, no al abrirlo. Los admins a los que la verificación en dos
+pasos obliga la configuran antes de entrar. **Usuarios → Invitaciones
+pendientes** lista los enlaces aún sin usar (copiar de nuevo o **Revocar**).
+
+**Restablecer la contraseña sin email.** En el menú **⋯** de un usuario,
+**Enlace para restablecer la contraseña…** crea un enlace de un solo uso
+(válido 1 hora, 24 horas o 7 días) donde esa persona elige una contraseña nueva
+(flujo `headscale-easy-recovery`); la anterior sigue funcionando hasta
+entonces. Envíalo por un canal privado. Quien tiene cuenta pero aún no ha
+conectado ningún dispositivo (y por tanto aún no es usuario de Headscale)
+aparece en **Cuentas sin dispositivos**, con la misma acción. Las cuentas se
+emparejan con los usuarios de Headscale por su identidad OIDC, no por el
+nombre. Los superusuarios de Authentik (`akadmin`, `authentik Admins`) quedan
+fuera a propósito: restablecen su contraseña en Authentik (o con
+`docker exec -it authentik-worker ak create_recovery_key 60 akadmin`).
+
+**Con email (opcional).** El instalador pregunta por un servidor SMTP
+(desactivado por defecto): servidor, puerto, seguridad (STARTTLS, SSL/TLS o
+ninguna), usuario, contraseña y remitente; se guardan como `SMTP_*` en `.env` y
+Authentik los recibe como `AUTHENTIK_EMAIL__*`. Entonces la página de inicio de
+sesión muestra **Forgot password?** (¿Olvidaste la contraseña?), que envía un
+enlace a la dirección de la cuenta (flujo `headscale-easy-forgot-password`), y
+la consola también puede enviar por email las invitaciones y los enlaces. Sin
+email no aparece ese enlace. Prueba la configuración con
+`docker exec authentik-worker ak test_email tu@example.com`.
+
+La consola hace todo esto mediante la API de Authentik con el token de la
+cuenta de servicio (`PORTAL_AUTHENTIK_TOKEN`), al que el blueprint permite
+listar cuentas, crear enlaces de restablecimiento y gestionar invitaciones. Una
+instalación hecha con una versión anterior lo obtiene volviendo a ejecutar
+`./install.sh`.
 
 ### Verificación en dos pasos { #two-factor-authentication }
 
@@ -112,7 +158,7 @@ tocar (`state: created`), así que reiniciar Authentik no deshace lo que eligió
 un admin. El panel cambia esa línea mediante la API de Authentik con el token
 de `PORTAL_AUTHENTIK_TOKEN` (lo genera el instalador), que pertenece a la
 cuenta de servicio `headscale-easy-web` y sólo puede leer y cambiar esa
-política. El token nunca llega al navegador. Sin él (un `.env` escrito por un
+política (además de las invitaciones y los enlaces de restablecimiento, arriba). El token nunca llega al navegador. Sin él (un `.env` escrito por un
 instalador anterior, hasta que se vuelva a ejecutar `./install.sh`) el panel muestra el modo
 en sólo lectura; con tu propio proveedor OIDC, la verificación en dos pasos se
 configura allí y la sección no aparece. Desde el servidor:
@@ -178,11 +224,27 @@ cuándo puede la clave añadir dispositivos.
 
 ## DNS { #dns }
 
-Los admins editan el DNS en la consola (página **DNS**): MagicDNS, el dominio de
-la tailnet, nameservers, split DNS, dominios de búsqueda y **registros
-personalizados** (uno por línea, `nombre dirección`, por ejemplo
-`nas.example.com 100.64.0.5`: lo resuelven todos los dispositivos de la
-tailnet; A o AAAA según la dirección). La consola escribe el
+Los admins editan el DNS en la consola (página **DNS**), organizada como la de
+Tailscale:
+
+- **Nombre DNS de la tailnet** — *Renombrar tailnet…* pide confirmación antes:
+  cambia el nombre completo de cada máquina (`<máquina>.<dominio de la tailnet>`).
+- **MagicDNS** — activar/desactivar; desactivarlo pide confirmación, porque los
+  nombres de las máquinas dejan de resolverse en todos los dispositivos.
+- **Servidores de nombres** — con MagicDNS activado, el dominio de la tailnet se
+  resuelve siempre con `100.100.100.100` (se muestra de solo lectura). Debajo,
+  los de *DNS dividido* (un servidor restringido a un dominio) y los *globales*,
+  uno por fila (una IP o un resolvedor DoH `https://…`). **Usar la configuración
+  DNS local** activado: los dispositivos mantienen sus servidores y los globales
+  son un respaldo; desactivado (`override_local_dns: true`): todos los
+  dispositivos usan los servidores globales.
+- **Dominios de búsqueda** — con MagicDNS activado, el dominio de la tailnet es
+  siempre el primero.
+- **Registros personalizados** — `nombre` + `dirección` (por ejemplo
+  `nas.example.com` → `100.64.0.5`): lo resuelven todos los dispositivos de la
+  tailnet; A o AAAA según la dirección.
+
+Los miembros ven los mismos ajustes en solo lectura. La consola escribe el
 bloque `dns:` de `headscale-config.yaml` entre estos marcadores:
 
 ```yaml

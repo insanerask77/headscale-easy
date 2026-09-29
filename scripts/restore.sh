@@ -81,6 +81,14 @@ done
 chmod 600 "$PROJECT_DIR/.env" 2>/dev/null || true
 ok "$(t "Configuration restored" "Configuración restaurada")"
 
+# The web UI's activity log
+if [[ -f "$B/web/audit.db" ]]; then
+    mkdir -p "$PROJECT_DIR/data/web"
+    rm -f "$PROJECT_DIR/data/web/audit.db-wal" "$PROJECT_DIR/data/web/audit.db-shm"
+    cp -p "$B/web/audit.db" "$PROJECT_DIR/data/web/audit.db"
+    ok "$(t "Activity log restored" "Registro de actividad restaurado")"
+fi
+
 # 2. Headscale: database and private keys (same keys = devices stay registered)
 docker volume create "$HEADSCALE_VOLUME" >/dev/null
 docker run --rm -v "$HEADSCALE_VOLUME:/d" -v "$B/headscale:/b:ro" --entrypoint sh "$BACKUP_IMAGE" -c \

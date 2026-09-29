@@ -1,0 +1,15 @@
+{
+  "QR code: {label}": "Código QR: {label}",
+  "server URL {url}": "URL del servidor {url}",
+  "Scan it with the phone's camera to get the URL on the phone, then copy it into the app. The Tailscale app cannot read QR codes itself.": "Escanéalo con la cámara del móvil para tener la URL en el teléfono y cópiala en la app. La app de Tailscale no lee códigos QR por sí misma.",
+  "In the Tailscale app, tap the profile icon in the top-right corner, then Log in (or your account, if the app is already signed in to another tailnet).": "En la app de Tailscale, toca el icono de perfil arriba a la derecha y luego Log in (o tu cuenta, si la app ya tiene sesión en otra tailnet).",
+  "Tap the ⋯ menu in the top-right corner, choose Use a custom coordination server and enter this URL:": "Toca el menú ⋯ arriba a la derecha, elige Use a custom coordination server e introduce esta URL:",
+  "Tap the ⋮ menu in the top-right corner, choose Use an alternate server and enter this URL:": "Toca el menú ⋮ arriba a la derecha, elige Use an alternate server e introduce esta URL:",
+  "Tap Log in and sign in with your account.": "Toca Log in e inicia sesión con tu cuenta.",
+  "To connect without signing in, set the server first and then choose Use an auth key in the same ⋮ menu, with a key from {link}.": "Para conectar sin iniciar sesión, configura primero el servidor y luego elige Use an auth key en el mismo menú ⋮, con una clave de {link}.",
+  "Show as QR codes": "Mostrar como códigos QR",
+  "auth key": "clave de autenticación",
+  "command to connect a Linux device": "comando para conectar un dispositivo Linux",
+  "Linux command": "Comando para Linux",
+  "Most phone cameras can copy the text of a QR code. On Android, paste the key in the Tailscale app with Use an auth key (⋮ menu, after setting the server).": "La mayoría de las cámaras de los móviles permiten copiar el texto de un código QR. En Android, pega la clave en la app de Tailscale con Use an auth key (menú ⋮, después de configurar el servidor)."
+}

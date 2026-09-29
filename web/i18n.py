@@ -18,11 +18,15 @@ from pathlib import Path
 LANGUAGES = {"en": "English", "es": "Español"}
 DEFAULT_LANG = os.environ.get("DEFAULT_LANG", "en") if os.environ.get("DEFAULT_LANG") in LANGUAGES else "en"
 
+# locales/<lang>.json plus locales/<lang>.d/*.json (one file per feature, so
+# features developed in parallel do not edit the same file)
 _catalogs: dict[str, dict[str, str]] = {}
 for _lang in LANGUAGES:
-    _path = Path(__file__).parent / "locales" / f"{_lang}.json"
-    if _path.is_file():
-        _catalogs[_lang] = json.loads(_path.read_text(encoding="utf-8"))
+    _dir = Path(__file__).parent / "locales"
+    _catalogs[_lang] = {}
+    for _path in [_dir / f"{_lang}.json", *sorted((_dir / f"{_lang}.d").glob("*.json"))]:
+        if _path.is_file():
+            _catalogs[_lang].update(json.loads(_path.read_text(encoding="utf-8")))
 
 # One request per thread (ThreadingHTTPServer): the current language lives in
 # thread-local storage and is set at the start of every request.

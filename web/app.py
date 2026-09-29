@@ -41,9 +41,12 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("headscale-easy")
 
-import admin_pages  # noqa: E402  (after logging is configured)
+import accounts  # noqa: E402  (after logging is configured)
+import admin_pages  # noqa: E402
 import headscale as hs  # noqa: E402
 import apikey  # noqa: E402
+import expiry  # noqa: E402
+import audit  # noqa: E402
 import mfa  # noqa: E402
 import naming  # noqa: E402
 import pages  # noqa: E402
@@ -204,6 +207,10 @@ def iso_in(days: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def iso_in_hours(hours: int) -> str:
+    return (datetime.now(timezone.utc) + timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 # -----------------------------------------------------------------------------
 # HTTP
 # -----------------------------------------------------------------------------
@@ -260,8 +267,8 @@ class Handler(BaseHTTPRequestHandler):
         if length > 262144:
             return {}
         data = urllib.parse.parse_qs(self.rfile.read(length).decode(), keep_blank_values=True)
-        # 'route' can repeat (checkboxes)
-        return {k: (v if k == "route" else v[0]) for k, v in data.items()}
+        # 'route' (checkboxes) and fields named "...[]" (rows) can repeat
+        return {k: (v if k == "route" or k.endswith("[]") else v[0]) for k, v in data.items()}
 
     def log_message(self, fmt, *args):
         log.info("%s %s", self.address_string(), fmt % args)
@@ -332,12 +339,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self.keys_view(session, flash, preselect=params.get("user", ""))
 
             # --- admins only ---
-            if path in (f"{BASE}/users", f"{BASE}/acl") and not admin:
+            if path in (f"{BASE}/users", f"{BASE}/acl", f"{BASE}/logs", f"{BASE}/logs.csv") and not admin:
                 return self.fail(403, _("No permission"), _("This section is for admins only."))
             if path == f"{BASE}/users":
-                return self.send(200, admin_pages.users_page(session, CTX, hs.all_users(), hs.all_nodes(), flash))
+                return self.users_view(session, flash=flash)
             if path == f"{BASE}/acl":
                 return self.send(200, admin_pages.acl_page(session, CTX, hs.get_policy(), flash))
+            if path == f"{BASE}/logs":
+                return self.send(200, audit.page(session, CTX, params))
+            if path == f"{BASE}/logs.csv":
+                return self.send(200, audit.csv_export(params), "text/csv; charset=utf-8",
+                                 [("Content-Disposition", 'attachment; filename="activity-log.csv"')])
             self.fail(404, _("Not found"), _("That page does not exist."))
         except urllib.error.HTTPError as exc:
             if exc.code == 401:
@@ -402,6 +414,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.fail(403, _("No permission"), _("This action is for admins only."))
             if path == f"{BASE}/machines/register":
                 return self.register_node(session, form)
+            if path == f"{BASE}/machines/remove-inactive":
+                return self.remove_inactive(session, form)
             if path == f"{BASE}/settings/key-expiry":
                 return self.save_key_expiry(session, form)
             if path == f"{BASE}/settings/mfa":
@@ -411,6 +425,14 @@ class Handler(BaseHTTPRequestHandler):
             m = re.fullmatch(rf"{BASE}/users/(\d+)/(rename|delete)", path)
             if m:
                 return self.user_action(session, m.group(1), m.group(2), form)
+            if path == f"{BASE}/invitations" and AUTHENTIK:
+                return self.create_invitation(session, form)
+            m = re.fullmatch(rf"{BASE}/invitations/([0-9a-f-]{{32,36}})/revoke", path)
+            if m and AUTHENTIK:
+                return self.revoke_invitation(session, m.group(1))
+            m = re.fullmatch(rf"{BASE}/accounts/(\d+)/recovery", path)
+            if m and AUTHENTIK:
+                return self.recovery_link(session, m.group(1), form)
             if path == f"{BASE}/acl":
                 return self.save_acl(session, form)
             if path == f"{BASE}/dns":
@@ -419,7 +441,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.create_apikey(session, form)
             m = re.fullmatch(rf"{BASE}/apikeys/(\d+)/expire", path)
             if m:
-                return self.expire_apikey(m.group(1))
+                return self.expire_apikey(m.group(1), session)
             self.send(404, "Not found", "text/plain")
         except Exception:  # noqa: BLE001
             log.exception("error on POST %s", path)
@@ -434,12 +456,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if days is None:
             return again(_("Enter a number of days between 1 and {max}.", max=hs.KEY_EXPIRY_MAX_DAYS))
+        before = hs.key_expiry_days()
         ok, error = hs.apply_key_expiry(days)
         if not ok:
             log.warning("%s tried to change the key expiry: %s", session["username"], error)
             return again(error)
         log.info("%s set the device key expiry to %s and restarted Headscale", session["username"],
                  f"{days} days" if days else "never")
+        audit.request_event(self, session, "settings.key_expiry", _("Device key expiry"), {"from": before, "to": days})
         return self.redirect(f"{BASE}/settings/general?m=key-expiry-saved")
 
     def save_mfa(self, session: dict, form: dict):
@@ -461,6 +485,7 @@ class Handler(BaseHTTPRequestHandler):
             return again(str(exc))
         if changed:
             log.info("%s set two-factor authentication to '%s'", session["username"] or session["name"], mode)
+            audit.request_event(self, session, "settings.mfa", _("Two-factor authentication"), {"to": mode})
         return self.redirect(f"{BASE}/settings/general?m=mfa-saved")
 
     # --- static files ---
@@ -495,6 +520,7 @@ class Handler(BaseHTTPRequestHandler):
     def callback(self, params: dict):
         tx = unsign(self.cookie("hse_oidc"))
         if not tx or not params.get("code") or not hmac.compare_digest(params.get("state", ""), tx["state"]):
+            audit.request_event(self, None, "auth.signin_failed", "", {"method": "oidc", "reason": params.get("error", "invalid state")[:100]})
             return self.fail(400, _("Could not sign in"), _("The sign-in expired or is not valid. Please try again."))
 
         d = discovery()
@@ -537,13 +563,15 @@ class Handler(BaseHTTPRequestHandler):
         if not valid:
             time.sleep(1)  # slow down guessing
             log.warning("API key sign-in rejected from %s", self.address_string())
+            audit.request_event(self, None, "auth.signin_failed", "", {"method": "apikey", "prefix": hs.api_key_prefix(key)}, actor="")
             return self.send(401, admin_pages.login_page(SSO, API_KEY_LOGIN, _("Invalid or expired API key.")))
         log.info("sign-in with API key (%s…)", key[:14])
         self.start_session({"kind": "apikey", "sub": "", "username": "", "name": _("Administrator"),
-                            "email": "", "groups": [], "admin": True})
+                            "email": "", "groups": [], "admin": True, "key": hs.api_key_prefix(key)})
 
     def start_session(self, data: dict):
         data.update(csrf=secrets.token_urlsafe(24), exp=time.time() + SESSION_TTL)
+        audit.request_event(self, data, "auth.signin", "", {"method": data["kind"], "admin": bool(data["admin"])})
         log.info("sign-in: %s (%s%s)", data["username"] or data["name"], data["kind"], ", admin" if data["admin"] else "")
         self.redirect(f"{BASE}/machines", [
             self.set_cookie("hse_session", sign(data), SESSION_TTL),
@@ -567,6 +595,7 @@ class Handler(BaseHTTPRequestHandler):
                     "post_logout_redirect_uri": f"{PUBLIC_URL}{BASE}/",
                     "client_id": OIDC_CLIENT_ID,
                 })
+        audit.request_event(self, session, "auth.signout")
         self.redirect(target, [self.set_cookie("hse_session", "", 0)])
 
     # --- machines ---
@@ -589,18 +618,22 @@ class Handler(BaseHTTPRequestHandler):
                 if not NODE_NAME_RE.fullmatch(name):
                     return self.redirect(f"{dest}?m=bad-name")
                 hs.api("POST", f"/node/{node_id}/rename/{urllib.parse.quote(name)}")
+                audit.request_event(self, session, "machine.rename", name, {"from": node.get("givenName"), "to": name}, f"node:{node_id}")
                 return self.redirect(f"{dest}?m=renamed")
             if action == "expire":
                 hs.api("POST", f"/node/{node_id}/expire")
+                audit.request_event(self, session, "machine.expire", node.get("givenName"), ref=f"node:{node_id}")
                 return self.redirect(f"{dest}?m=expired")
             if action == "expiry":
                 if form.get("disable") == "1":
                     hs.api("POST", f"/node/{node_id}/expire?disableExpiry=true")
+                    audit.request_event(self, session, "machine.expiry_disable", node.get("givenName"), ref=f"node:{node_id}")
                     return self.redirect(f"{dest}?m=expiry-off")
                 # Re-enable: the tailnet's key expiry (Settings → General), or
                 # Tailscale's 180 days when devices are set to never expire
                 days = hs.key_expiry_days() or 180
                 hs.api("POST", f"/node/{node_id}/expire?" + urllib.parse.urlencode({"expiry": iso_in(days)}))
+                audit.request_event(self, session, "machine.expiry_enable", node.get("givenName"), {"days": days}, f"node:{node_id}")
                 return self.redirect(f"{dest}?m=expiry-on")
             if action == "routes":
                 # Only routes the node advertises can be approved
@@ -611,15 +644,18 @@ class Handler(BaseHTTPRequestHandler):
                     routes += [r for r in EXIT_ROUTES if r in available]
                 hs.api("POST", f"/node/{node_id}/approve_routes", {"routes": sorted(set(routes))})
                 log.info("%s approved routes %s on node %s", session["username"], routes, node_id)
+                audit.request_event(self, session, "machine.routes", node.get("givenName"), {"from": sorted(node.get("approvedRoutes") or []), "to": sorted(set(routes))}, f"node:{node_id}")
                 return self.redirect(f"{dest}?m=routes")
             if action == "tags":
                 tags = [t.lower() for t in lines(str(form.get("tags", "")))]
                 if any(not TAG_RE.fullmatch(t) for t in tags):
                     return self.redirect(f"{dest}?m=failed")
                 hs.api("POST", f"/node/{node_id}/tags", {"tags": tags})
+                audit.request_event(self, session, "machine.tags", node.get("givenName"), {"from": sorted(node.get("tags") or []), "to": sorted(tags)}, f"node:{node_id}")
                 return self.redirect(f"{dest}?m=tags")
             hs.api("DELETE", f"/node/{node_id}")
             log.info("%s removed node %s", session["username"], node_id)
+            audit.request_event(self, session, "machine.delete", node.get("givenName"), {"user": (node.get("user") or {}).get("name")}, f"node:{node_id}")
             return self.redirect(f"{BASE}/machines?m=removed")
         except urllib.error.HTTPError as exc:
             msg = hs.api_error(exc)
@@ -643,7 +679,29 @@ class Handler(BaseHTTPRequestHandler):
             log.warning("Auth ID registration rejected: %s", msg)
             return self.send(400, pages.machines_page(session, CTX, to_machines(visible_nodes(session)), True, "",
                                                       hs.all_users(), error=_("Could not register: {reason}", reason=msg)))
+        audit.request_event(self, session, "machine.register", user, {"user": user, "auth_id": audit.prefix(auth_id)})
         return self.redirect(f"{BASE}/machines?m=registered")
+
+    def remove_inactive(self, session: dict, form: dict):
+        """Admin: remove the ticked machines of "Remove inactive machines…".
+        Checked again now: a machine that came back online (or was seen within
+        INACTIVE_DAYS) since the dialog was opened is kept."""
+        wanted = expiry.selected_ids(form)
+        removed, failed = [], []
+        for node in expiry.inactive_nodes(hs.all_nodes()):
+            node_id = str(node.get("id"))
+            if node_id not in wanted:
+                continue
+            try:
+                hs.api("DELETE", f"/node/{node_id}")
+                removed.append(node.get("givenName") or node.get("name") or node_id)
+            except urllib.error.HTTPError as exc:
+                log.warning("headscale rejected removing inactive node %s: %s", node_id, hs.api_error(exc))
+                failed.append(node_id)
+        log.info("%s removed %d inactive machine(s): %s", session["username"], len(removed), ", ".join(removed))
+        if removed:
+            audit.request_event(self, session, "machines.remove_inactive", "", {"nodes": removed})
+        return self.redirect(f"{BASE}/machines?m={expiry.remove_result(len(removed), len(failed))}")
 
     # --- keys ---
     def create_key(self, session: dict, form: dict):
@@ -664,6 +722,7 @@ class Handler(BaseHTTPRequestHandler):
         })["preAuthKey"]
         log.info("%s generated an auth key for %s (reusable=%s, ephemeral=%s, %s d)", session["username"],
                  user["name"], key.get("reusable"), key.get("ephemeral"), days)
+        audit.request_event(self, session, "authkey.create", user["name"], {"key": key.get("key"), "reusable": key.get("reusable"), "ephemeral": key.get("ephemeral"), "days": int(days)}, f"user:{user['id']}")
         # Shown in this very response: Headscale never returns it again
         self.keys_view(session, "", new_key=key)
 
@@ -676,6 +735,7 @@ class Handler(BaseHTTPRequestHandler):
             log.warning("%s tried to revoke key %s, which they cannot manage", session["username"], key_id)
             return self.redirect(f"{BASE}/settings/keys?m=not-found")
         hs.api("POST", "/preauthkey/expire", {"id": key_id})
+        audit.request_event(self, session, "authkey.revoke", f"#{key_id}", ref=f"authkey:{key_id}")
         return self.redirect(f"{BASE}/settings/keys?m=key-revoked")
 
     def create_apikey(self, session: dict, form: dict):
@@ -683,9 +743,10 @@ class Handler(BaseHTTPRequestHandler):
         days = days if days in APIKEY_DAYS else "90"
         key = hs.api("POST", "/apikey", {"expiration": iso_in(int(days))})["apiKey"]
         log.info("%s created an API key (%s d)", session["username"], days)
+        audit.request_event(self, session, "apikey.create", hs.api_key_prefix(key), {"days": int(days)}, f"apikey:{hs.api_key_prefix(key)}")
         self.keys_view(session, "", new_apikey=key)
 
-    def expire_apikey(self, key_id: str):
+    def expire_apikey(self, key_id: str, session: dict | None = None):
         key = next((k for k in hs.api_keys() if str(k.get("id")) == key_id), None)
         if key is None:
             return self.redirect(f"{BASE}/settings/keys?m=not-found")
@@ -693,11 +754,20 @@ class Handler(BaseHTTPRequestHandler):
         if own and own in (key.get("prefix") or ""):
             return self.redirect(f"{BASE}/settings/keys?m=apikey-own")
         hs.api("POST", "/apikey/expire", {"id": key_id})
+        audit.request_event(self, session, "apikey.expire", hs.api_key_prefix(key.get("prefix") or "") or f"#{key_id}", ref=f"apikey:{hs.api_key_prefix(key.get('prefix') or '') or key_id}")
         return self.redirect(f"{BASE}/settings/keys?m=apikey-expired")
 
     # --- users ---
+    def users_view(self, session: dict, status: int = 200, flash: str = "", error: str = "",
+                   result: dict | None = None):
+        users = hs.all_users()
+        # Built-in Authentik: invitations, reset links and accounts without devices
+        data = accounts.page_data(users) if AUTHENTIK else None
+        return self.send(status, admin_pages.users_page(session, CTX, users, hs.all_nodes(), flash, error=error,
+                                                        accounts=data, result=result))
+
     def users_error(self, session: dict, msg: str):
-        return self.send(400, admin_pages.users_page(session, CTX, hs.all_users(), hs.all_nodes(), "", error=msg))
+        return self.users_view(session, 400, error=msg)
 
     def create_user(self, session: dict, form: dict):
         name = str(form.get("name", "")).strip().lower()
@@ -711,10 +781,12 @@ class Handler(BaseHTTPRequestHandler):
         except urllib.error.HTTPError as exc:
             return self.users_error(session, _("Could not create it: {reason}", reason=hs.api_error(exc)))
         log.info("%s created local user %s", session["username"], name)
+        audit.request_event(self, session, "user.create", name, {"display_name": body.get("displayName", "")})
         return self.redirect(f"{BASE}/users?m=user-created")
 
     def user_action(self, session: dict, user_id: str, action: str, form: dict):
-        if not any(str(u["id"]) == user_id for u in hs.all_users()):
+        user = next((u for u in hs.all_users() if str(u["id"]) == user_id), None)
+        if user is None:
             return self.redirect(f"{BASE}/users?m=not-found")
         try:
             if action == "rename":
@@ -722,21 +794,85 @@ class Handler(BaseHTTPRequestHandler):
                 if not USER_NAME_RE.fullmatch(name):
                     return self.redirect(f"{BASE}/users?m=bad-user")
                 hs.api("POST", f"/user/{user_id}/rename/{urllib.parse.quote(name)}")
+                audit.request_event(self, session, "user.rename", name, {"from": user.get("name"), "to": name}, f"user:{user_id}")
                 return self.redirect(f"{BASE}/users?m=user-renamed")
             if any(str((n.get("user") or {}).get("id")) == user_id for n in hs.all_nodes()):
                 return self.redirect(f"{BASE}/users?m=user-has-nodes")
             hs.api("DELETE", f"/user/{user_id}")
             log.info("%s deleted user %s", session["username"], user_id)
+            audit.request_event(self, session, "user.delete", user.get("name"), ref=f"user:{user_id}")
             return self.redirect(f"{BASE}/users?m=user-deleted")
         except urllib.error.HTTPError as exc:
             return self.users_error(session, hs.api_error(exc))
+
+    # --- invitations and password reset links (built-in Authentik, accounts.py) ---
+    def create_invitation(self, session: dict, form: dict):
+        role = str(form.get("role", ""))
+        email = str(form.get("email", "")).strip()
+        days = str(form.get("days", "7"))
+        days = days if days in accounts.INVITE_DAYS else "7"
+        who = session["username"] or session["name"]
+        try:
+            inv = accounts.create_invitation(role, email, int(days), who)
+        except accounts.AccountsError as exc:
+            log.warning("%s tried to create an invitation: %s", who, exc)
+            return self.users_error(session, str(exc))
+        sent, error = False, ""
+        if inv["email"] and form.get("send") == "1" and accounts.email_enabled():
+            try:
+                accounts.email_invitation(inv, TAILNET_NAME)
+                sent = True
+            except accounts.AccountsError as exc:
+                error = str(exc)
+        log.info("%s created an invitation (%s, %s, %s d%s)", who, role, email or "any email", days,
+                 ", emailed" if sent else "")
+        # Never the link: it is a secret that creates an account
+        audit.request_event(self, session, "invite.create", email or "", {"role": role, "days": days, "emailed": sent})
+        return self.users_view(session, error=error, result={
+            "kind": "invite", "link": inv["link"], "expires": inv["expires"], "email": inv["email"], "sent": sent})
+
+    def revoke_invitation(self, session: dict, pk: str):
+        try:
+            inv = accounts.revoke_invitation(pk)
+        except accounts.AccountsError as exc:
+            return self.users_error(session, str(exc))
+        if inv is None:
+            return self.redirect(f"{BASE}/users?m=not-found")
+        log.info("%s revoked the invitation for %s", session["username"] or session["name"], inv["email"] or "any email")
+        audit.request_event(self, session, "invite.revoke", inv["email"] or "")
+        return self.redirect(f"{BASE}/users?m=invite-revoked")
+
+    def recovery_link(self, session: dict, pk: str, form: dict):
+        hours = str(form.get("hours", "24"))
+        hours = hours if hours in accounts.RESET_HOURS else "24"
+        who = session["username"] or session["name"]
+        try:
+            acct, link = accounts.recovery_link(pk, int(hours))
+        except accounts.AccountsError as exc:
+            log.warning("%s tried to create a password reset link for account %s: %s", who, pk, exc)
+            return self.users_error(session, str(exc))
+        sent, error = False, ""
+        if form.get("send") == "1" and acct["email"] and accounts.email_enabled():
+            try:
+                accounts.email_reset(acct, link, int(hours))
+                sent = True
+            except accounts.AccountsError as exc:
+                error = str(exc)
+        log.info("%s created a password reset link for %s (%s h%s)", who, acct["username"], hours,
+                 ", emailed" if sent else "")
+        audit.request_event(self, session, "user.password_reset", acct["username"], {"hours": hours, "emailed": sent})
+        return self.users_view(session, error=error, result={
+            "kind": "reset", "link": link, "expires": iso_in_hours(int(hours)), "username": acct["username"],
+            "email": acct["email"], "sent": sent})
 
     # --- policy ---
     def save_acl(self, session: dict, form: dict):
         policy = str(form.get("policy", ""))
         try:
             if form.get("action") == "save":
+                before = hs.get_policy().get("policy", "")
                 hs.api("PUT", "/policy", {"policy": policy})
+                audit.request_event(self, session, "acl.save", _("Access control policy"), audit.text_diff(before, policy))
                 log.info("%s saved the ACL policy", session["username"])
                 return self.redirect(f"{BASE}/acl?m=acl-saved")
             hs.api("POST", "/policy/check", {"policy": policy})
@@ -754,45 +890,15 @@ class Handler(BaseHTTPRequestHandler):
 
         def again(error: str):
             # Show what the admin typed again so it is not lost
-            draft = dict(current, **cfg) if cfg else current
-            return self.send(400, pages.dns_page(session, ctx, draft, to_machines(visible_nodes(session)), error=error))
+            return self.send(400, pages.dns_page(session, ctx, cfg or current, to_machines(visible_nodes(session)),
+                                                 error=error))
 
         if not ctx.get("dns_editable"):
             return again(ctx.get("dns_reason", _("Editing DNS is not available.")))
 
-        cfg = {
-            "magic_dns": form.get("magic_dns") == "1",
-            "override_local_dns": form.get("override_local_dns") == "1",
-            "base_domain": str(form.get("base_domain", "")).strip().lower().rstrip("."),
-            "nameservers": lines(str(form.get("nameservers", ""))),
-            "search_domains": [d.lower() for d in lines(str(form.get("search_domains", "")))],
-            "split": {},
-            "extra_records": [],
-        }
-        for line in str(form.get("split", "")).splitlines():
-            if not line.strip():
-                continue
-            domain, _sep, servers = line.partition(":")
-            if not servers.strip() and domain.strip():
-                return again(_("Split DNS: missing nameserver in \"{line}\" (format: domain: server, server).",
-                               line=line.strip()))
-            cfg["split"][domain.strip().lower()] = lines(servers)
-
-        for line in str(form.get("extra_records", "")).splitlines():
-            parts = line.replace(",", " ").split()
-            if not parts:
-                continue
-            if len(parts) != 2:
-                return again(_("Custom records: \"{line}\" must be a name and an address.", line=line.strip()))
-            name, value = parts[0].lower().rstrip("."), parts[1]
-            if not hs.valid_domain(name):
-                return again(_("Invalid domain: {value}", value=name))
-            try:
-                kind = "AAAA" if ipaddress.ip_address(value).version == 6 else "A"
-            except ValueError:
-                return again(_("Custom records: {value} is not an IP address.", value=value))
-            cfg["extra_records"].append({"name": name, "type": kind, "value": value})
-
+        cfg, error = dns_cfg_from_form(form, current)
+        if error:
+            return again(error)
         if not hs.valid_domain(cfg["base_domain"]):
             return again(_("The tailnet DNS name is not a valid domain."))
         if cfg["base_domain"] == SERVER_HOST or SERVER_HOST.endswith("." + cfg["base_domain"]):
@@ -805,14 +911,81 @@ class Handler(BaseHTTPRequestHandler):
         if bad:
             return again(_("Invalid domain: {value}", value=bad[0]))
         if cfg["override_local_dns"] and not cfg["nameservers"]:
-            return again(_("Overriding local DNS needs at least one global nameserver."))
+            return again(_("Turning off \"Use local DNS settings\" needs at least one global nameserver."))
 
         ok, error = hs.apply_dns(cfg)
         if not ok:
             log.warning("%s tried to change DNS: %s", session["username"], error)
             return again(error)
-        log.info("%s changed DNS and restarted Headscale", session["username"])
+        log.info("%s changed DNS (%s) and restarted Headscale", session["username"], form.get("section") or "settings")
+        audit.request_event(self, session, "dns.save", "DNS", {"changed": audit.changes({k: current.get(k) for k in cfg}, cfg)})
         return self.redirect(f"{BASE}/dns?m=dns-saved")
+
+
+def dns_cfg_from_form(form: dict, current: dict) -> tuple[dict, str]:
+    """New DNS settings from a DNS page form, over the current ones, and the
+    first input error ("" if none). 'section' says which form: 'rename' (tailnet
+    name), 'magic' (MagicDNS on/off) or the settings (nameservers, search
+    domains, custom records, local DNS). Each list arrives as repeated "...[]"
+    fields, one per row; blank rows are ignored. The result keeps what was typed
+    so an error can show it again."""
+    cfg = {"magic_dns": bool(current.get("magic_dns")), "base_domain": current.get("base_domain") or "",
+           "override_local_dns": bool(current.get("override_local_dns")),
+           "nameservers": list(current.get("nameservers") or []),
+           "search_domains": list(current.get("search_domains") or []),
+           "split": {d: list(v) for d, v in (current.get("split") or {}).items()},
+           "extra_records": [dict(r) for r in current.get("extra_records") or []]}
+
+    def rows(name: str) -> list[str]:
+        value = form.get(name + "[]") or []
+        return [str(v).strip() for v in (value if isinstance(value, list) else [value])]
+
+    section = form.get("section")
+    if section == "rename":
+        cfg["base_domain"] = str(form.get("base_domain", "")).strip().lower().rstrip(".")
+        return cfg, ""
+    if section == "magic":
+        cfg["magic_dns"] = form.get("magic_dns") == "1"
+        return cfg, ""
+
+    cfg["override_local_dns"] = form.get("use_local_dns") != "1"
+    cfg["nameservers"] = [s for s in rows("ns") if s]
+    cfg["search_domains"] = [d.lower().rstrip(".") for d in rows("search") if d]
+    cfg["split"], cfg["extra_records"] = {}, []
+    error = ""
+    domains, servers = rows("split_domain"), rows("split_ns")
+    for domain, server in zip(domains + [""] * (len(servers) - len(domains)),
+                              servers + [""] * (len(domains) - len(servers))):
+        domain = domain.lower().rstrip(".")
+        if not domain and not server:
+            continue
+        if not server and not error:
+            error = _("Split DNS: {domain} needs a nameserver.", domain=domain)
+        if not domain and not error:
+            error = _("Split DNS: nameserver {value} needs a domain.", value=server)
+        servers_of = cfg["split"].setdefault(domain, [])
+        if server and server not in servers_of:
+            servers_of.append(server)
+
+    names, values = rows("rec_name"), rows("rec_value")
+    for name, value in zip(names + [""] * (len(values) - len(names)), values + [""] * (len(names) - len(values))):
+        name = name.lower().rstrip(".")
+        if not name and not value:
+            continue
+        record = {"name": name, "type": "", "value": value}
+        cfg["extra_records"].append(record)
+        if error:
+            continue
+        if not name or not value:
+            error = _("Custom records: each record needs a name and an address.")
+        elif not hs.valid_domain(name):
+            error = _("Invalid domain: {value}", value=name)
+        else:
+            try:
+                record["type"] = "AAAA" if ipaddress.ip_address(value).version == 6 else "A"
+            except ValueError:
+                error = _("Custom records: {value} is not an IP address.", value=value)
+    return cfg, error
 
 
 def _key_expiry_days(form: dict) -> int | None:
@@ -830,6 +1003,7 @@ def main():
     log.info("Headscale Easy %s listening on :%d (public: %s%s, SSO=%s, API key sign-in=%s)",
              VERSION, port, PUBLIC_URL, BASE, SSO, API_KEY_LOGIN)
     apikey.start()
+    audit.start()
     naming.start()
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 

@@ -60,16 +60,23 @@ the steps for each OS. In short:
     `https://<your-domain>`. Sign in when the browser opens.
 
 === "iOS / Android"
-    Install the Tailscale app. On the sign-in screen open the menu (Android:
-    ⋮ → *Change server*; iOS: *Log in* → ⚙ → *Use an alternate server*) and
-    enter `https://<your-domain>`. A publicly trusted certificate
+    Install the Tailscale app, tap the profile icon (top right) and then
+    *Log in*. Open the menu in the top-right corner (iOS: ⋯ → *Use a custom
+    coordination server*; Android: ⋮ → *Use an alternate server*), enter
+    `https://<your-domain>` and tap *Log in*. A publicly trusted certificate
     (Let's Encrypt or your own proxy) is required.
+
+    The **Add device** page shows the URL as a QR code: scan it with the
+    phone's camera to get it on the phone and paste it in the app (the
+    Tailscale app cannot read QR codes itself).
 
 === "Servers (auth key)"
     Generate a key in **Settings → Keys**, then:
     ```bash
     sudo tailscale up --login-server=https://<your-domain> --authkey=<key>
     ```
+    The new key can also be shown as QR codes (the key and this command). On
+    Android, paste a key with ⋮ → *Use an auth key* after setting the server.
 
 Once connected, the device shows up in **Machines**. Next: add people
 ([Operations](operations.md#users-and-admins)) and adjust

@@ -20,7 +20,7 @@ ENV_FILE="${SCRIPT_DIR}/.env"
 DATA_DIR="${SCRIPT_DIR}/data"
 TEMPLATES_DIR="${SCRIPT_DIR}/templates"
 
-INSTALLER_VERSION="1.0.7"
+INSTALLER_VERSION="1.1.0"
 PROJECT_URL="https://github.com/insanerask77/headscale-easy"
 SPONSOR_URL="https://ko-fi.com/rafaelmadolell"
 DOCS_URL="https://insanerask77.github.io/headscale-easy/"
@@ -370,6 +370,7 @@ configure_auth_none() {
     OIDC_ISSUER_URL=""; OIDC_CLIENT_ID=""; OIDC_CLIENT_SECRET=""
     OIDC_SCOPE="openid profile email"; OIDC_EMAIL_CLAIM="email"
     GOOGLE_CLIENT_ID=""; GOOGLE_CLIENT_SECRET=""; PORTAL_ADMIN_EMAILS=""
+    SMTP_HOST=""  # email is only used by the built-in Authentik
 }
 
 configure_auth_external() {
@@ -391,7 +392,7 @@ configure_auth_external() {
     OIDC_CLIENT_SECRET=$(ask_input "Client Secret" "${OIDC_CLIENT_SECRET:-}")
     OIDC_SCOPE=$(ask_input "$(t "OIDC scopes (space separated)" "Scopes OIDC (separados por espacios)")" "${OIDC_SCOPE:-openid profile email}")
     OIDC_EMAIL_CLAIM=$(ask_input "$(t "Email claim" "Claim del email")" "${OIDC_EMAIL_CLAIM:-email}")
-    GOOGLE_CLIENT_ID=""; GOOGLE_CLIENT_SECRET=""
+    GOOGLE_CLIENT_ID=""; GOOGLE_CLIENT_SECRET=""; SMTP_HOST=""
     echo ""
     print_info "$(t "Web UI admins: comma separated emails. Everyone else only sees their own devices." \
                     "Administradores del panel: emails separados por comas. El resto sólo ve sus dispositivos.")"
@@ -461,6 +462,60 @@ configure_auth_authentik() {
     else
         GOOGLE_CLIENT_ID=""; GOOGLE_CLIENT_SECRET=""
     fi
+
+    configure_email
+}
+
+# Values written to .env between quotes: no quotes, $ or backquotes inside
+validate_env_text() { [[ "$1" != *[\"\'\$\`\\]* ]]; }
+validate_smtp_from() { [[ "$1" == *@* ]] && validate_env_text "$1"; }
+
+# Optional outgoing email (off by default). With it, the sign-in page offers
+# "Forgot password?" (Authentik emails a reset link) and the web UI can email
+# invitations and reset links. Without it, admins copy those links from the
+# web UI (Users).
+configure_email() {
+    echo ""
+    print_info "$(t "Email is optional. With it, people reset a forgotten password themselves (\"Forgot password?\")" \
+                    "El email es opcional. Con él, cada uno recupera su contraseña olvidada (\"¿Olvidaste la contraseña?\")")"
+    print_info "$(t "and invitations can be emailed. Without it, admins copy invitation and reset links from the web UI." \
+                    "y las invitaciones se pueden enviar por email. Sin él, los admins copian esos enlaces desde el panel.")"
+    if ! ask_yes_no "$(t "Set up outgoing email (SMTP)?" "¿Configurar el envío de email (SMTP)?")" \
+                    "$([[ -n "${SMTP_HOST:-}" ]] && echo y || echo n)"; then
+        SMTP_HOST=""
+        return 0
+    fi
+    SMTP_HOST=$(ask_input "$(t "SMTP server" "Servidor SMTP")" "${SMTP_HOST:-}" validate_domain_or_ip)
+    local current="starttls" security default_port
+    [[ "${SMTP_USE_SSL:-false}" == "true" ]] && current="ssl"
+    [[ -n "${SMTP_PORT:-}" && "${SMTP_USE_TLS:-true}" != "true" && "${SMTP_USE_SSL:-false}" != "true" ]] && current="none"
+    security=$(ask_choice "$(t "Connection security" "Seguridad de la conexión")" "$current" \
+        "starttls|STARTTLS|$(t "Usually port 587 (most providers)" "Normalmente el puerto 587 (la mayoría de proveedores)")" \
+        "ssl|SSL/TLS|$(t "Usually port 465" "Normalmente el puerto 465")" \
+        "none|$(t "None" "Ninguna")|$(t "Unencrypted, e.g. a relay on your own network (port 25)" "Sin cifrar, p. ej. un relay en tu propia red (puerto 25)")")
+    case "$security" in
+        starttls) SMTP_USE_TLS=true;  SMTP_USE_SSL=false; default_port=587 ;;
+        ssl)      SMTP_USE_TLS=false; SMTP_USE_SSL=true;  default_port=465 ;;
+        *)        SMTP_USE_TLS=false; SMTP_USE_SSL=false; default_port=25 ;;
+    esac
+    [[ "$security" != "$current" ]] && SMTP_PORT=""
+    SMTP_PORT=$(ask_input "$(t "SMTP port" "Puerto SMTP")" "${SMTP_PORT:-$default_port}" validate_port)
+    SMTP_USERNAME=$(ask_input "$(t "SMTP user (empty = no sign-in)" "Usuario SMTP (vacío = sin autenticación)")" "${SMTP_USERNAME:-}" validate_env_text)
+    if [[ -n "$SMTP_USERNAME" ]]; then
+        local pass
+        while true; do
+            read -r -s -p "$(echo -e "${CYAN}?${NC} $(t "SMTP password" "Contraseña SMTP")$([[ -n "${SMTP_PASSWORD:-}" ]] && t " [Enter = keep the current one]" " [Enter = mantener la actual]"): ")" pass
+            echo "" >&2
+            pass="${pass:-${SMTP_PASSWORD:-}}"
+            if [[ -n "$pass" ]] && validate_env_text "$pass"; then break; fi
+            print_warning "$(t "Enter a password without quotes, \$, \\ or backquotes" "Escribe una contraseña sin comillas, \$, \\ ni comillas invertidas")" >&2
+        done
+        SMTP_PASSWORD="$pass"
+    else
+        SMTP_PASSWORD=""
+    fi
+    SMTP_FROM=$(ask_input "$(t "Sender (From)" "Remitente (From)")" "${SMTP_FROM:-Headscale Easy <vpn@${DOMAIN}>}" validate_smtp_from)
+    print_info "$(t "After deploying, test it with:" "Tras desplegar, pruébalo con:") docker exec authentik-worker ak test_email <$(t "your-email" "tu-email")>"
 }
 
 # Daily backups are optional (they add a small container and disk use), off by
@@ -645,6 +700,15 @@ PORTAL_AUTHENTIK_TOKEN=${PORTAL_AUTHENTIK_TOKEN:-}
 #   ${HEADSCALE_PUBLIC_URL}/authentik/source/oauth/callback/google/
 GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}"
 GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-}"
+# Outgoing email (empty SMTP_HOST = off): "Forgot password?" on the sign-in
+# page, and invitations / password reset links emailed from the web UI
+SMTP_HOST=${SMTP_HOST:-}
+SMTP_PORT=${SMTP_PORT:-587}
+SMTP_USERNAME="${SMTP_USERNAME:-}"
+SMTP_PASSWORD="${SMTP_PASSWORD:-}"
+SMTP_USE_TLS=${SMTP_USE_TLS:-false}
+SMTP_USE_SSL=${SMTP_USE_SSL:-false}
+SMTP_FROM="${SMTP_FROM:-}"
 
 # --- Backups -----------------------------------------------------------------------
 # Daily backups (the 'backup' container). Schedule in cron syntax, where and
@@ -1222,7 +1286,8 @@ show_summary() {
         authentik)
             echo -e "    $(t "User" "Usuario"): ${BOLD}akadmin${NC}   $(t "Password" "Contraseña"): ${BOLD}${AUTHENTIK_BOOTSTRAP_PASSWORD}${NC}"
             echo -e "    $(t "(first-start password: change it in" "(contraseña del primer arranque: cámbiala en") ${url}/authentik/if/user/)"
-            echo -e "    $(t "Add people at" "Da de alta usuarios en") ${BOLD}${url}/add-user${NC} $(t "or from Users in the web UI." "o desde Usuarios en el panel.")"
+            echo -e "    $(t "Invite people from Users in the web UI (Invite user), or add them at" "Invita a gente desde Usuarios en el panel (Invitar usuario), o dalos de alta en") ${BOLD}${url}/add-user${NC}"
+            [[ -n "${SMTP_HOST:-}" ]] && echo -e "    $(t "Email is on: the sign-in page offers \"Forgot password?\"." "Email activo: la página de inicio de sesión ofrece \"¿Olvidaste la contraseña?\".")"
             echo -e "    $(t "Authentik admin:" "Administración de Authentik:") ${url}/authentik/if/admin/"
             [[ -n "${GOOGLE_CLIENT_ID:-}" ]] && echo -e "    $(t "Google sign-in is on: new Google users have no group until an admin adds them." "Login con Google activo: los usuarios nuevos no tienen grupo hasta que un admin los añade.")"
             ;;

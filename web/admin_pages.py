@@ -3,6 +3,7 @@ app.py checks the role before rendering any of them."""
 
 from __future__ import annotations
 
+import accounts as acc
 from i18n import _, ngettext
 from pages import dialog
 from ui import (BASE, LOGO, badge, bare_page, csrf_input, esc, flash_html, icon, initials, layout, notice,
@@ -14,7 +15,10 @@ from ui import (BASE, LOGO, badge, bare_page, csrf_input, esc, flash_html, icon,
 # Users
 # -----------------------------------------------------------------------------
 
-def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], flash: str, error: str = "") -> str:
+def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], flash: str, error: str = "",
+               accounts: dict | None = None, result: dict | None = None) -> str:
+    # accounts: Authentik data for invitations and reset links (accounts.page_data)
+    linked = (accounts or {}).get("linked") or {}
     counts: dict[str, int] = {}
     online: dict[str, int] = {}
     for n in nodes:
@@ -47,6 +51,7 @@ def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], f
                 <a href="{BASE}/machines?owner={uid}">{esc(_("View machines"))}</a>
                 <a href="{BASE}/settings/keys?user={uid}#new">{esc(_("Generate auth key for this user"))}</a>
                 <button type="button" data-open="ren-user-{uid}">{esc(_("Rename…"))}</button>
+                {acc.reset_item(linked.get(str(u["id"])))}
                 <hr>{delete}
               </div>
             </details>
@@ -65,11 +70,17 @@ def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], f
 
     actions = f'<button class="btn" type="button" data-open="new-user">{esc(_("Create local user"))}</button>'
     if ctx.get("authentik"):
-        actions += f'<a class="btn primary" href="{esc(ctx["public_url"])}/add-user">{esc(_("Add user"))}</a>'
+        primary = "" if accounts is not None else " primary"
+        actions += f'<a class="btn{primary}" href="{esc(ctx["public_url"])}/add-user">{esc(_("Add user"))}</a>'
+        if accounts is not None and not accounts.get("error"):
+            actions += acc.invite_button()
     sub = _("Users of the tailnet. They are created automatically the first time someone connects a device by signing in.")
     if ctx.get("authentik"):
         sub += " " + _("Accounts (user name and password) are created in Authentik.")
-    body = page_head(_("Users"), esc(sub), actions) + flash_html(flash) + (notice("error", error) if error else "") + f"""
+    body = page_head(_("Users"), esc(sub), actions) + flash_html(flash) + (notice("error", error) if error else "")
+    if accounts is not None:
+        body += acc.flash_html(flash) + (acc.result_box(result) if result else "")
+    body += f"""
     <div class="toolbar">
       <label class="search">{icon("search")}<input type="search" placeholder="{esc(_("Search users…"))}" data-filter aria-label="{esc(_("Search users"))}"></label>
     </div>
@@ -88,6 +99,9 @@ def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], f
             fields=f'<label class="field">{esc(_("Name"))}<input name="name" required placeholder="servers" autocomplete="off" spellcheck="false"></label>'
                    f'<label class="field">{esc(_("Display name (optional)"))}<input name="display_name" autocomplete="off"></label>')}
     <div data-live="dialogs">{"".join(dialogs)}</div>"""
+    if accounts is not None:
+        body += acc.sections(session, accounts) + acc.invite_dialog(session) + "".join(
+            acc.reset_dialog(session, a) for a in linked.values() if acc.reset_item(a))
     return layout(_("Users"), "users", body, session, ctx)
 
 

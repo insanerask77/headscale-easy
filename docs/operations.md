@@ -33,8 +33,9 @@ The **Machines** page lists every device you can see (admins: all of them)
 and updates itself every few seconds: new machines appear and their status
 changes without reloading.
 Search by name, owner, address, tag or version, and narrow the list with
-**Filters** (status, owner, needs update, has routes, key expired). The
-download button exports the current list as CSV.
+**Filters** (status, owner, needs update, has routes, key expired, expiring
+soon, offline for 30+ days). The download button exports the current list as
+CSV.
 
 Badges under each name tell you what is special about a machine:
 
@@ -42,6 +43,7 @@ Badges under each name tell you what is special about a machine:
 |---|---|
 | Expiry disabled | Its key never expires |
 | Expired | Its key expired: it must sign in again |
+| Expires soon | Its key expires within 14 days: sign in again on it (or disable key expiry) to keep it connected |
 | Ephemeral | Removed automatically when it goes offline |
 | Subnets / Exit Node | It advertises routes; orange means some are waiting for approval |
 | `tag:…` | ACL tags |
@@ -50,6 +52,16 @@ The **⋯** menu (and the machine's page) lets you rename it, expire its key
 (forces a new sign-in), disable key expiry, edit tags, approve **subnet routes
 and exit nodes**, or remove it. Members can rename, expire and remove their own
 machines; routes, tags and key expiry are admin-only, as in Tailscale.
+
+**Expiring and inactive machines.** When some of the machines you can see
+expire in the next 14 days or already expired, a notice at the top of the list
+says how many, with a link that filters them (members see it for their own
+machines). A machine is *inactive* when it has been offline for more than 30
+days (counted from its registration if it never connected); admins get
+**Remove inactive machines…**, which lists them all ticked so you can untick
+the ones to keep. A machine that came back online in the meantime is never
+removed. Change the windows with `EXPIRY_WARNING_DAYS` and `INACTIVE_DAYS` in
+`.env` (then `docker compose up -d`).
 
 Tailscale apps that cannot read the device name (iPhone, iPad, Apple TV and
 the App Store build for Mac) register as `localhost`. Headscale Easy renames
@@ -136,6 +148,42 @@ run the same command — no need to run the installer first.
 ./uninstall.sh           # remove containers, keep data and configuration
 ./uninstall.sh --purge   # also delete volumes, configuration and ./data
 ```
+
+## Activity log
+
+**Logs** (admins only, in the sidebar) is the tailnet's activity log, like the
+configuration audit log of Tailscale's admin console. It records:
+
+- **Configuration**: every change made from the web UI — machines renamed,
+  removed, expired, routes, tags and key expiry changed, machines registered
+  with an Auth ID; users created, renamed and deleted; auth keys and API keys
+  created, revoked or expired; the access control policy (with a diff of the
+  change), DNS (each setting before and after), the device key expiry and the
+  two-factor mode. Automatic renames of machines called `localhost` show up
+  as *Headscale Easy (automatic)*.
+- **Sign-in**: console sign-ins and sign-outs, and failed API key sign-ins.
+- **Devices**: every 30 seconds the web UI compares Headscale's state and logs
+  devices that register, are removed, connect or disconnect, whose key
+  expires, whose Tailscale version changes, or that are renamed outside the web
+  UI (for example with `headscale nodes rename`).
+
+Each event has the time, the actor (the user name, `API key <prefix>` for API
+key sessions, or *Headscale* for device events), the client IP, the target and
+the details. Secrets are never stored: auth keys, API keys and Auth IDs are
+reduced to their prefix.
+
+Search, filter by category, actor and dates (UTC), and download the matching
+events with the CSV button. The first page updates on its own.
+
+The log lives in `./data/web/audit.db` (SQLite). Events older than
+`AUDIT_RETENTION_DAYS` in `.env` (default `90`; `0` keeps them forever) are
+deleted automatically. Changes made outside the web UI (the `headscale` CLI,
+the API) are not configuration events, but their effect on devices is logged.
+
+!!! note
+    Headscale has no network flow logs (which device talked to which, and
+    when): that needs data from the clients that only Tailscale's own
+    coordination server collects.
 
 ## Troubleshooting
 

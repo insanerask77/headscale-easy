@@ -195,7 +195,7 @@
     if (!input) return;
     var q = input.value.trim().toLowerCase();
     var status = val("status"), owner = val("owner");
-    var flags = ["update", "routes", "expired"].filter(val);
+    var flags = ["update", "routes", "expired", "expiring", "inactive"].filter(val);
     var shown = 0;
     document.querySelectorAll("tr[data-search]").forEach(function (r) {
       var ok = (!q || r.dataset.search.indexOf(q) !== -1) &&
@@ -307,4 +307,63 @@
   formatDates(document);
 
   markThemeChoice();
+})();
+
+/* ---- expiry ---- */
+// "Show only these" in the expiry notice of Machines ticks the matching
+// filter (data-f-apply="expiring" | "expired"); its change event reaches
+// filterRows() above. ?filter=<name> in the URL does the same.
+(function () {
+  "use strict";
+  function applyFilter(name) {
+    var f = document.querySelector('input[type=checkbox][data-f="' + name + '"]');
+    if (!f) return;
+    f.checked = true;
+    f.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  document.addEventListener("click", function (ev) {
+    var el = ev.target.closest && ev.target.closest("[data-f-apply]");
+    if (el) applyFilter(el.dataset.fApply);
+  });
+  var fromUrl = new URLSearchParams(location.search).get("filter");
+  if (fromUrl) applyFilter(fromUrl);
+})();
+
+/* ---- dns ---- */
+// DNS page lists (nameservers, split DNS, search domains, custom records):
+// without JS each list has a blank row to add one entry per save. With JS the
+// blank rows go away, "Add" buttons append a row from the list's <template>
+// and each row gets a remove button.
+(function () {
+  "use strict";
+  var lists = document.querySelectorAll("[data-dns-list]");
+  if (!lists.length) return;
+  lists.forEach(function (list) {
+    list.querySelectorAll("[data-dns-blank]").forEach(function (row) { row.remove(); });
+  });
+  document.querySelectorAll("[data-dns-remove], [data-dns-add]").forEach(function (b) { b.hidden = false; });
+
+  document.addEventListener("click", function (ev) {
+    var el = ev.target.closest("[data-dns-add]");
+    if (el) {
+      var id = el.dataset.dnsAdd;
+      var tpl = document.querySelector('[data-dns-template="' + id + '"]');
+      var list = document.querySelector('[data-dns-list="' + id + '"]');
+      if (!tpl || !list) return;
+      var row = tpl.content.firstElementChild.cloneNode(true);
+      row.querySelectorAll("[data-dns-remove]").forEach(function (b) { b.hidden = false; });
+      list.appendChild(row);
+      var first = row.querySelector("input");
+      if (first) first.focus();
+      return;
+    }
+    el = ev.target.closest("[data-dns-remove]");
+    if (el) {
+      var li = el.closest(".dns-row");
+      var next = li.nextElementSibling || li.previousElementSibling;
+      li.remove();
+      var focus = next ? next.querySelector("input") : null;
+      if (focus) focus.focus();
+    }
+  });
 })();

@@ -29,15 +29,15 @@ Effort: **S** = hours · **M** = one or two days · **L** = several days.
 
 ## 🟠 High — what daily use misses most
 
-- [ ] **4. Invitations and password recovery** · M
+- [x] **4. Invitations and password recovery** · M — *1.1.0*
   Today the admin makes up the user's password. Send an invitation link so each
   person sets their own, plus "Forgot your password?". Needs SMTP in the
   installer (or showing the link to copy it).
-- [ ] **5. Expiry warnings and inactive devices** · M
+- [x] **5. Expiry warnings and inactive devices** · M — *1.1.0* (email/webhook notifications come with item 14)
   Devices now expire after 180 days: "expiring soon" filter, a warning in the
   web UI and optionally email or webhook; clean-up of devices offline for N
   days.
-- [ ] **6. Activity log (the feasible part of Tailscale's "Logs")** · M
+- [x] **6. Activity log (the feasible part of Tailscale's "Logs")** · M — *1.1.0*
   Configuration changes (who changed what and when, with before/after for ACL
   and DNS), device events (registered, connected/disconnected history, removed,
   key expired, client version changes) and sign-ins from Authentik. Page with
@@ -46,7 +46,7 @@ Effort: **S** = hours · **M** = one or two days · **L** = several days.
 - [x] **7. Custom DNS records** · S — *1.0.7*
   Headscale supports `dns.extra_records` (e.g. `nas.example` → `100.64.0.5`);
   the web UI always writes it empty.
-- [ ] **8. Add devices with a QR code** · S
+- [x] **8. Add devices with a QR code** · S — *1.1.0*
   In Add device, a QR code with the server URL (and optionally an auth key):
   setting up the alternate server on iPhone/Android is the clumsiest step.
 
@@ -93,3 +93,4 @@ Shipped items move here with their version.
 - [x] Automatic renewal of the web UI's API key — 1.0.4
 - [x] Two-factor authentication (required for admins by default) — 1.0.5
 - [x] Scheduled backups and one-command restore — 1.0.6
+- [x] DNS page like Tailscale's, invitations and password reset, expiry warnings, activity log, QR codes — 1.1.0
