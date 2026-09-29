@@ -60,6 +60,8 @@ servidor es tuyo.
   (Nginx Proxy Manager, nginx, Traefik, Caddy: se genera la configuración) o
   HTTP en una LAN.
 - 🌍 **Inglés y español** en el instalador y la consola (¡se aceptan más idiomas!).
+- 💾 **Copias diarias** de todo (base de datos, claves, cuentas, configuración) y
+  restauración con un solo comando, también en un servidor nuevo.
 - 🪶 **Ligero**: la consola es Python de la librería estándar, sin compilación,
   sin framework JavaScript y sin base de datos propia.
 

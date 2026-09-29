@@ -115,19 +115,14 @@ cmd_apikey_list() { hs apikeys list; }
 # -----------------------------------------------------------------------------
 
 cmd_backup() {
-    local dir ts
-    mkdir -p "${1:-${PROJECT_DIR}/backups}"
-    dir="$(cd "${1:-${PROJECT_DIR}/backups}" && pwd)"
-    ts=$(date +%Y%m%d_%H%M%S)
+    # Same job as the scheduled one (backup container): consistent copy of
+    # Headscale's database, keys, Authentik's database and the configuration.
     cd "$PROJECT_DIR"
-    tar -czf "${dir}/config-${ts}.tar.gz" .env headscale-config.yaml Caddyfile docker-compose.override.yml 2>/dev/null || true
-    chmod 600 "${dir}/config-${ts}.tar.gz"
-    docker run --rm -v headscale-data:/data:ro -v "${dir}:/backup" alpine \
-        tar czf "/backup/headscale-data-${ts}.tar.gz" -C /data .
-    if docker ps --format '{{.Names}}' | grep -qx authentik-postgresql; then
-        docker exec authentik-postgresql pg_dump -U authentik authentik | gzip > "${dir}/authentik-db-${ts}.sql.gz"
-    fi
-    print_success "Backup written to ${dir} (${ts})"
+    docker compose run --rm --no-deps --entrypoint /usr/local/bin/backup.sh backup
+}
+
+cmd_restore() {
+    "$SCRIPT_DIR/restore.sh" "$@"
 }
 
 cmd_config_show() {
@@ -160,7 +155,8 @@ Headscale
   apikey:list                    List API keys
 
 Maintenance
-  backup [dir]                   Back up config, Headscale data and Authentik's DB
+  backup                         Back up now (also runs every day, see BACKUP_* in .env)
+  restore <file> [--yes]         Restore a backup (stops and starts the stack)
   config:show                    Show .env with secrets hidden
 EOF
 }
@@ -183,6 +179,7 @@ main() {
         apikey:create)   cmd_apikey_create "$@" ;;
         apikey:list)     cmd_apikey_list "$@" ;;
         backup)          cmd_backup "$@" ;;
+        restore)         cmd_restore "$@" ;;
         config:show)     cmd_config_show "$@" ;;
         help|--help|-h)  cmd_help ;;
         *) print_error "Unknown command: $command"; echo; cmd_help; exit 1 ;;

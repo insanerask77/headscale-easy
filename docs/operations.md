@@ -91,17 +91,38 @@ major upgrades.
 
 ## Backups
 
+The `backup` container makes a backup **every day at 03:00** and keeps the last
+**14 days** in `./backups`. Each backup is one `.tar.gz` with:
+
+- Headscale's database (a consistent copy taken while it runs) and its private
+  keys, so devices stay registered after a restore;
+- Authentik's database, if you use it;
+- the configuration (`.env`, `headscale-config.yaml`, `Caddyfile`...);
+- Caddy's internal CA with `SSL_MODE=selfsigned`.
+
+Change it in `.env` and run `docker compose up -d backup`:
+
+| Variable | Default | |
+|---|---|---|
+| `BACKUP_SCHEDULE` | `0 3 * * *` | Cron syntax (time zone `TZ`); `off` disables it |
+| `BACKUP_DIR` | `./backups` | Any path on the host, e.g. a NAS mount |
+| `BACKUP_KEEP_DAYS` | `14` | Older backups are deleted |
+
+Back up right now with `make backup`. Backups contain secrets (`.env`): they
+are readable only by you, keep copies somewhere safe and off this server.
+
+### Restore
+
 ```bash
-make backup                 # into ./backups
-make backup dir=/mnt/nas    # elsewhere
+make restore file=backups/headscale-easy-20260929-030000.tar.gz
 ```
 
-It saves `.env` and the generated configuration, the Headscale data volume
-(database and keys) and, with Authentik, a dump of its database. The files
-contain secrets: store them safely.
+It stops the stack, puts back the configuration (the current files are kept as
+`*.before-restore-*`), Headscale's database and keys, Authentik's database and
+Caddy's CA, and starts the stack again.
 
-To restore on a new host: copy the repository and `.env`, restore the
-`headscale-data` volume and Authentik's database, and run `./install.sh`.
+**On a new server:** install Docker, clone the repository, copy the backup and
+run the same command — no need to run the installer first.
 
 ## Uninstalling
 
