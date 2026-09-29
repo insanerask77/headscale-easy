@@ -78,7 +78,7 @@ def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], f
       <table class="machines users">
         <thead><tr><th>{esc(_("User"))}</th><th>{esc(_("Headscale name"))}</th><th>{esc(_("Sign-in"))}</th>
           <th>{esc(_("Machines"))}</th><th class="hide-sm">{esc(_("Joined"))}</th><th></th></tr></thead>
-        <tbody>{"".join(rows)}</tbody>
+        <tbody data-live="rows">{"".join(rows)}</tbody>
       </table>
     </div>
     <p class="no-results muted" hidden>{esc(_("No users match the search."))}</p>
@@ -87,7 +87,7 @@ def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], f
             f"{BASE}/users", session, submit=_("Create"),
             fields=f'<label class="field">{esc(_("Name"))}<input name="name" required placeholder="servers" autocomplete="off" spellcheck="false"></label>'
                    f'<label class="field">{esc(_("Display name (optional)"))}<input name="display_name" autocomplete="off"></label>')}
-    {"".join(dialogs)}"""
+    <div data-live="dialogs">{"".join(dialogs)}</div>"""
     return layout(_("Users"), "users", body, session, ctx)
 
 

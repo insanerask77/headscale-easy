@@ -32,7 +32,8 @@ La página **Añadir dispositivo** de la consola muestra los pasos para cada sis
 ## Gestionar máquinas { #managing-machines }
 
 La página **Máquinas** lista todos los dispositivos que puedes ver (los admins,
-todos). Busca por nombre, propietario, dirección, etiqueta o versión, y acota la
+todos) y se actualiza sola cada pocos segundos: las máquinas nuevas aparecen y
+su estado cambia sin recargar. Busca por nombre, propietario, dirección, etiqueta o versión, y acota la
 lista con **Filtros** (estado, propietario, necesita actualización, tiene rutas,
 clave caducada). El botón de descarga exporta la lista actual en CSV.
 

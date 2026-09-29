@@ -69,6 +69,8 @@ def rename_placeholders() -> int:
     pending = [n for n in nodes if is_placeholder(n.get("givenName") or n.get("name") or "")]
     if not pending:
         return 0
+    log.info("found %d machine(s) named localhost: %s", len(pending),
+             ", ".join(f"{n['id']}={n.get('givenName') or n.get('name')}" for n in pending))
     details = hs.host_details([str(n["id"]) for n in pending])
     taken = {(n.get("givenName") or "").lower() for n in nodes}
     renamed = 0
@@ -97,5 +99,6 @@ def _loop() -> None:
 
 
 def start() -> None:
+    log.info("automatic naming of machines called localhost: %s", "on" if ENABLED else "off")
     if ENABLED:
         threading.Thread(target=_loop, name="naming", daemon=True).start()

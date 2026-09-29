@@ -241,21 +241,66 @@
     });
   });
 
+  // ---- Live updates -------------------------------------------------------------------
+  // Parts marked data-live (machine rows, status, last seen...) are refreshed
+  // every few seconds without reloading, so machines appear, connect and
+  // disconnect on their own. Skipped while the tab is hidden or a menu or
+  // dialog is open, so nothing moves under the pointer.
+  var LIVE_EVERY = 5000;
+  var liveSrc = {};  // server HTML of each part, before dates are formatted
+  document.querySelectorAll("[data-live]").forEach(function (el) { liveSrc[el.dataset.live] = el.innerHTML; });
+
+  function liveBlocked() {
+    return document.hidden || document.querySelector("details.dropdown[open], dialog[open]");
+  }
+  var liveBusy = false;
+  function liveRefresh() {
+    if (liveBusy || liveBlocked()) return;
+    liveBusy = true;
+    fetch(location.href, { credentials: "same-origin", cache: "no-store", headers: { "X-Live": "1" } })
+      .then(function (r) {
+        if (!r.ok || r.redirected) throw new Error("stale session");
+        return r.text();
+      })
+      .then(function (html) {
+        if (liveBlocked()) return;
+        var doc = new DOMParser().parseFromString(html, "text/html");
+        var changed = false;
+        document.querySelectorAll("[data-live]").forEach(function (el) {
+          var fresh = doc.querySelector('[data-live="' + el.dataset.live + '"]');
+          if (!fresh || fresh.innerHTML === liveSrc[el.dataset.live]) return;
+          liveSrc[el.dataset.live] = fresh.innerHTML;
+          el.innerHTML = fresh.innerHTML;
+          changed = true;
+        });
+        if (changed) { formatDates(document); filterRows(); }
+      })
+      .catch(function () {})
+      .then(function () { liveBusy = false; });
+  }
+  if (Object.keys(liveSrc).length) {
+    setInterval(liveRefresh, LIVE_EVERY);
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) liveRefresh(); });
+  }
+
   // ---- Dates in the viewer's timezone and language ----------------------------------
   var lang = document.documentElement.lang || navigator.language;
   var fmtLong = new Intl.DateTimeFormat(lang, { dateStyle: "medium", timeStyle: "short" });
   var fmtShort = new Intl.DateTimeFormat(lang, { month: "short", day: "numeric" });
   var fmtYear = new Intl.DateTimeFormat(lang, { dateStyle: "medium" });
-  document.querySelectorAll("time[data-local]").forEach(function (el) {
-    var d = new Date(el.getAttribute("datetime"));
-    if (isNaN(d)) return;
-    el.title = fmtLong.format(d);
-    if (el.dataset.local === "short") {
-      el.textContent = d.getFullYear() === new Date().getFullYear() ? fmtShort.format(d) : fmtYear.format(d);
-    } else {
-      el.textContent = fmtLong.format(d);
-    }
-  });
+  function formatDates(root) {
+    root.querySelectorAll("time[data-local]").forEach(function (el) {
+      var d = new Date(el.getAttribute("datetime"));
+      if (isNaN(d)) return;
+      el.title = fmtLong.format(d);
+      if (el.dataset.local === "short") {
+        el.textContent = d.getFullYear() === new Date().getFullYear() ? fmtShort.format(d) : fmtYear.format(d);
+      } else {
+        el.textContent = fmtLong.format(d);
+      }
+    });
+  }
+  formatDates(document);
 
   markThemeChoice();
 })();

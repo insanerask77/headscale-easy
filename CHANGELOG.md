@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] - 2026-09-29
+
+### Added
+- Live updates: the Machines, machine details and Users pages refresh on
+  their own every few seconds, so machines appear, connect and disconnect
+  without reloading. Paused while the tab is hidden or a menu or dialog is
+  open.
+
+### Changed
+- Automatic naming of machines called `localhost` logs whether it is on and
+  what it finds, to diagnose devices it could not rename.
+
 ## [1.0.1] - 2026-09-29
 
 ### Fixed
@@ -39,5 +51,6 @@ First release as **Headscale Easy**.
 - Documentation site on GitHub Pages, in English and Spanish:
   https://insanerask77.github.io/headscale-easy/
 
+[1.0.2]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.2
 [1.0.1]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.1
 [1.0.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.0
