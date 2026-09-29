@@ -17,7 +17,7 @@ Effort: **S** = hours · **M** = one or two days · **L** = several days.
   `make backup` exists but is manual. Scheduled backups (daily, N days of
   retention), local or remote target (S3, rsync) and a tested `make restore`.
   Losing Headscale's database means re-registering every device.
-- [ ] **3. Two-factor authentication (MFA) in Authentik** · S
+- [x] **3. Two-factor authentication (MFA) in Authentik** · S — *1.0.5*
   The web UI controls the whole network behind a password. Authentik already
   has TOTP and passkeys: enable them in the blueprint, optional for members and
   required for admins.
@@ -86,3 +86,4 @@ Shipped items move here with their version.
 - [x] Live updates on Machines, machine details and Users — 1.0.2
 - [x] Device key expiry (180 days, editable) — 1.0.3
 - [x] Automatic renewal of the web UI's API key — 1.0.4
+- [x] Two-factor authentication (required for admins by default) — 1.0.5

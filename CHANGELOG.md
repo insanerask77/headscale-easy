@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.5] - 2026-09-29
+
+### Added
+- Two-factor authentication with the built-in Authentik: an authenticator app
+  (TOTP) or a passkey after the password. Required for admins by default;
+  `MFA_REQUIRED` (asked by the installer) can make it required for everyone or
+  optional. Users who already have a second factor are always asked for it.
+
 ## [1.0.4] - 2026-09-29
 
 ### Fixed
@@ -75,6 +83,7 @@ First release as **Headscale Easy**.
 - Documentation site on GitHub Pages, in English and Spanish:
   https://insanerask77.github.io/headscale-easy/
 
+[1.0.5]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.5
 [1.0.4]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.4
 [1.0.3]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.3
 [1.0.2]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.2

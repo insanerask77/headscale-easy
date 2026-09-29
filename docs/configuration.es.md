@@ -81,6 +81,23 @@ pon en `FRONT_PROXY_IP` la IP del proxy en la LAN.
   `headscale-easy-sign-out`): Authentik restablece sus flujos por defecto de vez
   en cuando.
 
+### Verificación en dos pasos { #two-factor-authentication }
+
+El inicio de sesión de Headscale Easy pide un segundo factor después de la
+contraseña: una app de códigos (TOTP) o una passkey. `MFA_REQUIRED` en `.env`
+(lo pregunta el instalador) decide quién está obligado:
+
+| `MFA_REQUIRED` | Comportamiento |
+|---|---|
+| `admins` (por defecto) | Los miembros de `vpn-admins` y `authentik Admins` lo configuran la primera vez que entran; el resto, si quiere |
+| `everyone` | Todos los usuarios lo configuran |
+| `optional` | Nadie está obligado |
+
+A quien ya tiene un segundo factor siempre se le pide. Cada persona gestiona el
+suyo en **Ajustes → General → Cuenta, contraseña y verificación en dos pasos**.
+El login con Google se apoya en la verificación en dos pasos de Google, y el
+acceso de emergencia con API key no tiene segundo factor.
+
 ### Login con Google { #sign-in-with-google }
 
 Disponible con Authentik y HTTPS. En la

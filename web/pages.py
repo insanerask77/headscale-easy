@@ -565,7 +565,7 @@ def general_page(session: dict, ctx: dict, flash: str = "", key_expiry: int | No
         role = _("Admin (Headscale API key session)")
     groups = ", ".join(session.get("groups") or []) or "—"
     name = session.get("name") or session.get("username") or _("Administrator")
-    manage = (f'<a class="btn" href="{esc(ctx["public_url"])}/authentik/if/user/#/settings">{esc(_("Manage account and password"))}</a>'
+    manage = (f'<a class="btn" href="{esc(ctx["public_url"])}/authentik/if/user/#/settings">{esc(_("Account, password and two-factor authentication"))}</a>'
               if ctx.get("authentik") and session.get("kind") != "apikey" else "")
     langs = "".join(f'<button type="submit" name="lang" value="{code}" class="{"active" if get_lang() == code else ""}">{esc(label)}</button>'
                     for code, label in LANGUAGES.items())

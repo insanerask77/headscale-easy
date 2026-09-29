@@ -55,6 +55,8 @@ x-authentik-env: &authentik-env
   PORTAL_OIDC_CLIENT_SECRET: ${PORTAL_OIDC_CLIENT_SECRET:-}
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  # Two-factor authentication: admins (required for admins), everyone, optional
+  MFA_REQUIRED: ${MFA_REQUIRED:-admins}
   TZ: ${TZ:-UTC}
 
 services:

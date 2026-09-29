@@ -28,6 +28,8 @@ metadata:
 context:
   public_url: !Env [HEADSCALE_PUBLIC_URL, "http://localhost"]
   google_client_id: !Env [GOOGLE_CLIENT_ID, ""]
+  # Two-factor authentication: admins (required for admins), everyone, optional
+  mfa_required: !Env [MFA_REQUIRED, admins]
 
 entries:
   # ---------------------------------------------------------------------------
@@ -135,12 +137,76 @@ entries:
       order: 20
     attrs:
       re_evaluate_policies: true
+  # Two-factor authentication. After the password, ONE of these two runs,
+  # depending on the user (evaluated then, not when the flow starts, because
+  # the user is not known yet):
+  #   - required: users without a second factor must set one up (TOTP app or
+  #     passkey) before they get in;
+  #   - optional (Authentik's default stage): asks for the code only if the
+  #     user already has a second factor.
+  # MFA_REQUIRED in .env: admins (default), everyone or optional.
+  - model: authentik_policies_expression.expressionpolicy
+    id: mfa-required-policy
+    identifiers:
+      name: "Headscale Easy: two-factor required for this user"
+    attrs:
+      expression: !Format
+        - |
+          mode = "%s"
+          user = request.context.get("pending_user") or request.user
+          if mode == "everyone":
+              return True
+          if mode != "admins" or not getattr(user, "pk", None):
+              return False
+          return ak_is_group_member(user, name="vpn-admins") or ak_is_group_member(user, name="authentik Admins")
+        - !Context mfa_required
+  - model: authentik_stages_authenticator_validate.authenticatorvalidatestage
+    id: mfa-required-stage
+    identifiers:
+      name: headscale-easy-mfa-required
+    attrs:
+      device_classes:
+        - totp
+        - webauthn
+        - static
+      not_configured_action: configure
+      configuration_stages:
+        - !Find [authentik_stages_authenticator_totp.authenticatortotpstage, [name, default-authenticator-totp-setup]]
+        - !Find [authentik_stages_authenticator_webauthn.authenticatorwebauthnstage, [name, default-authenticator-webauthn-setup]]
+      webauthn_user_verification: preferred
+
   - model: authentik_flows.flowstagebinding
     id: sign-in-mfa-binding
     identifiers:
       target: !KeyOf flow-sign-in
       stage: !Find [authentik_stages_authenticator_validate.authenticatorvalidatestage, [name, default-authentication-mfa-validation]]
       order: 30
+    attrs:
+      evaluate_on_plan: false
+      re_evaluate_policies: true
+      policy_engine_mode: all
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf sign-in-mfa-binding
+      policy: !KeyOf mfa-required-policy
+      order: 20
+    attrs:
+      negate: true
+  - model: authentik_flows.flowstagebinding
+    id: sign-in-mfa-required-binding
+    identifiers:
+      target: !KeyOf flow-sign-in
+      stage: !KeyOf mfa-required-stage
+      order: 31
+    attrs:
+      evaluate_on_plan: false
+      re_evaluate_policies: true
+      policy_engine_mode: all
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf sign-in-mfa-required-binding
+      policy: !KeyOf mfa-required-policy
+      order: 20
   - model: authentik_flows.flowstagebinding
     identifiers:
       target: !KeyOf flow-sign-in
@@ -158,6 +224,13 @@ entries:
   - model: authentik_policies.policybinding
     identifiers:
       target: !KeyOf sign-in-mfa-binding
+      policy: !Find [authentik_policies_expression.expressionpolicy, [name, default-authentication-flow-authenticator-validate-stage]]
+      order: 10
+    attrs:
+      failure_result: true
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf sign-in-mfa-required-binding
       policy: !Find [authentik_policies_expression.expressionpolicy, [name, default-authentication-flow-authenticator-validate-stage]]
       order: 10
     attrs:

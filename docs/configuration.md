@@ -81,6 +81,23 @@ set `FRONT_PROXY_IP` to the proxy's LAN address.
   Easy's own flows (`headscale-easy-sign-in`, `headscale-easy-sign-out`):
   Authentik resets its default flows from time to time.
 
+### Two-factor authentication
+
+Headscale Easy's sign-in asks for a second factor after the password: an
+authenticator app (TOTP) or a passkey. `MFA_REQUIRED` in `.env` (asked by the
+installer) decides who must use it:
+
+| `MFA_REQUIRED` | Behaviour |
+|---|---|
+| `admins` (default) | Members of `vpn-admins` and `authentik Admins` must set it up the first time they sign in; members may |
+| `everyone` | Every user must set it up |
+| `optional` | Nobody is forced |
+
+Users with a second factor are always asked for it. Each person manages theirs
+in **Settings → General → Account, password and two-factor authentication**.
+Signing in with Google relies on Google's own two-step verification, and the
+emergency API key sign-in has no second factor.
+
 ### Sign in with Google
 
 Available with Authentik and HTTPS. In the

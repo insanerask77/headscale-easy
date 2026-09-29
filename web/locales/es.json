@@ -174,7 +174,6 @@
   "Machines of any user (without tags).": "Dispositivos de cualquier usuario (sin tags).",
   "Machines with that tag; the tag needs an owner in tagOwners.": "Dispositivos con ese tag; el tag necesita dueño en tagOwners.",
   "MagicDNS lets you reach machines by name (e.g. ssh user@my-laptop) instead of by IP.": "MagicDNS permite llegar a los dispositivos por su nombre (p. ej. ssh usuario@mi-portatil) en lugar de por su IP.",
-  "Manage account and password": "Gestionar cuenta y contraseña",
   "Manage the devices connected to your tailnet.": "Gestiona los dispositivos conectados a tu tailnet.",
   "Manage your devices. Only you can see them, and they can only reach each other.": "Gestiona tus dispositivos. Sólo tú los ves y sólo pueden conectarse entre ellos.",
   "Member": "Miembro",
@@ -353,5 +352,6 @@
   "Headscale did not start with the new setting; the previous one was restored.": "Headscale no arrancó con el nuevo ajuste; se ha restaurado el anterior.",
   "Until when the key can add devices. The devices themselves follow the key expiry in Settings → General.": "Hasta cuándo puede la clave añadir dispositivos. Los dispositivos siguen la caducidad de Ajustes → General.",
   "The web UI cannot reach Headscale": "El panel no puede conectar con Headscale",
-  "Its API key has expired or was revoked. On the server, run ./install.sh: it creates a new one.": "Su API key ha caducado o se ha revocado. En el servidor, ejecuta ./install.sh: crea una nueva."
+  "Its API key has expired or was revoked. On the server, run ./install.sh: it creates a new one.": "Su API key ha caducado o se ha revocado. En el servidor, ejecuta ./install.sh: crea una nueva.",
+  "Account, password and two-factor authentication": "Cuenta, contraseña y verificación en dos pasos"
 }
