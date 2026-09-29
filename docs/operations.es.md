@@ -52,6 +52,12 @@ aprobar **rutas de subred y exit nodes** o eliminarla. Los miembros pueden
 renombrar, expirar y eliminar sus máquinas; rutas, etiquetas y caducidad son
 sólo para admins, como en Tailscale.
 
+Las apps de Tailscale que no pueden leer el nombre del dispositivo (iPhone,
+iPad, Apple TV y la versión de la App Store para Mac) se registran como
+`localhost`. Headscale Easy las renombra una vez a `<propietario>-<dispositivo>`,
+por ejemplo `ana-iphone` o `leo-mac`; un nombre que pongas después no se vuelve a
+cambiar. Pon `AUTO_RENAME_LOCALHOST=false` en `.env` para desactivarlo.
+
 La flecha junto a la versión se pone roja cuando hay un cliente de Tailscale más
 nuevo (pasa el ratón por encima para ver cuál).
 

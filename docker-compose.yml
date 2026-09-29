@@ -291,6 +291,8 @@ services:
       PUBLIC_URL: ${HEADSCALE_PUBLIC_URL:-}
       TAILNET_NAME: ${TAILNET_NAME:-}
       DEFAULT_LANG: ${UI_LANG:-en}
+      # Rename Apple devices that register as "localhost" to <owner>-<device>
+      AUTO_RENAME_LOCALHOST: ${AUTO_RENAME_LOCALHOST:-true}
       SESSION_SECRET: ${PORTAL_SESSION_SECRET:-}
       # OIDC (empty = no SSO, API key only)
       OIDC_ISSUER: ${PORTAL_OIDC_ISSUER:-}

@@ -340,5 +340,6 @@
   "{n} minutes": "{n} minutos",
   "{n} user": "{n} usuario",
   "{n} users": "{n} usuarios",
-  "{span} ago": "hace {span}"
+  "{span} ago": "hace {span}",
+  "You have signed out.": "Has cerrado sesión."
 }

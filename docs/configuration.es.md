@@ -72,10 +72,14 @@ pon en `FRONT_PROXY_IP` la IP del proxy en la LAN.
   arranque. Cámbiala en `/authentik/if/user/`.
 - Da de alta a la gente en **`/add-user`** (o **Usuarios → Añadir usuario** en la
   consola): un formulario sencillo con nombre, usuario, email, contraseña y si es
-  admin. Sin entrar en la administración de Authentik.
+  admin. Sin entrar en la administración de Authentik. El email y el usuario
+  deben ser únicos.
 - Las páginas de login usan el tema de Headscale Easy (oscuro/claro según el navegador).
 - Authentik se configura con el blueprint `authentik/blueprints/headscale.yaml`.
-  El instalador lo vuelve a aplicar en cada ejecución.
+  El instalador lo vuelve a aplicar en cada ejecución. El inicio y el cierre de
+  sesión usan flujos propios de Headscale Easy (`headscale-easy-sign-in`,
+  `headscale-easy-sign-out`): Authentik restablece sus flujos por defecto de vez
+  en cuando.
 
 ### Login con Google { #sign-in-with-google }
 
