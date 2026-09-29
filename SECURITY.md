@@ -23,6 +23,8 @@ Only the latest release receives fixes.
 - **Console sessions** are HMAC-signed, `HttpOnly`, `SameSite=Lax` cookies
   (`Secure` over HTTPS). Every form carries a CSRF token. A strict
   Content-Security-Policy blocks inline scripts and third-party resources.
+- **Two-factor authentication** (authenticator app or passkey) is required for
+  admins by default (`MFA_REQUIRED`), and optional for members.
 - **Members are isolated.** The console only shows a member their own machines
   and keys, and checks ownership on every action. With `NETWORK_ISOLATION=true`
   the ACL policy also isolates them at the network level.

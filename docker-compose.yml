@@ -55,6 +55,11 @@ x-authentik-env: &authentik-env
   PORTAL_OIDC_CLIENT_SECRET: ${PORTAL_OIDC_CLIENT_SECRET:-}
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  # Two-factor authentication: admins (required for admins), everyone,
+  # optional. Only the initial value: admins change it from the web UI.
+  MFA_REQUIRED: ${MFA_REQUIRED:-admins}
+  # API token of the web UI's service account (only for the two-factor mode)
+  PORTAL_AUTHENTIK_TOKEN: ${PORTAL_AUTHENTIK_TOKEN:-}
   TZ: ${TZ:-UTC}
 
 services:
@@ -307,6 +312,11 @@ services:
       HEADSCALE_API_KEY: ${HEADSCALE_API_KEY:-}
       HEADSCALE_DB: /headscale/db.sqlite
       HEADSCALE_CONFIG: /etc/headscale/config.yaml
+      # Built-in Authentik: admins change the two-factor mode from Settings.
+      # The token may only read and change that policy (see the blueprint).
+      AUTHENTIK_URL: http://authentik-server:9000/authentik
+      AUTHENTIK_API_TOKEN: ${PORTAL_AUTHENTIK_TOKEN:-}
+      MFA_REQUIRED: ${MFA_REQUIRED:-admins}
       TZ: ${TZ:-UTC}
 
     volumes:
@@ -315,7 +325,8 @@ services:
       - headscale-data:/headscale:ro
       # Writable: admins edit DNS (only the marked block).
       - ./headscale-config.yaml:/etc/headscale/config.yaml
-      # Writable: the renewed Headscale API key (see web/apikey.py)
+      # Writable: the renewed Headscale API key (see web/apikey.py) and the
+      # last two-factor mode set from the UI (web/mfa.py)
       - ./data/web:/data
       # To validate ('headscale configtest') and restart Headscale after a DNS
       # change. Docker socket access is equivalent to root on the host: the UI

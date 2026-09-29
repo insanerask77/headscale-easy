@@ -20,7 +20,7 @@ ENV_FILE="${SCRIPT_DIR}/.env"
 DATA_DIR="${SCRIPT_DIR}/data"
 TEMPLATES_DIR="${SCRIPT_DIR}/templates"
 
-INSTALLER_VERSION="1.0.4"
+INSTALLER_VERSION="1.0.5"
 PROJECT_URL="https://github.com/insanerask77/headscale-easy"
 SPONSOR_URL="https://buymeacoffee.com/insanerask"
 
@@ -432,6 +432,16 @@ configure_auth_authentik() {
         FRONT_PROXY_IP=""
     fi
 
+    # Admins may have changed it from the web UI since: it saves the last
+    # mode in data/web/mfa-required, newer than the one in .env
+    local mfa_saved=""
+    [[ -s "$DATA_DIR/web/mfa-required" ]] && mfa_saved=$(tr -d '[:space:]' < "$DATA_DIR/web/mfa-required")
+    [[ "$mfa_saved" =~ ^(admins|everyone|optional)$ ]] || mfa_saved=""
+    MFA_REQUIRED=$(ask_choice "$(t "Two-factor authentication (authenticator app or passkey)" "Autenticación en dos pasos (app de códigos o passkey)")" "${mfa_saved:-${MFA_REQUIRED:-admins}}" \
+        "admins|$(t "Required for admins (recommended)" "Obligatoria para admins (recomendado)")|$(t "Admins must set it up the first time they sign in; members may." "Los admins la configuran al entrar la primera vez; los miembros, si quieren.")" \
+        "everyone|$(t "Required for everyone" "Obligatoria para todos")|$(t "Every user must set it up when signing in." "Todos la configuran al iniciar sesión.")" \
+        "optional|$(t "Optional" "Opcional")|$(t "Nobody is forced; each user decides in their account settings." "Nadie está obligado; cada uno decide en su cuenta.")")
+
     echo ""
     if [[ "$URL_SCHEME" != "https" ]]; then
         print_warning "$(t "Google sign-in needs HTTPS (Google rejects http:// redirect URIs)" \
@@ -466,6 +476,9 @@ generate_secrets() {
         PORTAL_OIDC_CLIENT_SECRET=$(generate_secret 32)
     fi
     PORTAL_OIDC_CLIENT_ID="headscale-easy"
+    # API token of the web UI's Authentik service account (the blueprint
+    # creates both): lets admins change the two-factor mode from the web UI
+    [[ -z "${PORTAL_AUTHENTIK_TOKEN:-}" ]] && PORTAL_AUTHENTIK_TOKEN=$(generate_secret 32)
     return 0
 }
 
@@ -582,6 +595,12 @@ AUTHENTIK_PG_PASS=${AUTHENTIK_PG_PASS:-}
 # Only read on Authentik's FIRST start (change the password in Authentik)
 AUTHENTIK_ADMIN_EMAIL=${AUTHENTIK_ADMIN_EMAIL:-}
 AUTHENTIK_BOOTSTRAP_PASSWORD=${AUTHENTIK_BOOTSTRAP_PASSWORD:-}
+# Two-factor authentication: admins (required for admins), everyone, optional.
+# Admins can change it live from the web UI (Settings > General); ./install.sh
+# applies the value chosen here.
+MFA_REQUIRED=${MFA_REQUIRED:-admins}
+# API token of the web UI's Authentik service account (two-factor mode only)
+PORTAL_AUTHENTIK_TOKEN=${PORTAL_AUTHENTIK_TOKEN:-}
 # Sign in with Google (empty = off). Google redirect URI:
 #   ${HEADSCALE_PUBLIC_URL}/authentik/source/oauth/callback/google/
 GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}"
@@ -1054,6 +1073,27 @@ deploy_stack() {
     export_root_ca
 }
 
+# The blueprint only sets the two-factor mode when it creates the policy (so
+# restarts never revert what admins set from the web UI): apply the one
+# chosen in this run through the web UI, which has the Authentik token.
+apply_mfa_mode() {
+    [[ "$AUTH_PROVIDER" == "authentik" ]] || return 0
+    local result="" tries=0
+    # The blueprint applied a moment ago may still be creating the token
+    while [ $tries -lt 6 ]; do
+        result=$(docker exec headscale-easy python /app/mfa.py set "${MFA_REQUIRED:-admins}" 2>&1) && break
+        result=""
+        sleep 5; tries=$((tries + 1))
+    done
+    if [[ -n "$result" ]]; then
+        print_success "$(t "Two-factor authentication:" "Autenticación en dos pasos:") ${MFA_REQUIRED:-admins}"
+    else
+        print_warning "$(t "Could not apply the two-factor mode; change it from the web UI (Settings > General)" \
+                           "No se pudo aplicar el modo de dos pasos; cámbialo desde el panel (Ajustes > General)")"
+        print_info "docker exec headscale-easy python /app/mfa.py set ${MFA_REQUIRED:-admins}"
+    fi
+}
+
 # With SSL_MODE=selfsigned, Tailscale clients reject Caddy's certificate
 # ("x509: certificate signed by unknown authority") until its CA is installed.
 export_root_ca() {
@@ -1179,6 +1219,7 @@ main() {
     bootstrap_headscale
     apply_network_policy
     deploy_stack
+    apply_mfa_mode
     show_summary
 }
 
