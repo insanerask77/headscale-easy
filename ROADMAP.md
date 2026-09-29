@@ -13,14 +13,19 @@ Effort: **S** = hours · **M** = one or two days · **L** = several days.
   The installer creates it for 90 days; after that the web UI stops working
   until `./install.sh` is run again. The web UI should renew it by itself when
   it has, e.g., 15 days left.
-- [ ] **2. Scheduled backups and guided restore** · M
+- [ ] **2. Scheduled backups and guided restore** · M — 🚧 *in progress*
   `make backup` exists but is manual. Scheduled backups (daily, N days of
   retention), local or remote target (S3, rsync) and a tested `make restore`.
   Losing Headscale's database means re-registering every device.
+  *Status:* backup container (cron, retention) and `scripts/restore.sh`
+  written; S3/rsync targets, `make restore`, `.env`/installer wiring, docs,
+  CHANGELOG and tests pending.
 - [x] **3. Two-factor authentication (MFA) in Authentik** · S — *1.0.5*
   The web UI controls the whole network behind a password. Authentik already
   has TOTP and passkeys: enable them in the blueprint, optional for members and
   required for admins.
+  The mode (admins, everyone or optional) can be changed live by admins from
+  Settings → General in the web UI.
 
 ## 🟠 High — what daily use misses most
 
@@ -86,4 +91,4 @@ Shipped items move here with their version.
 - [x] Live updates on Machines, machine details and Users — 1.0.2
 - [x] Device key expiry (180 days, editable) — 1.0.3
 - [x] Automatic renewal of the web UI's API key — 1.0.4
-- [x] Two-factor authentication (required for admins by default) — 1.0.5
+- [x] Two-factor authentication (required for admins by default, mode configurable from the web UI) — 1.0.5
