@@ -10,6 +10,7 @@ import ipaddress
 from datetime import datetime, timezone
 
 from i18n import LANGUAGES, _, get_lang, ngettext
+from qr import qr_figure
 from ui import (BASE, LOGO, badge, copy_btn, csrf_input, docs_url, esc, flash_html, icon, initials, layout, notice,
                 page_head, parse_time, relative, time_tag, user_label)
 
@@ -440,6 +441,9 @@ def add_page(session: dict, ctx: dict) -> str:
     def code(cmd: str) -> str:
         return f'<div class="code"><code>{esc(cmd)}</code>{copy_btn(cmd)}</div>'
 
+    server_qr = qr_figure(url, _("server URL {url}", url=url), _(
+        "Scan it with the phone's camera to get the URL on the phone, then copy it into the app. "
+        "The Tailscale app cannot read QR codes itself."))
     panels = {
         "linux": ("Linux", f"""
           <ol class="steps">
@@ -459,18 +463,27 @@ def add_page(session: dict, ctx: dict) -> str:
           </ol>
           <p class="muted small">{esc(_("Headscale's guide for Apple devices:"))} <a class="link" href="{esc(url)}/apple" target="_blank">{esc(url)}/apple</a></p>"""),
         "ios": ("iOS", f"""
-          <ol class="steps">
-            <li>{esc(_("Install Tailscale from the App Store."))}</li>
-            <li>{esc(_("Open Settings → Tailscale and turn on Use Alternate Coordination Server with this URL:"))}{code(url)}</li>
-            <li>{esc(_("Open the Tailscale app and sign in with your account."))}</li>
-          </ol>
+          <div class="qr-row">
+            <ol class="steps">
+              <li>{esc(_("Install Tailscale from the App Store."))}</li>
+              <li>{esc(_("In the Tailscale app, tap the profile icon in the top-right corner, then Log in (or your account, if the app is already signed in to another tailnet)."))}</li>
+              <li>{esc(_("Tap the ⋯ menu in the top-right corner, choose Use a custom coordination server and enter this URL:"))}{code(url)}</li>
+              <li>{esc(_("Tap Log in and sign in with your account."))}</li>
+            </ol>
+            {server_qr}
+          </div>
           <p class="muted small">{esc(_("Headscale's guide for Apple devices:"))} <a class="link" href="{esc(url)}/apple" target="_blank">{esc(url)}/apple</a></p>"""),
         "android": ("Android", f"""
-          <ol class="steps">
-            <li>{esc(_("Install Tailscale from Google Play."))}</li>
-            <li>{esc(_("On the sign-in screen open the ⋮ menu, choose Use an alternate server and enter:"))}{code(url)}</li>
-            <li>{esc(_("Sign in with your account."))}</li>
-          </ol>"""),
+          <div class="qr-row">
+            <ol class="steps">
+              <li>{esc(_("Install Tailscale from Google Play."))}</li>
+              <li>{esc(_("In the Tailscale app, tap the profile icon in the top-right corner, then Log in (or your account, if the app is already signed in to another tailnet)."))}</li>
+              <li>{esc(_("Tap the ⋮ menu in the top-right corner, choose Use an alternate server and enter this URL:"))}{code(url)}</li>
+              <li>{esc(_("Tap Log in and sign in with your account."))}</li>
+            </ol>
+            {server_qr}
+          </div>
+          <p class="muted small">{_("To connect without signing in, set the server first and then choose Use an auth key in the same ⋮ menu, with a key from {link}.", link=f'<a class="link" href="{BASE}/settings/keys">' + esc(_("Settings → Keys")) + "</a>")}</p>"""),
     }
     tabs = "".join(f'<button type="button" role="tab" data-tab="{k}" class="{"active" if k == "linux" else ""}">{label}</button>'
                    for k, (label, _c) in panels.items())
@@ -733,6 +746,14 @@ def keys_page(session: dict, ctx: dict, keys: list[dict] | None, flash: str, new
       <div class="code"><code>{esc(new_key["key"])}</code>{copy_btn(new_key["key"])}</div>
       <p class="muted small">{esc(_("To connect a device with it:"))}</p>
       <div class="code"><code>{esc(cmd)}</code>{copy_btn(cmd)}</div>
+      <details class="qr-details">
+        <summary>{esc(_("Show as QR codes"))}</summary>
+        <div class="qr-pair">
+          {qr_figure(new_key["key"], _("auth key"), _("Auth key"))}
+          {qr_figure(cmd, _("command to connect a Linux device"), _("Linux command"))}
+        </div>
+        <p class="muted small">{esc(_("Most phone cameras can copy the text of a QR code. On Android, paste the key in the Tailscale app with Use an auth key (⋮ menu, after setting the server)."))}</p>
+      </details>
     </section>"""
 
     if keys is None and not admin:
