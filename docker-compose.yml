@@ -58,8 +58,20 @@ x-authentik-env: &authentik-env
   # Two-factor authentication: admins (required for admins), everyone,
   # optional. Only the initial value: admins change it from the web UI.
   MFA_REQUIRED: ${MFA_REQUIRED:-admins}
-  # API token of the web UI's service account (only for the two-factor mode)
+  # API token of the web UI's service account (two-factor mode, invitations,
+  # password reset links)
   PORTAL_AUTHENTIK_TOKEN: ${PORTAL_AUTHENTIK_TOKEN:-}
+  # Outgoing email (optional, SMTP_HOST empty = off): "Forgot password?" on
+  # the sign-in page. SMTP_HOST also tells the blueprint to enable it.
+  SMTP_HOST: ${SMTP_HOST:-}
+  AUTHENTIK_EMAIL__HOST: ${SMTP_HOST:-localhost}
+  AUTHENTIK_EMAIL__PORT: ${SMTP_PORT:-587}
+  AUTHENTIK_EMAIL__USERNAME: ${SMTP_USERNAME:-}
+  AUTHENTIK_EMAIL__PASSWORD: ${SMTP_PASSWORD:-}
+  AUTHENTIK_EMAIL__USE_TLS: ${SMTP_USE_TLS:-false}
+  AUTHENTIK_EMAIL__USE_SSL: ${SMTP_USE_SSL:-false}
+  AUTHENTIK_EMAIL__FROM: ${SMTP_FROM:-authentik@localhost}
+  AUTHENTIK_EMAIL__TIMEOUT: "15"
   TZ: ${TZ:-UTC}
 
 services:
@@ -369,11 +381,20 @@ services:
       HEADSCALE_API_KEY: ${HEADSCALE_API_KEY:-}
       HEADSCALE_DB: /headscale/db.sqlite
       HEADSCALE_CONFIG: /etc/headscale/config.yaml
-      # Built-in Authentik: admins change the two-factor mode from Settings.
-      # The token may only read and change that policy (see the blueprint).
+      # Built-in Authentik: admins change the two-factor mode from Settings and
+      # invite people / make password reset links from Users. The token may only
+      # do that (see the blueprint).
       AUTHENTIK_URL: http://authentik-server:9000/authentik
       AUTHENTIK_API_TOKEN: ${PORTAL_AUTHENTIK_TOKEN:-}
       MFA_REQUIRED: ${MFA_REQUIRED:-admins}
+      # Optional email: invitations and password reset links can be emailed
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-false}
+      SMTP_USE_SSL: ${SMTP_USE_SSL:-false}
+      SMTP_FROM: ${SMTP_FROM:-}
       TZ: ${TZ:-UTC}
 
     volumes:
