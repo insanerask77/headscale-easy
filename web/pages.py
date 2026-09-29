@@ -558,7 +558,8 @@ def dns_page(session: dict, ctx: dict, dns: dict, machines: list[Machine], error
 # Settings
 # -----------------------------------------------------------------------------
 
-def general_page(session: dict, ctx: dict, flash: str = "") -> str:
+def general_page(session: dict, ctx: dict, flash: str = "", key_expiry: int | None = None,
+                 error: str = "") -> str:
     role = _("Admin") if session.get("admin") else _("Member")
     if session.get("kind") == "apikey":
         role = _("Admin (Headscale API key session)")
@@ -568,7 +569,23 @@ def general_page(session: dict, ctx: dict, flash: str = "") -> str:
               if ctx.get("authentik") and session.get("kind") != "apikey" else "")
     langs = "".join(f'<button type="submit" name="lang" value="{code}" class="{"active" if get_lang() == code else ""}">{esc(label)}</button>'
                     for code, label in LANGUAGES.items())
-    body = page_head(_("General"), esc(_("Your account and how Headscale Easy looks for you."))) + flash_html(flash) + f"""
+    devices = ""
+    if session.get("admin") and key_expiry is not None:
+        never = key_expiry == 0
+        devices = f"""
+    <section class="card">
+      <h2>{esc(_("Device management"))}</h2>
+      <form method="post" action="{BASE}/settings/key-expiry" class="stack" data-busy>{csrf_input(session)}
+        <label class="field">{esc(_("Key expiry"))}
+          <span class="muted small">{esc(_("New devices must sign in again after this many days (Tailscale uses 180). Auth keys have their own expiry: it only limits until when a key can add devices."))}</span>
+          <span class="inline"><input type="number" name="days" min="1" max="365" value="{key_expiry or 180}" class="short"> {esc(_("days"))}</span></label>
+        <label class="check"><input type="checkbox" name="never" value="1" {"checked" if never else ""}>
+          <span>{esc(_("Never expire (not recommended)"))}</span></label>
+        <p class="muted small">{esc(_("Saving restarts Headscale: devices reconnect within a few seconds. Existing devices keep their current expiry; change it per machine."))}</p>
+        <div><button class="btn primary" type="submit">{esc(_("Save"))}</button></div>
+      </form>
+    </section>"""
+    body = page_head(_("General"), esc(_("Your account and how Headscale Easy looks for you."))) + flash_html(flash) + (notice("error", error) if error else "") + f"""
     <section class="card">
       <h2>{esc(_("Account"))}</h2>
       <div class="account"><span class="avatar big">{initials(name)}</span>
@@ -580,6 +597,7 @@ def general_page(session: dict, ctx: dict, flash: str = "") -> str:
       </dl>
       {manage}
     </section>
+    {devices}
     <section class="card">
       <h2>{esc(_("Appearance"))}</h2>
       <p class="muted">{esc(_("Saved in this browser."))}</p>
@@ -710,7 +728,8 @@ def keys_page(session: dict, ctx: dict, keys: list[dict] | None, flash: str, new
           <span><b>{esc(_("Ephemeral"))}</b><span class="muted">{esc(_("Machines are removed automatically when they go offline. For containers and CI."))}</span></span></label>
         <label class="field">{esc(_("Expiration"))}<select name="days">
           <option value="1">{esc(_("1 day"))}</option><option value="7">{esc(_("7 days"))}</option>
-          <option value="30">{esc(_("30 days"))}</option><option value="90" selected>{esc(_("90 days"))}</option></select></label>"""
+          <option value="30">{esc(_("30 days"))}</option><option value="90" selected>{esc(_("90 days"))}</option></select>
+          <span class="muted small">{esc(_("Until when the key can add devices. The devices themselves follow the key expiry in Settings → General."))}</span></label>"""
     body = page_head(_("Keys"), esc(_("Auth keys connect devices without signing in on them: servers, containers or headless devices. The machines belong to the key's user."))) \
         + flash_html(flash) + new_html + f"""
     <section class="card">

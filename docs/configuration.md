@@ -127,6 +127,17 @@ Each user reaches only their own devices — admins included. An existing policy
 is never overwritten. Edit it in **Access controls → Policy editor**; the syntax
 is [Tailscale's](https://tailscale.com/kb/1337/policy-syntax).
 
+## Device key expiry
+
+Like Tailscale, every device has a key that expires: after that the device has
+to sign in again. Headscale Easy sets it to **180 days** (Tailscale's default);
+admins change it in **Settings → General → Device management** (1–365 days, or
+never). Saving restarts Headscale, and it applies to devices added from then
+on: change existing ones per machine (**⋯ → Enable/Disable key expiry**).
+
+The expiry of an **auth key** is something else: it only limits until when the
+key can add devices.
+
 ## DNS
 
 Admins edit DNS in the console (**DNS** page): MagicDNS, the tailnet domain,

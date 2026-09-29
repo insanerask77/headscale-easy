@@ -341,5 +341,15 @@
   "{n} user": "{n} usuario",
   "{n} users": "{n} usuarios",
   "{span} ago": "hace {span}",
-  "You have signed out.": "Has cerrado sesión."
+  "You have signed out.": "Has cerrado sesión.",
+  "Device management": "Gestión de dispositivos",
+  "New devices must sign in again after this many days (Tailscale uses 180). Auth keys have their own expiry: it only limits until when a key can add devices.": "Los dispositivos nuevos tendrán que volver a iniciar sesión pasados estos días (Tailscale usa 180). Las claves de autenticación tienen su propia caducidad: solo limita hasta cuándo una clave puede añadir dispositivos.",
+  "days": "días",
+  "Never expire (not recommended)": "No caducar nunca (no recomendado)",
+  "Saving restarts Headscale: devices reconnect within a few seconds. Existing devices keep their current expiry; change it per machine.": "Al guardar se reinicia Headscale: los dispositivos se reconectan en unos segundos. Los dispositivos existentes conservan su caducidad actual; cámbiala en cada máquina.",
+  "Enter a number of days between 1 and {max}.": "Introduce un número de días entre 1 y {max}.",
+  "Key expiry saved. It applies to devices added from now on.": "Caducidad guardada. Se aplica a los dispositivos que se añadan a partir de ahora.",
+  "config.yaml has no managed key expiry. Run ./install.sh once to enable it.": "config.yaml no tiene la caducidad gestionada. Ejecuta ./install.sh una vez para activarla.",
+  "Headscale did not start with the new setting; the previous one was restored.": "Headscale no arrancó con el nuevo ajuste; se ha restaurado el anterior.",
+  "Until when the key can add devices. The devices themselves follow the key expiry in Settings → General.": "Hasta cuándo puede la clave añadir dispositivos. Los dispositivos siguen la caducidad de Ajustes → General."
 }

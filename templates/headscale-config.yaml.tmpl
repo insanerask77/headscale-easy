@@ -69,6 +69,9 @@ unix_socket_permission: "0770"
 ${OIDC_CONFIG}
 
 node:
+  # Key expiry of new devices (like Tailscale's "Key expiry", 180 days by
+  # default); "0" = never. Admins change it in the web UI (Settings → General).
+${KEY_EXPIRY_CONFIG}
   ephemeral:
     inactivity_timeout: 30m
   update_check_interval: 10s

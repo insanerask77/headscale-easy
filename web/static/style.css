@@ -579,6 +579,8 @@ div.keybox { margin: 0.75rem 0 1rem; padding: 0.9rem 1rem; border: 1px solid var
     border-radius: 6px;
 }
 .field input, .field select { height: 2.4rem; padding: 0 0.7rem; }
+.field .inline { display: flex; align-items: center; gap: 0.5rem; }
+.field input.short { width: 7rem; }
 .field input[name="name"], .field input[name="auth_id"], .field input[name="api_key"], .field input[name="tags"],
 .field input[name="base_domain"] { font-family: var(--mono); }
 .field textarea, .code-editor { padding: 0.6rem 0.7rem; font: 0.8125rem/1.55 var(--mono); resize: vertical; }
