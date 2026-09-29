@@ -1,8 +1,8 @@
-name: Docker image
+name: Docker image (dev)
 
-# Publishes ghcr.io/insanerask77/headscale-easy:
-#   main        -> :edge
-#   tag v1.2.3  -> :1.2.3, :1.2, :1, :latest
+# Publishes ghcr.io/insanerask77/headscale-easy:dev from every branch except
+# main, to try a branch on a server before merging. Releases and :latest
+# come from docker.yml (main and version tags).
 on:
   push:
     branches-ignore: ["main"]
