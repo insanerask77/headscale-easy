@@ -135,9 +135,11 @@ Let's Encrypt.
 isolation, users only reach their own devices) and that UDP 3478 is open for
 the DERP relay.
 
-**The console says the API key expired.** Re-run `./install.sh` (it creates a
-new one) or create one with `make apikey`, put it in `.env` as
-`HEADSCALE_API_KEY` and run `docker compose up -d web`.
+**The console says the API key expired.** The console renews its own
+Headscale API key when it has 15 days left (it keeps the new one in
+`data/web/api-key`), so this only happens if the server was off for that
+whole window or someone expired the key by hand. Re-run `./install.sh`: it
+creates a new one.
 
 **Somebody signed in with Google but cannot use the VPN.** New Google accounts
 have no group. Add them to `headscale-users` in Authentik.

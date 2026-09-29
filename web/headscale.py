@@ -158,11 +158,16 @@ def api_keys() -> list[dict]:
     return api("GET", "/apikey").get("apiKeys", [])
 
 
+def api_key_prefix(key: str) -> str:
+    """hskey-api-<12-character prefix>-<secret>. The prefix itself may contain
+    '-', so it is taken by length, not by splitting."""
+    head = "hskey-api-"
+    return key[len(head):len(head) + 12] if key.startswith(head) and len(key) > len(head) + 12 else ""
+
+
 def own_api_key_prefix() -> str:
     """Prefix of the API key used by the web UI itself (must not be expired)."""
-    parts = HEADSCALE_API_KEY.split("-")
-    # hskey-api-<prefix>-<secret>
-    return parts[2] if len(parts) >= 4 else ""
+    return api_key_prefix(HEADSCALE_API_KEY)
 
 
 # -----------------------------------------------------------------------------

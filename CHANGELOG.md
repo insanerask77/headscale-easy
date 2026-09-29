@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.4] - 2026-09-29
+
+### Fixed
+- The web UI stopped working 90 days after installing, when its Headscale API
+  key expired. It now renews the key by itself 15 days before (keeping the new
+  one in `data/web/api-key` and expiring the old one); the installer reuses the
+  renewed key. If no valid key is left, the web UI says how to fix it instead
+  of showing a generic error.
+- API key prefixes containing "-" were misread, which could hide the "Used by
+  Headscale Easy" mark on the web UI's own key.
+
 ## [1.0.3] - 2026-09-29
 
 ### Fixed
@@ -64,6 +75,7 @@ First release as **Headscale Easy**.
 - Documentation site on GitHub Pages, in English and Spanish:
   https://insanerask77.github.io/headscale-easy/
 
+[1.0.4]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.4
 [1.0.3]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.3
 [1.0.2]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.2
 [1.0.1]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.1

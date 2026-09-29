@@ -351,5 +351,7 @@
   "Key expiry saved. It applies to devices added from now on.": "Caducidad guardada. Se aplica a los dispositivos que se añadan a partir de ahora.",
   "config.yaml has no managed key expiry. Run ./install.sh once to enable it.": "config.yaml no tiene la caducidad gestionada. Ejecuta ./install.sh una vez para activarla.",
   "Headscale did not start with the new setting; the previous one was restored.": "Headscale no arrancó con el nuevo ajuste; se ha restaurado el anterior.",
-  "Until when the key can add devices. The devices themselves follow the key expiry in Settings → General.": "Hasta cuándo puede la clave añadir dispositivos. Los dispositivos siguen la caducidad de Ajustes → General."
+  "Until when the key can add devices. The devices themselves follow the key expiry in Settings → General.": "Hasta cuándo puede la clave añadir dispositivos. Los dispositivos siguen la caducidad de Ajustes → General.",
+  "The web UI cannot reach Headscale": "El panel no puede conectar con Headscale",
+  "Its API key has expired or was revoked. On the server, run ./install.sh: it creates a new one.": "Su API key ha caducado o se ha revocado. En el servidor, ejecuta ./install.sh: crea una nueva."
 }

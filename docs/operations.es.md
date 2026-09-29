@@ -137,9 +137,10 @@ Let's Encrypt.
 (con aislamiento, cada usuario sólo alcanza sus dispositivos) y que el UDP 3478
 esté abierto para el relay DERP.
 
-**La consola dice que la API key caducó.** Vuelve a ejecutar `./install.sh`
-(crea una nueva) o crea una con `make apikey`, ponla en `.env` como
-`HEADSCALE_API_KEY` y ejecuta `docker compose up -d web`.
+**La consola dice que la API key caducó.** La consola renueva sola su API key
+de Headscale cuando le quedan 15 días (guarda la nueva en `data/web/api-key`),
+así que solo pasa si el servidor estuvo apagado todo ese tiempo o alguien la
+caducó a mano. Vuelve a ejecutar `./install.sh`: crea una nueva.
 
 **Alguien entró con Google pero no puede usar la VPN.** Las cuentas nuevas de
 Google no tienen grupo. Añádelas a `headscale-users` en Authentik.
