@@ -276,14 +276,17 @@ services:
   # ---------------------------------------------------------------------------
   # BACKUP - scheduled backups (see backup/backup.sh)
   # ---------------------------------------------------------------------------
-  # Every day at BACKUP_SCHEDULE: Headscale's database (consistent online copy)
-  # and private keys, Authentik's database, the configuration and Caddy's
-  # internal CA, as one .tar.gz in BACKUP_DIR. Keeps BACKUP_KEEP_DAYS days.
-  # Restore with: ./scripts/restore.sh <file> (or make restore file=...).
+  # Optional ('backup' profile, enabled by the installer when you choose daily
+  # backups). Every day at BACKUP_SCHEDULE: Headscale's database (consistent
+  # online copy) and private keys, Authentik's database, the configuration and
+  # Caddy's internal CA, as one .tar.gz in BACKUP_DIR. Keeps BACKUP_KEEP_DAYS
+  # days. 'make backup' works without the profile too (one-off copy).
+  # Restore with: make restore file=... (scripts/restore.sh).
   backup:
     build: ./backup
     image: headscale-easy-backup:local
     container_name: headscale-easy-backup
+    profiles: ["backup"]
     restart: unless-stopped
 
     environment:

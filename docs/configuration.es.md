@@ -16,6 +16,9 @@ Las preguntas, por orden:
 5. **Tailnet**: nombre de la organización, usuario inicial de Headscale, rangos de direcciones.
 6. **Inicio de sesión**: Authentik, tu propio proveedor OIDC o sólo API key.
 7. **Aislamiento de red**: si cada usuario sólo alcanza sus dispositivos.
+8. **Copias de seguridad**: si se hace una copia diaria (desactivada por
+   defecto, recomendada) y, en ese caso, a qué hora, en qué carpeta y cuántos
+   días se conserva. Ver [Copias de seguridad](operations.md#backups).
 
 Después despliega: primero Authentik (Headscale no arranca hasta que el issuer
 OIDC responde), luego Headscale, crea el usuario inicial y la API key que usa la

@@ -7,12 +7,15 @@ All notable changes to this project are documented here. The format follows
 ## [1.0.6] - 2026-09-29
 
 ### Added
-- Scheduled backups: a `backup` container makes a daily backup (03:00, kept
-  14 days, `BACKUP_SCHEDULE`, `BACKUP_DIR`, `BACKUP_KEEP_DAYS`) of Headscale's
-  database and private keys, Authentik's database, the configuration and
-  Caddy's internal CA.
+- Optional daily backups: the installer asks (off by default, recommended) and
+  lets you choose the time, folder and retention. A `backup` container
+  (Compose profile `backup`) backs up Headscale's database and private keys,
+  Authentik's database, the configuration and Caddy's internal CA. The
+  installer makes a first backup right away and shows the exact restore
+  command.
 - `make restore file=...` (`scripts/restore.sh`): restores all of it, also on a
-  new server.
+  new server. `make backup` makes a one-off backup, with or without the
+  schedule.
 
 ### Fixed
 - `make backup` copied Headscale's SQLite files while Headscale was writing,
