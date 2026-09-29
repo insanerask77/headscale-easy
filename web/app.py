@@ -44,6 +44,7 @@ log = logging.getLogger("headscale-easy")
 import admin_pages  # noqa: E402  (after logging is configured)
 import headscale as hs  # noqa: E402
 import apikey  # noqa: E402
+import audit  # noqa: E402
 import mfa  # noqa: E402
 import naming  # noqa: E402
 import pages  # noqa: E402
@@ -332,12 +333,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self.keys_view(session, flash, preselect=params.get("user", ""))
 
             # --- admins only ---
-            if path in (f"{BASE}/users", f"{BASE}/acl") and not admin:
+            if path in (f"{BASE}/users", f"{BASE}/acl", f"{BASE}/logs", f"{BASE}/logs.csv") and not admin:
                 return self.fail(403, _("No permission"), _("This section is for admins only."))
             if path == f"{BASE}/users":
                 return self.send(200, admin_pages.users_page(session, CTX, hs.all_users(), hs.all_nodes(), flash))
             if path == f"{BASE}/acl":
                 return self.send(200, admin_pages.acl_page(session, CTX, hs.get_policy(), flash))
+            if path == f"{BASE}/logs":
+                return self.send(200, audit.page(session, CTX, params))
+            if path == f"{BASE}/logs.csv":
+                return self.send(200, audit.csv_export(params), "text/csv; charset=utf-8",
+                                 [("Content-Disposition", 'attachment; filename="activity-log.csv"')])
             self.fail(404, _("Not found"), _("That page does not exist."))
         except urllib.error.HTTPError as exc:
             if exc.code == 401:
@@ -419,7 +425,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.create_apikey(session, form)
             m = re.fullmatch(rf"{BASE}/apikeys/(\d+)/expire", path)
             if m:
-                return self.expire_apikey(m.group(1))
+                return self.expire_apikey(m.group(1), session)
             self.send(404, "Not found", "text/plain")
         except Exception:  # noqa: BLE001
             log.exception("error on POST %s", path)
@@ -434,12 +440,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if days is None:
             return again(_("Enter a number of days between 1 and {max}.", max=hs.KEY_EXPIRY_MAX_DAYS))
+        before = hs.key_expiry_days()
         ok, error = hs.apply_key_expiry(days)
         if not ok:
             log.warning("%s tried to change the key expiry: %s", session["username"], error)
             return again(error)
         log.info("%s set the device key expiry to %s and restarted Headscale", session["username"],
                  f"{days} days" if days else "never")
+        audit.request_event(self, session, "settings.key_expiry", _("Device key expiry"), {"from": before, "to": days})
         return self.redirect(f"{BASE}/settings/general?m=key-expiry-saved")
 
     def save_mfa(self, session: dict, form: dict):
@@ -461,6 +469,7 @@ class Handler(BaseHTTPRequestHandler):
             return again(str(exc))
         if changed:
             log.info("%s set two-factor authentication to '%s'", session["username"] or session["name"], mode)
+            audit.request_event(self, session, "settings.mfa", _("Two-factor authentication"), {"to": mode})
         return self.redirect(f"{BASE}/settings/general?m=mfa-saved")
 
     # --- static files ---
@@ -495,6 +504,7 @@ class Handler(BaseHTTPRequestHandler):
     def callback(self, params: dict):
         tx = unsign(self.cookie("hse_oidc"))
         if not tx or not params.get("code") or not hmac.compare_digest(params.get("state", ""), tx["state"]):
+            audit.request_event(self, None, "auth.signin_failed", "", {"method": "oidc", "reason": params.get("error", "invalid state")[:100]})
             return self.fail(400, _("Could not sign in"), _("The sign-in expired or is not valid. Please try again."))
 
         d = discovery()
@@ -537,13 +547,15 @@ class Handler(BaseHTTPRequestHandler):
         if not valid:
             time.sleep(1)  # slow down guessing
             log.warning("API key sign-in rejected from %s", self.address_string())
+            audit.request_event(self, None, "auth.signin_failed", "", {"method": "apikey", "prefix": hs.api_key_prefix(key)}, actor="")
             return self.send(401, admin_pages.login_page(SSO, API_KEY_LOGIN, _("Invalid or expired API key.")))
         log.info("sign-in with API key (%s…)", key[:14])
         self.start_session({"kind": "apikey", "sub": "", "username": "", "name": _("Administrator"),
-                            "email": "", "groups": [], "admin": True})
+                            "email": "", "groups": [], "admin": True, "key": hs.api_key_prefix(key)})
 
     def start_session(self, data: dict):
         data.update(csrf=secrets.token_urlsafe(24), exp=time.time() + SESSION_TTL)
+        audit.request_event(self, data, "auth.signin", "", {"method": data["kind"], "admin": bool(data["admin"])})
         log.info("sign-in: %s (%s%s)", data["username"] or data["name"], data["kind"], ", admin" if data["admin"] else "")
         self.redirect(f"{BASE}/machines", [
             self.set_cookie("hse_session", sign(data), SESSION_TTL),
@@ -567,6 +579,7 @@ class Handler(BaseHTTPRequestHandler):
                     "post_logout_redirect_uri": f"{PUBLIC_URL}{BASE}/",
                     "client_id": OIDC_CLIENT_ID,
                 })
+        audit.request_event(self, session, "auth.signout")
         self.redirect(target, [self.set_cookie("hse_session", "", 0)])
 
     # --- machines ---
@@ -589,18 +602,22 @@ class Handler(BaseHTTPRequestHandler):
                 if not NODE_NAME_RE.fullmatch(name):
                     return self.redirect(f"{dest}?m=bad-name")
                 hs.api("POST", f"/node/{node_id}/rename/{urllib.parse.quote(name)}")
+                audit.request_event(self, session, "machine.rename", name, {"from": node.get("givenName"), "to": name}, f"node:{node_id}")
                 return self.redirect(f"{dest}?m=renamed")
             if action == "expire":
                 hs.api("POST", f"/node/{node_id}/expire")
+                audit.request_event(self, session, "machine.expire", node.get("givenName"), ref=f"node:{node_id}")
                 return self.redirect(f"{dest}?m=expired")
             if action == "expiry":
                 if form.get("disable") == "1":
                     hs.api("POST", f"/node/{node_id}/expire?disableExpiry=true")
+                    audit.request_event(self, session, "machine.expiry_disable", node.get("givenName"), ref=f"node:{node_id}")
                     return self.redirect(f"{dest}?m=expiry-off")
                 # Re-enable: the tailnet's key expiry (Settings → General), or
                 # Tailscale's 180 days when devices are set to never expire
                 days = hs.key_expiry_days() or 180
                 hs.api("POST", f"/node/{node_id}/expire?" + urllib.parse.urlencode({"expiry": iso_in(days)}))
+                audit.request_event(self, session, "machine.expiry_enable", node.get("givenName"), {"days": days}, f"node:{node_id}")
                 return self.redirect(f"{dest}?m=expiry-on")
             if action == "routes":
                 # Only routes the node advertises can be approved
@@ -611,15 +628,18 @@ class Handler(BaseHTTPRequestHandler):
                     routes += [r for r in EXIT_ROUTES if r in available]
                 hs.api("POST", f"/node/{node_id}/approve_routes", {"routes": sorted(set(routes))})
                 log.info("%s approved routes %s on node %s", session["username"], routes, node_id)
+                audit.request_event(self, session, "machine.routes", node.get("givenName"), {"from": sorted(node.get("approvedRoutes") or []), "to": sorted(set(routes))}, f"node:{node_id}")
                 return self.redirect(f"{dest}?m=routes")
             if action == "tags":
                 tags = [t.lower() for t in lines(str(form.get("tags", "")))]
                 if any(not TAG_RE.fullmatch(t) for t in tags):
                     return self.redirect(f"{dest}?m=failed")
                 hs.api("POST", f"/node/{node_id}/tags", {"tags": tags})
+                audit.request_event(self, session, "machine.tags", node.get("givenName"), {"from": sorted(node.get("tags") or []), "to": sorted(tags)}, f"node:{node_id}")
                 return self.redirect(f"{dest}?m=tags")
             hs.api("DELETE", f"/node/{node_id}")
             log.info("%s removed node %s", session["username"], node_id)
+            audit.request_event(self, session, "machine.delete", node.get("givenName"), {"user": (node.get("user") or {}).get("name")}, f"node:{node_id}")
             return self.redirect(f"{BASE}/machines?m=removed")
         except urllib.error.HTTPError as exc:
             msg = hs.api_error(exc)
@@ -643,6 +663,7 @@ class Handler(BaseHTTPRequestHandler):
             log.warning("Auth ID registration rejected: %s", msg)
             return self.send(400, pages.machines_page(session, CTX, to_machines(visible_nodes(session)), True, "",
                                                       hs.all_users(), error=_("Could not register: {reason}", reason=msg)))
+        audit.request_event(self, session, "machine.register", user, {"user": user, "auth_id": audit.prefix(auth_id)})
         return self.redirect(f"{BASE}/machines?m=registered")
 
     # --- keys ---
@@ -664,6 +685,7 @@ class Handler(BaseHTTPRequestHandler):
         })["preAuthKey"]
         log.info("%s generated an auth key for %s (reusable=%s, ephemeral=%s, %s d)", session["username"],
                  user["name"], key.get("reusable"), key.get("ephemeral"), days)
+        audit.request_event(self, session, "authkey.create", user["name"], {"key": key.get("key"), "reusable": key.get("reusable"), "ephemeral": key.get("ephemeral"), "days": int(days)}, f"user:{user['id']}")
         # Shown in this very response: Headscale never returns it again
         self.keys_view(session, "", new_key=key)
 
@@ -676,6 +698,7 @@ class Handler(BaseHTTPRequestHandler):
             log.warning("%s tried to revoke key %s, which they cannot manage", session["username"], key_id)
             return self.redirect(f"{BASE}/settings/keys?m=not-found")
         hs.api("POST", "/preauthkey/expire", {"id": key_id})
+        audit.request_event(self, session, "authkey.revoke", f"#{key_id}", ref=f"authkey:{key_id}")
         return self.redirect(f"{BASE}/settings/keys?m=key-revoked")
 
     def create_apikey(self, session: dict, form: dict):
@@ -683,9 +706,10 @@ class Handler(BaseHTTPRequestHandler):
         days = days if days in APIKEY_DAYS else "90"
         key = hs.api("POST", "/apikey", {"expiration": iso_in(int(days))})["apiKey"]
         log.info("%s created an API key (%s d)", session["username"], days)
+        audit.request_event(self, session, "apikey.create", hs.api_key_prefix(key), {"days": int(days)}, f"apikey:{hs.api_key_prefix(key)}")
         self.keys_view(session, "", new_apikey=key)
 
-    def expire_apikey(self, key_id: str):
+    def expire_apikey(self, key_id: str, session: dict | None = None):
         key = next((k for k in hs.api_keys() if str(k.get("id")) == key_id), None)
         if key is None:
             return self.redirect(f"{BASE}/settings/keys?m=not-found")
@@ -693,6 +717,7 @@ class Handler(BaseHTTPRequestHandler):
         if own and own in (key.get("prefix") or ""):
             return self.redirect(f"{BASE}/settings/keys?m=apikey-own")
         hs.api("POST", "/apikey/expire", {"id": key_id})
+        audit.request_event(self, session, "apikey.expire", hs.api_key_prefix(key.get("prefix") or "") or f"#{key_id}", ref=f"apikey:{hs.api_key_prefix(key.get('prefix') or '') or key_id}")
         return self.redirect(f"{BASE}/settings/keys?m=apikey-expired")
 
     # --- users ---
@@ -711,10 +736,12 @@ class Handler(BaseHTTPRequestHandler):
         except urllib.error.HTTPError as exc:
             return self.users_error(session, _("Could not create it: {reason}", reason=hs.api_error(exc)))
         log.info("%s created local user %s", session["username"], name)
+        audit.request_event(self, session, "user.create", name, {"display_name": body.get("displayName", "")})
         return self.redirect(f"{BASE}/users?m=user-created")
 
     def user_action(self, session: dict, user_id: str, action: str, form: dict):
-        if not any(str(u["id"]) == user_id for u in hs.all_users()):
+        user = next((u for u in hs.all_users() if str(u["id"]) == user_id), None)
+        if user is None:
             return self.redirect(f"{BASE}/users?m=not-found")
         try:
             if action == "rename":
@@ -722,11 +749,13 @@ class Handler(BaseHTTPRequestHandler):
                 if not USER_NAME_RE.fullmatch(name):
                     return self.redirect(f"{BASE}/users?m=bad-user")
                 hs.api("POST", f"/user/{user_id}/rename/{urllib.parse.quote(name)}")
+                audit.request_event(self, session, "user.rename", name, {"from": user.get("name"), "to": name}, f"user:{user_id}")
                 return self.redirect(f"{BASE}/users?m=user-renamed")
             if any(str((n.get("user") or {}).get("id")) == user_id for n in hs.all_nodes()):
                 return self.redirect(f"{BASE}/users?m=user-has-nodes")
             hs.api("DELETE", f"/user/{user_id}")
             log.info("%s deleted user %s", session["username"], user_id)
+            audit.request_event(self, session, "user.delete", user.get("name"), ref=f"user:{user_id}")
             return self.redirect(f"{BASE}/users?m=user-deleted")
         except urllib.error.HTTPError as exc:
             return self.users_error(session, hs.api_error(exc))
@@ -736,7 +765,9 @@ class Handler(BaseHTTPRequestHandler):
         policy = str(form.get("policy", ""))
         try:
             if form.get("action") == "save":
+                before = hs.get_policy().get("policy", "")
                 hs.api("PUT", "/policy", {"policy": policy})
+                audit.request_event(self, session, "acl.save", _("Access control policy"), audit.text_diff(before, policy))
                 log.info("%s saved the ACL policy", session["username"])
                 return self.redirect(f"{BASE}/acl?m=acl-saved")
             hs.api("POST", "/policy/check", {"policy": policy})
@@ -812,6 +843,7 @@ class Handler(BaseHTTPRequestHandler):
             log.warning("%s tried to change DNS: %s", session["username"], error)
             return again(error)
         log.info("%s changed DNS and restarted Headscale", session["username"])
+        audit.request_event(self, session, "dns.save", "DNS", {"changed": audit.changes({k: current.get(k) for k in cfg}, cfg)})
         return self.redirect(f"{BASE}/dns?m=dns-saved")
 
 
@@ -830,6 +862,7 @@ def main():
     log.info("Headscale Easy %s listening on :%d (public: %s%s, SSO=%s, API key sign-in=%s)",
              VERSION, port, PUBLIC_URL, BASE, SSO, API_KEY_LOGIN)
     apikey.start()
+    audit.start()
     naming.start()
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
