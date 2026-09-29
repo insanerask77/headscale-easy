@@ -20,7 +20,7 @@ ENV_FILE="${SCRIPT_DIR}/.env"
 DATA_DIR="${SCRIPT_DIR}/data"
 TEMPLATES_DIR="${SCRIPT_DIR}/templates"
 
-INSTALLER_VERSION="1.0.5"
+INSTALLER_VERSION="1.0.6"
 PROJECT_URL="https://github.com/insanerask77/headscale-easy"
 SPONSOR_URL="https://buymeacoffee.com/insanerask"
 
@@ -606,6 +606,13 @@ PORTAL_AUTHENTIK_TOKEN=${PORTAL_AUTHENTIK_TOKEN:-}
 GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}"
 GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-}"
 
+# --- Backups -----------------------------------------------------------------------
+# Daily backup (cron syntax, "off" to disable), where and for how many days.
+# Restore with: make restore file=backups/headscale-easy-....tar.gz
+BACKUP_SCHEDULE="${BACKUP_SCHEDULE:-0 3 * * *}"
+BACKUP_DIR=${BACKUP_DIR:-./backups}
+BACKUP_KEEP_DAYS=${BACKUP_KEEP_DAYS:-14}
+
 # --- Advanced ----------------------------------------------------------------------
 TZ=${TZ:-UTC}
 NETWORK_NAME=headscale-net
@@ -865,6 +872,8 @@ generate_files() {
     generate_secrets
     generate_env_file
     mkdir -p "$DATA_DIR/caddy-logs" "$DATA_DIR/web"
+    # Created here so it belongs to you, not to root (Docker would create it)
+    [[ "${BACKUP_DIR:-./backups}" == ./* ]] && mkdir -p "$SCRIPT_DIR/${BACKUP_DIR:-./backups}"
     generate_headscale_config
     generate_caddyfile
     generate_compose_override
@@ -879,7 +888,7 @@ pull_images() {
     print_info "$(t "Pulling images (the web UI is built locally if its image is not published yet)..." \
                     "Descargando imágenes (el panel se construye en local si su imagen aún no está publicada)...")"
     docker compose pull --ignore-pull-failures --quiet 2>/dev/null || true
-    docker compose build --quiet web
+    docker compose build --quiet web backup
 }
 
 # With Authentik, Headscale does not start (only_start_if_oidc_is_available)

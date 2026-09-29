@@ -42,5 +42,9 @@ Only the latest release receives fixes.
   keeps working and DNS changes then show an error.
 - **Headscale's database** is mounted read-only in the console (it reads each
   device's OS and client version, which the API does not expose).
+- **Backups** (`./backups`) contain `.env` and Headscale's private keys: they
+  are created readable only by the owner of the project files. The backup
+  container runs as root (Headscale's keys are root-only) with only the
+  capabilities to read files, change their owner and run its schedule.
 - **Secrets** (`.env`, generated configuration, backups) never belong in git;
   they are all in `.gitignore`.

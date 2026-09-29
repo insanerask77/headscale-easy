@@ -274,6 +274,55 @@ services:
       - no-new-privileges:true
 
   # ---------------------------------------------------------------------------
+  # BACKUP - scheduled backups (see backup/backup.sh)
+  # ---------------------------------------------------------------------------
+  # Every day at BACKUP_SCHEDULE: Headscale's database (consistent online copy)
+  # and private keys, Authentik's database, the configuration and Caddy's
+  # internal CA, as one .tar.gz in BACKUP_DIR. Keeps BACKUP_KEEP_DAYS days.
+  # Restore with: ./scripts/restore.sh <file> (or make restore file=...).
+  backup:
+    build: ./backup
+    image: headscale-easy-backup:local
+    container_name: headscale-easy-backup
+    restart: unless-stopped
+
+    environment:
+      BACKUP_SCHEDULE: ${BACKUP_SCHEDULE:-0 3 * * *}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      BACKUP_UID: ${PORTAL_UID:-1000}
+      BACKUP_GID: ${PORTAL_GID:-1000}
+      PGHOST: authentik-postgresql
+      PGUSER: authentik
+      PGDATABASE: authentik
+      PGPASSWORD: ${AUTHENTIK_PG_PASS:-}
+      TZ: ${TZ:-UTC}
+
+    volumes:
+      # Read-only: what gets backed up
+      - headscale-data:/headscale:ro
+      - caddy-data:/caddy:ro
+      - ./:/project:ro
+      # Where backups go (a NAS mount, for instance)
+      - ${BACKUP_DIR:-./backups}:/backups
+
+    networks:
+      - headscale-net
+
+    # Root inside the container: Headscale's private keys are readable by
+    # root only. Archives are handed to PORTAL_UID. Only the capabilities to
+    # read files, change their owner and let crond start its job.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
+
+  # ---------------------------------------------------------------------------
   # HEADSCALE EASY - Web UI
   # ---------------------------------------------------------------------------
   # Members see and manage their own machines; admins manage everything

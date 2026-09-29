@@ -93,17 +93,39 @@ saltos de versión mayor.
 
 ## Copias de seguridad { #backups }
 
+El contenedor `backup` hace una copia **cada día a las 03:00** y conserva las de
+los últimos **14 días** en `./backups`. Cada copia es un `.tar.gz` con:
+
+- la base de datos de Headscale (una copia consistente aunque esté en marcha) y
+  sus claves privadas, para que los dispositivos sigan registrados al restaurar;
+- la base de datos de Authentik, si lo usas;
+- la configuración (`.env`, `headscale-config.yaml`, `Caddyfile`...);
+- la CA interna de Caddy con `SSL_MODE=selfsigned`.
+
+Cámbialo en `.env` y ejecuta `docker compose up -d backup`:
+
+| Variable | Por defecto | |
+|---|---|---|
+| `BACKUP_SCHEDULE` | `0 3 * * *` | Sintaxis cron (zona horaria `TZ`); `off` la desactiva |
+| `BACKUP_DIR` | `./backups` | Cualquier ruta del servidor, por ejemplo un NAS montado |
+| `BACKUP_KEEP_DAYS` | `14` | Las copias más antiguas se borran |
+
+Para hacer una copia en el momento: `make backup`. Las copias contienen
+secretos (`.env`): solo las puedes leer tú; guarda copias en un lugar seguro y
+fuera de este servidor.
+
+### Restaurar { #restore }
+
 ```bash
-make backup                 # en ./backups
-make backup dir=/mnt/nas    # en otro sitio
+make restore file=backups/headscale-easy-20260929-030000.tar.gz
 ```
 
-Guarda `.env` y la configuración generada, el volumen de datos de Headscale
-(base de datos y claves) y, con Authentik, un volcado de su base de datos. Los
-ficheros contienen secretos: guárdalos en un lugar seguro.
+Detiene el stack, restaura la configuración (los ficheros actuales se guardan
+como `*.before-restore-*`), la base de datos y las claves de Headscale, la base
+de datos de Authentik y la CA de Caddy, y vuelve a arrancar el stack.
 
-Para restaurar en otra máquina: copia el repositorio y `.env`, restaura el
-volumen `headscale-data` y la base de datos de Authentik, y ejecuta `./install.sh`.
+**En un servidor nuevo:** instala Docker, clona el repositorio, copia la copia de
+seguridad y ejecuta el mismo comando; no hace falta pasar antes el instalador.
 
 ## Desinstalar { #uninstalling }
 

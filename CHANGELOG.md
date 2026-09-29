@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.6] - 2026-09-29
+
+### Added
+- Scheduled backups: a `backup` container makes a daily backup (03:00, kept
+  14 days, `BACKUP_SCHEDULE`, `BACKUP_DIR`, `BACKUP_KEEP_DAYS`) of Headscale's
+  database and private keys, Authentik's database, the configuration and
+  Caddy's internal CA.
+- `make restore file=...` (`scripts/restore.sh`): restores all of it, also on a
+  new server.
+
+### Fixed
+- `make backup` copied Headscale's SQLite files while Headscale was writing,
+  which could produce an inconsistent database. It now uses SQLite's online
+  backup and checks the copy's integrity.
+
 ## [1.0.5] - 2026-09-29
 
 ### Added
@@ -91,6 +106,7 @@ First release as **Headscale Easy**.
 - Documentation site on GitHub Pages, in English and Spanish:
   https://insanerask77.github.io/headscale-easy/
 
+[1.0.6]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.6
 [1.0.5]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.5
 [1.0.4]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.4
 [1.0.3]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.3

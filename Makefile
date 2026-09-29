@@ -3,7 +3,7 @@
 
 .DEFAULT_GOAL := help
 .PHONY: help install uninstall purge validate lint i18n status logs restart health \
-        up down ps users nodes routes user key apikey backup update config
+        up down ps users nodes routes user key apikey backup restore update config
 
 help: ## Show this help
 	@echo "Headscale Easy — make targets"
@@ -27,7 +27,7 @@ validate: ## Check the project structure and configuration
 	@./scripts/validate.sh
 
 lint: ## shellcheck + Python syntax + i18n coverage
-	@shellcheck -S warning install.sh uninstall.sh scripts/*.sh
+	@shellcheck -S warning install.sh uninstall.sh scripts/*.sh backup/*.sh
 	@python3 -m py_compile web/*.py
 	@python3 scripts/check_i18n.py
 
@@ -59,8 +59,12 @@ health: ## Health of every container
 update: ## Pull new images and recreate containers
 	@./scripts/utils.sh update
 
-backup: ## Back up config and data (dir=path, default ./backups)
-	@./scripts/utils.sh backup $(dir)
+backup: ## Back up now (also daily; BACKUP_* in .env)
+	@./scripts/utils.sh backup
+
+restore: ## Restore a backup (file=backups/headscale-easy-....tar.gz)
+	@test -n "$(file)" || { echo "Usage: make restore file=backups/headscale-easy-YYYYmmdd-HHMMSS.tar.gz"; exit 1; }
+	@./scripts/restore.sh $(file)
 
 config: ## Show .env with secrets hidden
 	@./scripts/utils.sh config:show

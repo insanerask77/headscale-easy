@@ -24,3 +24,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 site/
+
+# Claude Code local state (worktrees, settings)
+.claude/
