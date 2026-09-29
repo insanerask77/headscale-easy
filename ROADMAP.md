@@ -52,9 +52,11 @@ Effort: **S** = hours · **M** = one or two days · **L** = several days.
 
 ## 🟡 Medium — extends what can be done
 
-- [ ] **9. Visual ACL policy editor** · L
+- [x] **9. Visual ACL policy editor** · L — *1.2.0*
   Forms for groups, tags and "who can reach what", plus a test ("can ana reach
-  nas:445?"). Today there is only the HuJSON text editor.
+  nas:445?"). The raw HuJSON editor stays as a full fallback (Advanced tab);
+  edits from the visual editor splice only the block they touch, so comments
+  and hand-written sections (`ssh`, `autoApprovers`) are never lost.
 - [ ] **10. Auto-approval of routes and exit nodes** · S/M
   Expose Headscale's `autoApprovers` (subnets or exit nodes of certain tags are
   approved automatically) on the routes page.
@@ -78,9 +80,12 @@ Effort: **S** = hours · **M** = one or two days · **L** = several days.
 
 ## Suggested order
 
-1. **Now:** 1 and 3 — small, and they prevent a broken or insecure installation.
-2. **Next release (1.1):** 2, 4, 5 and 7 — reliable and comfortable for several users.
-3. **Then:** 6 and 8, and 9 as the big project.
+Items 1–9 are done. Next up:
+
+1. **Now:** 10 and 13 — small, and they build on the visual ACL editor's
+   groups/tags picker while it's fresh.
+2. **Then:** 11 and 12.
+3. **Low priority, as time allows:** 14–19.
 
 ## Done
 
@@ -94,3 +99,4 @@ Shipped items move here with their version.
 - [x] Two-factor authentication (required for admins by default) — 1.0.5
 - [x] Scheduled backups and one-command restore — 1.0.6
 - [x] DNS page like Tailscale's, invitations and password reset, expiry warnings, activity log, QR codes — 1.1.0
+- [x] Visual ACL policy editor (rules, groups, tag owners, access simulator) — 1.2.0

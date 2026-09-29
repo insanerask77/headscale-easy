@@ -55,7 +55,9 @@ servidor es tuyo.
   registro de dispositivos por Auth ID.
 - 🌐 **DNS**: MagicDNS, dominio de la tailnet, nameservers, split DNS, dominios de
   búsqueda; validado con `headscale configtest` y revertido si Headscale lo rechaza.
-- 📝 **Editor de la política ACL** (HuJSON).
+- 📝 **Control de acceso**: editor visual de reglas, grupos y dueños de
+  etiquetas, un simulador de acceso ("¿puede ana llegar a nas:445?"), y el
+  editor de HuJSON en crudo como vía de escape completa.
 - 🔐 **HTTPS a tu manera**: Let's Encrypt, autofirmado, detrás de tu proxy
   (Nginx Proxy Manager, nginx, Traefik, Caddy: se genera la configuración) o
   HTTP en una LAN.

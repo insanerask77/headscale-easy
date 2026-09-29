@@ -86,8 +86,8 @@ official Tailscale apps on every device; only the server is yours.
     ![Users](images/users.png){ .hse-shot }
 === "DNS"
     ![DNS](images/dns.png){ .hse-shot }
-=== "Policy editor"
-    ![Policy editor](images/access-controls.png){ .hse-shot }
+=== "Access controls"
+    ![Access controls](images/access-controls.png){ .hse-shot }
 === "Keys"
     ![Keys](images/keys.png){ .hse-shot }
 === "Sign in"

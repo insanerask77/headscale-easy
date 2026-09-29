@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-09-29
+
+### Added
+- **Visual ACL policy editor.** Access controls now has four tabs: **Rules**
+  (who can reach what, with source/destination/port/protocol forms),
+  **Groups & tags** (reusable groups and tag owners), **Test access** (a
+  simulator: pick a source and a destination and it says whether the policy
+  allows it and which rule matched — not a live packet test), and **Advanced
+  (HuJSON)**, the original text editor kept as a full fallback. Under the
+  hood, visual edits rewrite only the `acls`, `groups` or `tagOwners` block
+  they touch and leave the rest of the file — comments, key order, hand-written
+  `ssh` or `autoApprovers` sections — untouched. Verified against a live
+  Headscale instance: real device connectivity (per-user isolation and a
+  tag-based rule) matched the simulator's predictions in every case tested.
+- **Optional public DERP servers.** The installer now asks whether to also use
+  Tailscale's public DERP relays (default: yes); answering no gives a fully
+  self-hosted install with only the embedded relay (`DERP_USE_PUBLIC` in
+  `.env`). `uninstall.sh` gains a `--lang en|es` option.
+
 ## [1.1.0] - 2026-09-29
 
 Built by five agents working in parallel, one feature each, then integrated
@@ -154,6 +173,7 @@ First release as **Headscale Easy**.
 - Documentation site on GitHub Pages, in English and Spanish:
   https://insanerask77.github.io/headscale-easy/
 
+[1.2.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.2.0
 [1.1.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.1.0
 [1.0.7]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.7
 [1.0.6]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.6
