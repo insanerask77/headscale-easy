@@ -179,7 +179,10 @@ cuándo puede la clave añadir dispositivos.
 ## DNS { #dns }
 
 Los admins editan el DNS en la consola (página **DNS**): MagicDNS, el dominio de
-la tailnet, nameservers, split DNS y dominios de búsqueda. La consola escribe el
+la tailnet, nameservers, split DNS, dominios de búsqueda y **registros
+personalizados** (uno por línea, `nombre dirección`, por ejemplo
+`nas.example.com 100.64.0.5`: lo resuelven todos los dispositivos de la
+tailnet; A o AAAA según la dirección). La consola escribe el
 bloque `dns:` de `headscale-config.yaml` entre estos marcadores:
 
 ```yaml

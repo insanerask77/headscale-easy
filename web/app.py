@@ -23,6 +23,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import mimetypes
@@ -766,6 +767,7 @@ class Handler(BaseHTTPRequestHandler):
             "nameservers": lines(str(form.get("nameservers", ""))),
             "search_domains": [d.lower() for d in lines(str(form.get("search_domains", "")))],
             "split": {},
+            "extra_records": [],
         }
         for line in str(form.get("split", "")).splitlines():
             if not line.strip():
@@ -775,6 +777,21 @@ class Handler(BaseHTTPRequestHandler):
                 return again(_("Split DNS: missing nameserver in \"{line}\" (format: domain: server, server).",
                                line=line.strip()))
             cfg["split"][domain.strip().lower()] = lines(servers)
+
+        for line in str(form.get("extra_records", "")).splitlines():
+            parts = line.replace(",", " ").split()
+            if not parts:
+                continue
+            if len(parts) != 2:
+                return again(_("Custom records: \"{line}\" must be a name and an address.", line=line.strip()))
+            name, value = parts[0].lower().rstrip("."), parts[1]
+            if not hs.valid_domain(name):
+                return again(_("Invalid domain: {value}", value=name))
+            try:
+                kind = "AAAA" if ipaddress.ip_address(value).version == 6 else "A"
+            except ValueError:
+                return again(_("Custom records: {value} is not an IP address.", value=value))
+            cfg["extra_records"].append({"name": name, "type": kind, "value": value})
 
         if not hs.valid_domain(cfg["base_domain"]):
             return again(_("The tailnet DNS name is not a valid domain."))
