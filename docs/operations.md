@@ -149,6 +149,42 @@ run the same command — no need to run the installer first.
 ./uninstall.sh --purge   # also delete volumes, configuration and ./data
 ```
 
+## Activity log
+
+**Logs** (admins only, in the sidebar) is the tailnet's activity log, like the
+configuration audit log of Tailscale's admin console. It records:
+
+- **Configuration**: every change made from the web UI — machines renamed,
+  removed, expired, routes, tags and key expiry changed, machines registered
+  with an Auth ID; users created, renamed and deleted; auth keys and API keys
+  created, revoked or expired; the access control policy (with a diff of the
+  change), DNS (each setting before and after), the device key expiry and the
+  two-factor mode. Automatic renames of machines called `localhost` show up
+  as *Headscale Easy (automatic)*.
+- **Sign-in**: console sign-ins and sign-outs, and failed API key sign-ins.
+- **Devices**: every 30 seconds the web UI compares Headscale's state and logs
+  devices that register, are removed, connect or disconnect, whose key
+  expires, whose Tailscale version changes, or that are renamed outside the web
+  UI (for example with `headscale nodes rename`).
+
+Each event has the time, the actor (the user name, `API key <prefix>` for API
+key sessions, or *Headscale* for device events), the client IP, the target and
+the details. Secrets are never stored: auth keys, API keys and Auth IDs are
+reduced to their prefix.
+
+Search, filter by category, actor and dates (UTC), and download the matching
+events with the CSV button. The first page updates on its own.
+
+The log lives in `./data/web/audit.db` (SQLite). Events older than
+`AUDIT_RETENTION_DAYS` in `.env` (default `90`; `0` keeps them forever) are
+deleted automatically. Changes made outside the web UI (the `headscale` CLI,
+the API) are not configuration events, but their effect on devices is logged.
+
+!!! note
+    Headscale has no network flow logs (which device talked to which, and
+    when): that needs data from the clients that only Tailscale's own
+    coordination server collects.
+
 ## Troubleshooting
 
 **Headscale never becomes healthy (with OIDC).** It refuses to start until it

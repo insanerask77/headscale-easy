@@ -21,6 +21,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 
+import audit
 import headscale as hs
 
 log = logging.getLogger("headscale-easy")
@@ -86,6 +87,7 @@ def rename_placeholders() -> int:
         taken.add(name)
         renamed += 1
         log.info("renamed machine %s from %s to %s", node["id"], node.get("givenName"), name)
+        audit.record(audit.SYSTEM, "machine.rename", name, {"from": node.get("givenName"), "to": name}, ref=f"node:{node['id']}")
     return renamed
 
 

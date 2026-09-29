@@ -63,6 +63,7 @@ _ICONS = {
     "plus": '<path d="M5 12h14"/><path d="M12 5v14"/>',
     "copy": '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
     "x": '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    "logs": '<path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/>',
 }
 
 
@@ -228,6 +229,8 @@ def sidebar(active: str, session: dict, ctx: dict) -> str:
         groups.append(_nav_group("lock", _("Access controls"), [
             ("acl", "acl", _("Policy editor")),
         ], active))
+        groups.append(f"""
+      <a class="nav-top {"active" if active == "logs" else ""}" href="{BASE}/logs">{icon("logs")}<span>{esc(_("Logs"))}</span></a>""")
     groups.append(_nav_group("settings", _("Settings"), [
         ("general", "settings/general", _("General")),
         ("keys", "settings/keys", _("Keys")),

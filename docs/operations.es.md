@@ -153,6 +153,49 @@ seguridad y ejecuta el mismo comando; no hace falta pasar antes el instalador.
 ./uninstall.sh --purge   # borra también volúmenes, configuración y ./data
 ```
 
+## Registro de actividad { #activity-log }
+
+**Registros** (solo admins, en la barra lateral) es el registro de actividad
+de la tailnet, como el registro de auditoría de configuración de la consola de
+Tailscale. Guarda:
+
+- **Configuración**: cada cambio hecho desde la interfaz web — máquinas
+  renombradas, eliminadas o caducadas, cambios de rutas, etiquetas y caducidad
+  de la clave, máquinas registradas con un Auth ID; usuarios creados,
+  renombrados y eliminados; claves de autenticación y de API creadas,
+  revocadas o caducadas; la política de control de acceso (con el diff del
+  cambio), el DNS (cada ajuste antes y después), la caducidad de las claves de
+  dispositivo y el modo de verificación en dos pasos. Los renombrados
+  automáticos de máquinas llamadas `localhost` aparecen como *Headscale Easy
+  (automático)*.
+- **Inicio de sesión**: inicios y cierres de sesión en la consola, e inicios
+  de sesión fallidos con clave de API.
+- **Dispositivos**: cada 30 segundos la interfaz web compara el estado de
+  Headscale y registra los dispositivos que se registran, se eliminan, se
+  conectan o desconectan, cuya clave caduca, cuya versión de Tailscale cambia
+  o que se renombran fuera de la interfaz web (por ejemplo con
+  `headscale nodes rename`).
+
+Cada evento tiene la hora, el autor (el nombre de usuario, `Clave de API
+<prefijo>` en las sesiones con clave de API, o *Headscale* en los eventos de
+dispositivos), la IP del cliente, el objetivo y los detalles. Nunca se guardan
+secretos: de las claves de autenticación, de API y de los Auth ID solo se
+guarda el prefijo.
+
+Busca, filtra por categoría, autor y fechas (UTC), y descarga los eventos que
+coinciden con el botón CSV. La primera página se actualiza sola.
+
+El registro está en `./data/web/audit.db` (SQLite). Los eventos más antiguos
+que `AUDIT_RETENTION_DAYS` de `.env` (por defecto `90`; `0` los guarda para
+siempre) se borran automáticamente. Los cambios hechos fuera de la interfaz web
+(el CLI `headscale`, la API) no son eventos de configuración, pero su efecto en
+los dispositivos sí se registra.
+
+!!! note "Nota"
+    Headscale no tiene registros de flujos de red (qué dispositivo habló con
+    cuál y cuándo): hacen falta datos de los clientes que solo recoge el
+    servidor de coordinación de Tailscale.
+
 ## Resolución de problemas { #troubleshooting }
 
 **Headscale nunca llega a estar sano (con OIDC).** No arranca hasta que puede

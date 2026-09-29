@@ -353,6 +353,8 @@ services:
       # Machines page: "Expires soon" window and "inactive" threshold (days)
       EXPIRY_WARNING_DAYS: ${EXPIRY_WARNING_DAYS:-14}
       INACTIVE_DAYS: ${INACTIVE_DAYS:-30}
+      # Activity log (Logs page, ./data/web/audit.db): days to keep events, 0 = forever
+      AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-90}
       SESSION_SECRET: ${PORTAL_SESSION_SECRET:-}
       # OIDC (empty = no SSO, API key only)
       OIDC_ISSUER: ${PORTAL_OIDC_ISSUER:-}
@@ -380,8 +382,9 @@ services:
       - headscale-data:/headscale:ro
       # Writable: admins edit DNS (only the marked block).
       - ./headscale-config.yaml:/etc/headscale/config.yaml
-      # Writable: the renewed Headscale API key (see web/apikey.py) and the
-      # last two-factor mode set from the UI (web/mfa.py)
+      # Writable: the renewed Headscale API key (see web/apikey.py), the
+      # last two-factor mode set from the UI (web/mfa.py) and the activity
+      # log (web/audit.py)
       - ./data/web:/data
       # To validate ('headscale configtest') and restart Headscale after a DNS
       # change. Docker socket access is equivalent to root on the host: the UI
