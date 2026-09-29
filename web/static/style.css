@@ -669,3 +669,14 @@ body.bare { background: var(--side); }
     .dropdown-body.wide { min-width: 16rem; }
     .search { flex-basis: 100%; }
 }
+
+/* ---- invites ---- */
+.inv-section { margin-top: 2rem; }
+.inv-section > h2 { margin-bottom: 0.4rem; }
+.inv-section > p.muted { margin-bottom: 0.75rem; }
+.inv-actions { white-space: nowrap; }
+.inv-actions .copy { margin: 0 0.4rem 0 0; }
+.btn.inv-danger { color: var(--err); }
+.inv-roles { display: grid; gap: 0.45rem; margin: 0; padding: 0; border: 0; }
+.inv-roles legend { margin-bottom: 0.35rem; padding: 0; }
+.inv-result .code code { word-break: break-all; }

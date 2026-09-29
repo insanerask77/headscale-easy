@@ -41,7 +41,8 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("headscale-easy")
 
-import admin_pages  # noqa: E402  (after logging is configured)
+import accounts  # noqa: E402  (after logging is configured)
+import admin_pages  # noqa: E402
 import headscale as hs  # noqa: E402
 import apikey  # noqa: E402
 import mfa  # noqa: E402
@@ -204,6 +205,10 @@ def iso_in(days: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def iso_in_hours(hours: int) -> str:
+    return (datetime.now(timezone.utc) + timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 # -----------------------------------------------------------------------------
 # HTTP
 # -----------------------------------------------------------------------------
@@ -335,7 +340,7 @@ class Handler(BaseHTTPRequestHandler):
             if path in (f"{BASE}/users", f"{BASE}/acl") and not admin:
                 return self.fail(403, _("No permission"), _("This section is for admins only."))
             if path == f"{BASE}/users":
-                return self.send(200, admin_pages.users_page(session, CTX, hs.all_users(), hs.all_nodes(), flash))
+                return self.users_view(session, flash=flash)
             if path == f"{BASE}/acl":
                 return self.send(200, admin_pages.acl_page(session, CTX, hs.get_policy(), flash))
             self.fail(404, _("Not found"), _("That page does not exist."))
@@ -411,6 +416,14 @@ class Handler(BaseHTTPRequestHandler):
             m = re.fullmatch(rf"{BASE}/users/(\d+)/(rename|delete)", path)
             if m:
                 return self.user_action(session, m.group(1), m.group(2), form)
+            if path == f"{BASE}/invitations" and AUTHENTIK:
+                return self.create_invitation(session, form)
+            m = re.fullmatch(rf"{BASE}/invitations/([0-9a-f-]{{32,36}})/revoke", path)
+            if m and AUTHENTIK:
+                return self.revoke_invitation(session, m.group(1))
+            m = re.fullmatch(rf"{BASE}/accounts/(\d+)/recovery", path)
+            if m and AUTHENTIK:
+                return self.recovery_link(session, m.group(1), form)
             if path == f"{BASE}/acl":
                 return self.save_acl(session, form)
             if path == f"{BASE}/dns":
@@ -696,8 +709,16 @@ class Handler(BaseHTTPRequestHandler):
         return self.redirect(f"{BASE}/settings/keys?m=apikey-expired")
 
     # --- users ---
+    def users_view(self, session: dict, status: int = 200, flash: str = "", error: str = "",
+                   result: dict | None = None):
+        users = hs.all_users()
+        # Built-in Authentik: invitations, reset links and accounts without devices
+        data = accounts.page_data(users) if AUTHENTIK else None
+        return self.send(status, admin_pages.users_page(session, CTX, users, hs.all_nodes(), flash, error=error,
+                                                        accounts=data, result=result))
+
     def users_error(self, session: dict, msg: str):
-        return self.send(400, admin_pages.users_page(session, CTX, hs.all_users(), hs.all_nodes(), "", error=msg))
+        return self.users_view(session, 400, error=msg)
 
     def create_user(self, session: dict, form: dict):
         name = str(form.get("name", "")).strip().lower()
@@ -730,6 +751,62 @@ class Handler(BaseHTTPRequestHandler):
             return self.redirect(f"{BASE}/users?m=user-deleted")
         except urllib.error.HTTPError as exc:
             return self.users_error(session, hs.api_error(exc))
+
+    # --- invitations and password reset links (built-in Authentik, accounts.py) ---
+    def create_invitation(self, session: dict, form: dict):
+        role = str(form.get("role", ""))
+        email = str(form.get("email", "")).strip()
+        days = str(form.get("days", "7"))
+        days = days if days in accounts.INVITE_DAYS else "7"
+        who = session["username"] or session["name"]
+        try:
+            inv = accounts.create_invitation(role, email, int(days), who)
+        except accounts.AccountsError as exc:
+            log.warning("%s tried to create an invitation: %s", who, exc)
+            return self.users_error(session, str(exc))
+        sent, error = False, ""
+        if inv["email"] and form.get("send") == "1" and accounts.email_enabled():
+            try:
+                accounts.email_invitation(inv, TAILNET_NAME)
+                sent = True
+            except accounts.AccountsError as exc:
+                error = str(exc)
+        log.info("%s created an invitation (%s, %s, %s d%s)", who, role, email or "any email", days,
+                 ", emailed" if sent else "")
+        return self.users_view(session, error=error, result={
+            "kind": "invite", "link": inv["link"], "expires": inv["expires"], "email": inv["email"], "sent": sent})
+
+    def revoke_invitation(self, session: dict, pk: str):
+        try:
+            inv = accounts.revoke_invitation(pk)
+        except accounts.AccountsError as exc:
+            return self.users_error(session, str(exc))
+        if inv is None:
+            return self.redirect(f"{BASE}/users?m=not-found")
+        log.info("%s revoked the invitation for %s", session["username"] or session["name"], inv["email"] or "any email")
+        return self.redirect(f"{BASE}/users?m=invite-revoked")
+
+    def recovery_link(self, session: dict, pk: str, form: dict):
+        hours = str(form.get("hours", "24"))
+        hours = hours if hours in accounts.RESET_HOURS else "24"
+        who = session["username"] or session["name"]
+        try:
+            acct, link = accounts.recovery_link(pk, int(hours))
+        except accounts.AccountsError as exc:
+            log.warning("%s tried to create a password reset link for account %s: %s", who, pk, exc)
+            return self.users_error(session, str(exc))
+        sent, error = False, ""
+        if form.get("send") == "1" and acct["email"] and accounts.email_enabled():
+            try:
+                accounts.email_reset(acct, link, int(hours))
+                sent = True
+            except accounts.AccountsError as exc:
+                error = str(exc)
+        log.info("%s created a password reset link for %s (%s h%s)", who, acct["username"], hours,
+                 ", emailed" if sent else "")
+        return self.users_view(session, error=error, result={
+            "kind": "reset", "link": link, "expires": iso_in_hours(int(hours)), "username": acct["username"],
+            "email": acct["email"], "sent": sent})
 
     # --- policy ---
     def save_acl(self, session: dict, form: dict):
