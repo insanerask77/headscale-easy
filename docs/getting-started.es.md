@@ -59,16 +59,24 @@ muestra los pasos para cada sistema. En resumen:
     `https://<tu-dominio>`. Inicia sesión cuando se abra el navegador.
 
 === "iOS / Android"
-    Instala la app de Tailscale. En la pantalla de login abre el menú (Android:
-    ⋮ → *Change server*; iOS: *Log in* → ⚙ → *Use an alternate server*) e
-    introduce `https://<tu-dominio>`. Hace falta un certificado de confianza
-    pública (Let's Encrypt o tu propio proxy).
+    Instala la app de Tailscale, toca el icono de perfil (arriba a la derecha)
+    y luego *Log in*. Abre el menú de arriba a la derecha (iOS: ⋯ → *Use a
+    custom coordination server*; Android: ⋮ → *Use an alternate server*),
+    introduce `https://<tu-dominio>` y toca *Log in*. Hace falta un certificado
+    de confianza pública (Let's Encrypt o tu propio proxy).
+
+    La página **Añadir dispositivo** muestra la URL como código QR: escanéalo
+    con la cámara del móvil para tenerla en el teléfono y pégala en la app (la
+    app de Tailscale no lee códigos QR por sí misma).
 
 === "Servidores (clave)"
     Genera una clave en **Ajustes → Claves** y después:
     ```bash
     sudo tailscale up --login-server=https://<tu-dominio> --authkey=<clave>
     ```
+    La clave nueva también se puede mostrar como códigos QR (la clave y este
+    comando). En Android, pega una clave con ⋮ → *Use an auth key* después de
+    configurar el servidor.
 
 Una vez conectado, el dispositivo aparece en **Máquinas**. Lo siguiente: dar de
 alta a más gente ([Operación](operations.md#users-and-admins)) y ajustar el
