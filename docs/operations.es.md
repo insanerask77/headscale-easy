@@ -35,7 +35,8 @@ La página **Máquinas** lista todos los dispositivos que puedes ver (los admins
 todos) y se actualiza sola cada pocos segundos: las máquinas nuevas aparecen y
 su estado cambia sin recargar. Busca por nombre, propietario, dirección, etiqueta o versión, y acota la
 lista con **Filtros** (estado, propietario, necesita actualización, tiene rutas,
-clave caducada). El botón de descarga exporta la lista actual en CSV.
+clave caducada, caduca pronto, desconectado más de 30 días). El botón de
+descarga exporta la lista actual en CSV.
 
 Las etiquetas bajo cada nombre indican lo que tiene de especial una máquina:
 
@@ -43,6 +44,7 @@ Las etiquetas bajo cada nombre indican lo que tiene de especial una máquina:
 |---|---|
 | Caducidad desactivada | Su clave no caduca nunca |
 | Caducada | Su clave caducó: tiene que volver a iniciar sesión |
+| Caduca pronto | Su clave caduca en menos de 14 días: vuelve a iniciar sesión en ella (o desactiva la caducidad) para que siga conectada |
 | Efímera | Se elimina sola cuando se desconecta |
 | Subredes / Exit Node | Anuncia rutas; en naranja, alguna espera aprobación |
 | `tag:…` | Etiquetas ACL |
@@ -52,6 +54,16 @@ El menú **⋯** (y la página de la máquina) permite renombrarla, expirar su c
 aprobar **rutas de subred y exit nodes** o eliminarla. Los miembros pueden
 renombrar, expirar y eliminar sus máquinas; rutas, etiquetas y caducidad son
 sólo para admins, como en Tailscale.
+
+**Máquinas que caducan e inactivas.** Cuando alguna de las máquinas que ves
+caduca en los próximos 14 días o ya caducó, un aviso arriba de la lista dice
+cuántas son, con un enlace que las filtra (los miembros lo ven para sus propias
+máquinas). Una máquina está *inactiva* si lleva más de 30 días desconectada
+(contando desde su registro si nunca llegó a conectarse); los admins tienen
+**Quitar dispositivos inactivos…**, que las lista todas marcadas para que
+desmarques las que quieras conservar. Una máquina que ha vuelto a conectarse
+entretanto nunca se elimina. Cambia los plazos con `EXPIRY_WARNING_DAYS` e
+`INACTIVE_DAYS` en `.env` (y luego `docker compose up -d`).
 
 Las apps de Tailscale que no pueden leer el nombre del dispositivo (iPhone,
 iPad, Apple TV y la versión de la App Store para Mac) se registran como

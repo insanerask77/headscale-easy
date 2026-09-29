@@ -33,8 +33,9 @@ The **Machines** page lists every device you can see (admins: all of them)
 and updates itself every few seconds: new machines appear and their status
 changes without reloading.
 Search by name, owner, address, tag or version, and narrow the list with
-**Filters** (status, owner, needs update, has routes, key expired). The
-download button exports the current list as CSV.
+**Filters** (status, owner, needs update, has routes, key expired, expiring
+soon, offline for 30+ days). The download button exports the current list as
+CSV.
 
 Badges under each name tell you what is special about a machine:
 
@@ -42,6 +43,7 @@ Badges under each name tell you what is special about a machine:
 |---|---|
 | Expiry disabled | Its key never expires |
 | Expired | Its key expired: it must sign in again |
+| Expires soon | Its key expires within 14 days: sign in again on it (or disable key expiry) to keep it connected |
 | Ephemeral | Removed automatically when it goes offline |
 | Subnets / Exit Node | It advertises routes; orange means some are waiting for approval |
 | `tag:…` | ACL tags |
@@ -50,6 +52,16 @@ The **⋯** menu (and the machine's page) lets you rename it, expire its key
 (forces a new sign-in), disable key expiry, edit tags, approve **subnet routes
 and exit nodes**, or remove it. Members can rename, expire and remove their own
 machines; routes, tags and key expiry are admin-only, as in Tailscale.
+
+**Expiring and inactive machines.** When some of the machines you can see
+expire in the next 14 days or already expired, a notice at the top of the list
+says how many, with a link that filters them (members see it for their own
+machines). A machine is *inactive* when it has been offline for more than 30
+days (counted from its registration if it never connected); admins get
+**Remove inactive machines…**, which lists them all ticked so you can untick
+the ones to keep. A machine that came back online in the meantime is never
+removed. Change the windows with `EXPIRY_WARNING_DAYS` and `INACTIVE_DAYS` in
+`.env` (then `docker compose up -d`).
 
 Tailscale apps that cannot read the device name (iPhone, iPad, Apple TV and
 the App Store build for Mac) register as `localhost`. Headscale Easy renames

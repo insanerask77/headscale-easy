@@ -195,7 +195,7 @@
     if (!input) return;
     var q = input.value.trim().toLowerCase();
     var status = val("status"), owner = val("owner");
-    var flags = ["update", "routes", "expired"].filter(val);
+    var flags = ["update", "routes", "expired", "expiring", "inactive"].filter(val);
     var shown = 0;
     document.querySelectorAll("tr[data-search]").forEach(function (r) {
       var ok = (!q || r.dataset.search.indexOf(q) !== -1) &&
@@ -307,4 +307,24 @@
   formatDates(document);
 
   markThemeChoice();
+})();
+
+/* ---- expiry ---- */
+// "Show only these" in the expiry notice of Machines ticks the matching
+// filter (data-f-apply="expiring" | "expired"); its change event reaches
+// filterRows() above. ?filter=<name> in the URL does the same.
+(function () {
+  "use strict";
+  function applyFilter(name) {
+    var f = document.querySelector('input[type=checkbox][data-f="' + name + '"]');
+    if (!f) return;
+    f.checked = true;
+    f.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  document.addEventListener("click", function (ev) {
+    var el = ev.target.closest && ev.target.closest("[data-f-apply]");
+    if (el) applyFilter(el.dataset.fApply);
+  });
+  var fromUrl = new URLSearchParams(location.search).get("filter");
+  if (fromUrl) applyFilter(fromUrl);
 })();
