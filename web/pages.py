@@ -297,12 +297,12 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
         <thead><tr><th>{esc(_("Machine"))}</th>
           <th><span title="{esc(_("The machine's Tailscale IP addresses and MagicDNS name"))}">{esc(_("Addresses"))} {icon("info", "i-xs")}</span></th>
           <th class="hide-sm">{esc(_("Version"))}</th><th>{esc(_("Last seen"))}</th><th></th></tr></thead>
-        <tbody>{"".join(rows)}
+        <tbody data-live="rows">{"".join(rows)}
         </tbody>
       </table>
     </div>
     <p class="no-results muted" hidden>{esc(_("No machines match the current filters."))}</p>
-    {"".join(dialogs)}"""
+    <div data-live="dialogs">{"".join(dialogs)}</div>"""
     return layout(_("Machines"), "machines", body, session, ctx)
 
 
@@ -408,8 +408,8 @@ def machine_page(session: dict, ctx: dict, m: Machine, flash: str, error: str = 
     {notice("error", error) if error else ""}{flash_html(flash)}
     <div class="page-head">
       <div>
-        <h1>{esc(m.name)}</h1>
-        <div class="meta">{status_html(m)}<span class="muted">{esc(m.owner_label)}</span>{m.badges()}</div>
+        <h1 data-live="title">{esc(m.name)}</h1>
+        <div class="meta" data-live="meta">{status_html(m)}<span class="muted">{esc(m.owner_label)}</span>{m.badges()}</div>
       </div>
       <div class="head-actions">
         <button class="btn" type="button" data-open="rename-{m.id}">{esc(_("Edit machine name"))}</button>
@@ -417,11 +417,11 @@ def machine_page(session: dict, ctx: dict, m: Machine, flash: str, error: str = 
       </div>
     </div>
     <div class="grid-2">
-      <section class="card"><h2>{esc(_("Machine details"))}</h2><dl class="kvs">{details}</dl></section>
+      <section class="card"><h2>{esc(_("Machine details"))}</h2><dl class="kvs" data-live="details">{details}</dl></section>
       <div>
-        <section class="card"><h2>{esc(_("Addresses"))}</h2><dl class="kvs">{addresses}</dl></section>
+        <section class="card"><h2>{esc(_("Addresses"))}</h2><dl class="kvs" data-live="addresses">{addresses}</dl></section>
         <section class="card" id="routes"><h2>{esc(_("Routes"))}</h2>{routes_section(m, session)}</section>
-        <section class="card"><h2>{esc(_("Connection"))}</h2><dl class="kvs">{connection}</dl>
+        <section class="card"><h2>{esc(_("Connection"))}</h2><dl class="kvs" data-live="connection">{connection}</dl>
           <p class="muted small">{esc(_("Endpoints are the addresses the machine announces for direct connections. Without a direct connection, traffic goes through the DERP relay."))}</p></section>
       </div>
     </div>

@@ -29,7 +29,9 @@ The **Add device** page in the console shows the exact steps per OS.
 
 ## Managing machines
 
-The **Machines** page lists every device you can see (admins: all of them).
+The **Machines** page lists every device you can see (admins: all of them)
+and updates itself every few seconds: new machines appear and their status
+changes without reloading.
 Search by name, owner, address, tag or version, and narrow the list with
 **Filters** (status, owner, needs update, has routes, key expired). The
 download button exports the current list as CSV.
