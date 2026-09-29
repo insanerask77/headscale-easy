@@ -84,8 +84,12 @@ pon en `FRONT_PROXY_IP` la IP del proxy en la LAN.
 ### Verificación en dos pasos { #two-factor-authentication }
 
 El inicio de sesión de Headscale Easy pide un segundo factor después de la
-contraseña: una app de códigos (TOTP) o una passkey. `MFA_REQUIRED` en `.env`
-(lo pregunta el instalador) decide quién está obligado:
+contraseña: una app de códigos (TOTP) o una passkey. Los admins eligen quién
+está obligado en el panel web, **Ajustes → General → Verificación en dos
+pasos**; el cambio se aplica en Authentik al momento (desde el siguiente inicio
+de sesión), sin reinstalar. `MFA_REQUIRED` en `.env` (lo pregunta el
+instalador) es el valor inicial, y volver a ejecutar `./install.sh` aplica el
+que se elija ahí:
 
 | `MFA_REQUIRED` | Comportamiento |
 |---|---|
@@ -97,6 +101,19 @@ A quien ya tiene un segundo factor siempre se le pide. Cada persona gestiona el
 suyo en **Ajustes → General → Cuenta, contraseña y verificación en dos pasos**.
 El login con Google se apoya en la verificación en dos pasos de Google, y el
 acceso de emergencia con API key no tiene segundo factor.
+
+Dónde se guarda: el modo es la primera línea (`mode = "admins"`) de la política
+de Authentik *Headscale Easy: two-factor required for this user*. El blueprint
+crea esa política una sola vez, a partir de `MFA_REQUIRED`, y no la vuelve a
+tocar (`state: created`), así que reiniciar Authentik no deshace lo que eligió
+un admin. El panel cambia esa línea mediante la API de Authentik con el token
+de `PORTAL_AUTHENTIK_TOKEN` (lo genera el instalador), que pertenece a la
+cuenta de servicio `headscale-easy-web` y sólo puede leer y cambiar esa
+política. El token nunca llega al navegador. Sin él (un `.env` escrito por un
+instalador anterior, hasta que se vuelva a ejecutar `./install.sh`) el panel muestra el modo
+en sólo lectura; con tu propio proveedor OIDC, la verificación en dos pasos se
+configura allí y la sección no aparece. Desde el servidor:
+`docker exec headscale-easy python /app/mfa.py get` (o `set everyone`).
 
 ### Login con Google { #sign-in-with-google }
 
