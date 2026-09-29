@@ -143,7 +143,7 @@ def acl_page(session: dict, ctx: dict, policy: dict, flash: str, draft: str | No
 # Sign in
 # -----------------------------------------------------------------------------
 
-def login_page(sso: bool, apikey: bool, error: str = "") -> str:
+def login_page(sso: bool, apikey: bool, error: str = "", info: str = "") -> str:
     sso_html = f'<a class="btn primary wide" href="{BASE}/login/sso">{esc(_("Sign in"))}</a>' if sso else ""
     sep = f'<div class="sep"><span>{esc(_("or"))}</span></div>' if sso and apikey else ""
     key_html = ""
@@ -160,5 +160,5 @@ def login_page(sso: bool, apikey: bool, error: str = "") -> str:
       <div class="big-logo">{LOGO}</div>
       <h1>Headscale Easy</h1>
       <p class="muted">{esc(_("Sign in to manage your tailnet."))}</p>
-      {notice("error", error) if error else ""}{sso_html}{sep}{key_html}
+      {notice("error", error) if error else ""}{notice("ok", info) if info else ""}{sso_html}{sep}{key_html}
     </section>""")

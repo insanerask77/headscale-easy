@@ -20,7 +20,7 @@ ENV_FILE="${SCRIPT_DIR}/.env"
 DATA_DIR="${SCRIPT_DIR}/data"
 TEMPLATES_DIR="${SCRIPT_DIR}/templates"
 
-INSTALLER_VERSION="1.0.0"
+INSTALLER_VERSION="1.0.1"
 PROJECT_URL="https://github.com/insanerask77/headscale-easy"
 SPONSOR_URL="https://buymeacoffee.com/insanerask"
 

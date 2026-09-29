@@ -42,6 +42,7 @@ log = logging.getLogger("headscale-easy")
 
 import admin_pages  # noqa: E402  (after logging is configured)
 import headscale as hs  # noqa: E402
+import naming  # noqa: E402
 import pages  # noqa: E402
 from i18n import LANGUAGES, _, pick_lang, set_lang  # noqa: E402
 from ui import BASE, esc, message_page  # noqa: E402
@@ -61,6 +62,10 @@ OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "")
 OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID", "")
 OIDC_CLIENT_SECRET = os.environ.get("OIDC_CLIENT_SECRET", "")
 SSO = bool(OIDC_ISSUER and OIDC_CLIENT_ID)
+# Built-in Authentik (issuer .../authentik/application/o/<app>/): sign out
+# through the blueprint's flow, see logout()
+AUTHENTIK_SIGN_OUT = (OIDC_ISSUER.split("/application/o/")[0] + "/if/flow/headscale-easy-sign-out/"
+                      if "/authentik/application/o/" in OIDC_ISSUER else "")
 API_KEY_LOGIN = os.environ.get("PORTAL_API_KEY_LOGIN", "false").lower() == "true" or not SSO
 ADMIN_GROUPS = _csv("PORTAL_ADMIN_GROUPS", "vpn-admins,authentik Admins")
 ADMIN_EMAILS = {e.lower() for e in _csv("PORTAL_ADMIN_EMAILS")}
@@ -261,6 +266,9 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith(f"{BASE}/static/"):
                 return self.static(path[len(f"{BASE}/static/"):])
             if path == f"{BASE}/login":
+                # After signing out, say so instead of starting a new sign-in
+                if params.get("m") == "signed-out":
+                    return self.send(200, admin_pages.login_page(SSO, API_KEY_LOGIN, info=_("You have signed out.")))
                 if SSO and not API_KEY_LOGIN:
                     return self.start_sso()
                 return self.send(200, admin_pages.login_page(SSO, API_KEY_LOGIN))
@@ -474,8 +482,13 @@ class Handler(BaseHTTPRequestHandler):
     def logout(self, session: dict):
         # With OIDC, also end the provider session; otherwise "Log out" would
         # not let another user sign in on the same browser.
-        target = f"{BASE}/login"
-        if session.get("kind") == "oidc" and SSO:
+        target = f"{BASE}/login?m=signed-out"
+        if session.get("kind") == "oidc" and SSO and AUTHENTIK_SIGN_OUT:
+            # Built-in Authentik: its own sign-out flow ends the session and
+            # comes back here. The OIDC end-session endpoint needs a valid ID
+            # token, which expires after an hour, and fails after that.
+            target = AUTHENTIK_SIGN_OUT
+        elif session.get("kind") == "oidc" and SSO:
             end = discovery().get("end_session_endpoint")
             if end:
                 target = end + "?" + urllib.parse.urlencode({
@@ -717,6 +730,7 @@ def main():
     port = int(os.environ.get("PORT", "8000"))
     log.info("Headscale Easy %s listening on :%d (public: %s%s, SSO=%s, API key sign-in=%s)",
              VERSION, port, PUBLIC_URL, BASE, SSO, API_KEY_LOGIN)
+    naming.start()
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 

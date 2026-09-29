@@ -49,6 +49,12 @@ The **⋯** menu (and the machine's page) lets you rename it, expire its key
 and exit nodes**, or remove it. Members can rename, expire and remove their own
 machines; routes, tags and key expiry are admin-only, as in Tailscale.
 
+Tailscale apps that cannot read the device name (iPhone, iPad, Apple TV and
+the App Store build for Mac) register as `localhost`. Headscale Easy renames
+them once to `<owner>-<device>`, e.g. `ana-iphone` or `leo-mac`; a name you
+choose later is never changed. Set `AUTO_RENAME_LOCALHOST=false` in `.env` to
+turn it off.
+
 The arrow next to the version turns red when a newer Tailscale client is
 available (hover it to see which).
 
