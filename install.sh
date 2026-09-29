@@ -20,7 +20,7 @@ ENV_FILE="${SCRIPT_DIR}/.env"
 DATA_DIR="${SCRIPT_DIR}/data"
 TEMPLATES_DIR="${SCRIPT_DIR}/templates"
 
-INSTALLER_VERSION="1.0.2"
+INSTALLER_VERSION="1.0.3"
 PROJECT_URL="https://github.com/insanerask77/headscale-easy"
 SPONSOR_URL="https://buymeacoffee.com/insanerask"
 
@@ -641,6 +641,22 @@ ${end}
 EOFD
 }
 
+# Device key expiry: a marked block the web UI edits (Settings → General). Kept
+# when the config is regenerated; 180 days (Tailscale's default) otherwise.
+key_expiry_block() {
+    local begin="  # >>> key expiry: managed by Headscale Easy (do not edit between these markers)"
+    local end="  # <<< key expiry"
+    local current="$SCRIPT_DIR/headscale-config.yaml"
+    if [[ -f "$current" ]] && grep -qF "$begin" "$current"; then
+        awk -v b="$begin" -v e="$end" '
+            $0 == b { on = 1; print; next }
+            on { print }
+            on && $0 == e { exit }' "$current"
+        return 0
+    fi
+    printf '%s\n  expiry: %s\n%s\n' "$begin" "${NODE_KEY_EXPIRY:-180d}" "$end"
+}
+
 generate_headscale_config() {
     if [[ "$ENABLE_OIDC" == "true" ]]; then
         local scope_list="" s
@@ -679,10 +695,11 @@ EOFC
         TRUSTED_PROXIES_CONFIG+=$'\n'"  # - 192.168.1.50/32"
     fi
     DNS_CONFIG=$(dns_block)
+    KEY_EXPIRY_CONFIG=$(key_expiry_block)
 
     export SERVER_URL HEADSCALE_HTTP_PORT HEADSCALE_METRICS_PORT HEADSCALE_GRPC_PORT \
            IP_PREFIXES_V4 IP_PREFIXES_V6 TAILNET_NAME HEADSCALE_DERP_PORT LOG_LEVEL \
-           OIDC_CONFIG TRUSTED_PROXIES_CONFIG DNS_CONFIG
+           OIDC_CONFIG TRUSTED_PROXIES_CONFIG DNS_CONFIG KEY_EXPIRY_CONFIG
     envsubst < "$TEMPLATES_DIR/headscale-config.yaml.tmpl" > "$SCRIPT_DIR/headscale-config.yaml"
     print_success "$(t "Written" "Generado"): headscale-config.yaml"
 }

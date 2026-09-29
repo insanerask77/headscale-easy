@@ -307,7 +307,8 @@ class Handler(BaseHTTPRequestHandler):
             if path in (f"{BASE}/settings", f"{BASE}/settings/"):
                 return self.redirect(f"{BASE}/settings/general")
             if path == f"{BASE}/settings/general":
-                return self.send(200, pages.general_page(session, CTX, flash))
+                return self.send(200, pages.general_page(session, CTX, flash,
+                                                         key_expiry=hs.key_expiry_days() if admin else None))
             if path == f"{BASE}/settings/keys":
                 return self.keys_view(session, flash, preselect=params.get("user", ""))
 
@@ -373,6 +374,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.fail(403, _("No permission"), _("This action is for admins only."))
             if path == f"{BASE}/machines/register":
                 return self.register_node(session, form)
+            if path == f"{BASE}/settings/key-expiry":
+                return self.save_key_expiry(session, form)
             if path == f"{BASE}/users":
                 return self.create_user(session, form)
             m = re.fullmatch(rf"{BASE}/users/(\d+)/(rename|delete)", path)
@@ -391,6 +394,22 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:  # noqa: BLE001
             log.exception("error on POST %s", path)
             self.redirect(f"{BASE}/machines?m=failed")
+
+    def save_key_expiry(self, session: dict, form: dict):
+        days = _key_expiry_days(form)
+
+        def again(error: str):
+            return self.send(200, pages.general_page(session, CTX, key_expiry=hs.key_expiry_days(), error=error))
+
+        if days is None:
+            return again(_("Enter a number of days between 1 and {max}.", max=hs.KEY_EXPIRY_MAX_DAYS))
+        ok, error = hs.apply_key_expiry(days)
+        if not ok:
+            log.warning("%s tried to change the key expiry: %s", session["username"], error)
+            return again(error)
+        log.info("%s set the device key expiry to %s and restarted Headscale", session["username"],
+                 f"{days} days" if days else "never")
+        return self.redirect(f"{BASE}/settings/general?m=key-expiry-saved")
 
     # --- static files ---
     def static(self, name: str):
@@ -526,8 +545,10 @@ class Handler(BaseHTTPRequestHandler):
                 if form.get("disable") == "1":
                     hs.api("POST", f"/node/{node_id}/expire?disableExpiry=true")
                     return self.redirect(f"{dest}?m=expiry-off")
-                # Re-enable: expire in 180 days (Tailscale's default)
-                hs.api("POST", f"/node/{node_id}/expire?" + urllib.parse.urlencode({"expiry": iso_in(180)}))
+                # Re-enable: the tailnet's key expiry (Settings → General), or
+                # Tailscale's 180 days when devices are set to never expire
+                days = hs.key_expiry_days() or 180
+                hs.api("POST", f"/node/{node_id}/expire?" + urllib.parse.urlencode({"expiry": iso_in(days)}))
                 return self.redirect(f"{dest}?m=expiry-on")
             if action == "routes":
                 # Only routes the node advertises can be approved
@@ -724,6 +745,16 @@ class Handler(BaseHTTPRequestHandler):
             return again(error)
         log.info("%s changed DNS and restarted Headscale", session["username"])
         return self.redirect(f"{BASE}/dns?m=dns-saved")
+
+
+def _key_expiry_days(form: dict) -> int | None:
+    """Days from the form: 0 = never; None = invalid."""
+    if form.get("never") == "1":
+        return 0
+    raw = str(form.get("days", "")).strip()
+    if not raw.isdigit() or not 1 <= int(raw) <= hs.KEY_EXPIRY_MAX_DAYS:
+        return None
+    return int(raw)
 
 
 def main():

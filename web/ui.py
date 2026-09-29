@@ -180,6 +180,7 @@ def flash_html(code: str) -> str:
         "user-deleted": ("ok", _("User deleted.")),
         "acl-saved": ("ok", _("Policy saved and applied.")),
         "dns-saved": ("ok", _("DNS saved. Headscale restarted with the new settings.")),
+        "key-expiry-saved": ("ok", _("Key expiry saved. It applies to devices added from now on.")),
         "apikey-expired": ("ok", _("API key expired.")),
         "bad-name": ("error", _("Invalid name: lowercase letters, digits and dashes only (max. 63).")),
         "bad-user": ("error", _("Invalid user name: lowercase letters, digits, dots, dashes and @.")),

@@ -244,14 +244,17 @@
   // ---- Live updates -------------------------------------------------------------------
   // Parts marked data-live (machine rows, status, last seen...) are refreshed
   // every few seconds without reloading, so machines appear, connect and
-  // disconnect on their own. Skipped while the tab is hidden or a menu or
-  // dialog is open, so nothing moves under the pointer.
+  // disconnect on their own. Skipped while the tab is hidden or while a menu
+  // or dialog INSIDE a live part is open (a machine's menu, its rename
+  // dialog), so nothing moves under the pointer. Menus and dialogs outside
+  // (Add device, a freshly generated key) do not stop it.
   var LIVE_EVERY = 5000;
   var liveSrc = {};  // server HTML of each part, before dates are formatted
   document.querySelectorAll("[data-live]").forEach(function (el) { liveSrc[el.dataset.live] = el.innerHTML; });
 
   function liveBlocked() {
-    return document.hidden || document.querySelector("details.dropdown[open], dialog[open]");
+    return document.hidden ||
+      document.querySelector("[data-live] details.dropdown[open], [data-live] dialog[open]");
   }
   var liveBusy = false;
   function liveRefresh() {
@@ -281,6 +284,7 @@
   if (Object.keys(liveSrc).length) {
     setInterval(liveRefresh, LIVE_EVERY);
     document.addEventListener("visibilitychange", function () { if (!document.hidden) liveRefresh(); });
+    window.addEventListener("focus", liveRefresh);
   }
 
   // ---- Dates in the viewer's timezone and language ----------------------------------

@@ -448,12 +448,66 @@ def replace_dns_block(text: str, block: str) -> str | None:
 def apply_dns(cfg: dict) -> tuple[bool, str]:
     """Write the DNS block, validate it with 'headscale configtest' and restart
     Headscale. On any failure the previous config is restored."""
+    return _apply_config(
+        lambda text: replace_dns_block(text, render_dns_block(cfg)),
+        _("config.yaml has no managed DNS block. Run ./install.sh once to enable it."),
+        _("Headscale did not start with the new DNS settings; the previous ones were restored."))
+
+
+# -----------------------------------------------------------------------------
+# Device key expiry: marked block inside node: in config.yaml
+# -----------------------------------------------------------------------------
+# Headscale's node.expiry: the key expiry of every new device, whatever the
+# registration method. 0 = never (Headscale's default, which is why devices
+# showed "Expiry disabled"). Existing devices keep their expiry.
+
+KEY_EXPIRY_BEGIN = "  # >>> key expiry: managed by Headscale Easy (do not edit between these markers)"
+KEY_EXPIRY_END = "  # <<< key expiry"
+KEY_EXPIRY_MAX_DAYS = 365
+
+
+def key_expiry_days() -> int | None:
+    """Days of the configured node.expiry; 0 = never; None = not managed."""
+    try:
+        with open(HEADSCALE_CONFIG, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return None
+    start, end = text.find(KEY_EXPIRY_BEGIN), text.find(KEY_EXPIRY_END)
+    if start < 0 or end < start:
+        return None
+    m = re.search(r"expiry:\s*\"?([0-9]+)([a-z]*)", text[start:end])
+    if not m:
+        return None
+    value, unit = int(m.group(1)), m.group(2) or "d"
+    hours = {"d": 24, "h": 1, "w": 168, "m": 1 / 60, "s": 1 / 3600}.get(unit, 24)
+    return round(value * hours / 24)
+
+
+def apply_key_expiry(days: int) -> tuple[bool, str]:
+    block = f"{KEY_EXPIRY_BEGIN}\n  expiry: {f'{days}d' if days else '0'}\n{KEY_EXPIRY_END}"
+
+    def change(text: str) -> str | None:
+        start, end = text.find(KEY_EXPIRY_BEGIN), text.find(KEY_EXPIRY_END)
+        if start < 0 or end < start:
+            return None
+        return text[:start] + block + text[end + len(KEY_EXPIRY_END):]
+
+    return _apply_config(change,
+                         _("config.yaml has no managed key expiry. Run ./install.sh once to enable it."),
+                         _("Headscale did not start with the new setting; the previous one was restored."))
+
+
+def _apply_config(change, missing_msg: str, restart_msg: str) -> tuple[bool, str]:
+    """Rewrite config.yaml with change(text), validate it with 'headscale
+    configtest' and restart Headscale. On any failure the previous config is
+    restored."""
     with _dns_lock:
         with open(HEADSCALE_CONFIG, encoding="utf-8") as fh:
             original = fh.read()
-        updated = replace_dns_block(original, render_dns_block(cfg))
+        updated = change(original)
         if updated is None:
-            return False, _("config.yaml has no managed DNS block. Run ./install.sh once to enable it.")
+            return False, missing_msg
 
         def write(content: str):
             # In place (no rename): the file is a Docker bind mount
@@ -469,5 +523,5 @@ def apply_dns(cfg: dict) -> tuple[bool, str]:
         if not restart_headscale():
             write(original)
             restart_headscale()
-            return False, _("Headscale did not start with the new DNS settings; the previous ones were restored.")
+            return False, restart_msg
         return True, ""

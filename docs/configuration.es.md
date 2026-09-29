@@ -127,6 +127,18 @@ Cada usuario sólo alcanza sus dispositivos, admins incluidos. Una política
 existente nunca se sobrescribe. Edítala en **Control de acceso → Editor de
 políticas**; la sintaxis es la [de Tailscale](https://tailscale.com/kb/1337/policy-syntax).
 
+## Caducidad de la clave de los dispositivos { #device-key-expiry }
+
+Como en Tailscale, cada dispositivo tiene una clave que caduca: pasado ese plazo
+tiene que volver a iniciar sesión. Headscale Easy la fija en **180 días** (el
+valor de Tailscale); los admins la cambian en **Ajustes → General → Gestión de
+dispositivos** (de 1 a 365 días, o nunca). Al guardar se reinicia Headscale, y
+se aplica a los dispositivos que se añadan desde entonces: los existentes se
+cambian en cada máquina (**⋯ → Activar/Desactivar caducidad**).
+
+La caducidad de una **clave de autenticación** es otra cosa: solo limita hasta
+cuándo puede la clave añadir dispositivos.
+
 ## DNS { #dns }
 
 Los admins editan el DNS en la consola (página **DNS**): MagicDNS, el dominio de

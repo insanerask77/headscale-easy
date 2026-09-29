@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.3] - 2026-09-29
+
+### Fixed
+- Devices were always added with key expiry disabled, whatever the auth key's
+  expiry: Headscale's `node.expiry` defaults to never. New devices now expire
+  after 180 days, like in Tailscale, and admins change it in Settings →
+  General → Device management. The auth key dialog explains that its expiry
+  only limits until when the key can add devices.
+- Live updates stopped while any menu or dialog was open, e.g. Add device or a
+  freshly generated key, exactly while adding a device. Now only menus and
+  dialogs inside the refreshed area pause them, and the page also refreshes
+  when the window gets the focus back.
+
 ## [1.0.2] - 2026-09-29
 
 ### Added
@@ -51,6 +64,7 @@ First release as **Headscale Easy**.
 - Documentation site on GitHub Pages, in English and Spanish:
   https://insanerask77.github.io/headscale-easy/
 
+[1.0.3]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.3
 [1.0.2]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.2
 [1.0.1]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.1
 [1.0.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.0
