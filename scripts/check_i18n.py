@@ -37,6 +37,9 @@ def main():
         print(e)
     for catalog in sorted((WEB / "locales").glob("*.json")):
         entries = json.loads(catalog.read_text(encoding="utf-8"))
+        # Per-feature files: locales/<lang>.d/*.json
+        for extra in sorted((WEB / "locales" / f"{catalog.stem}.d").glob("*.json")):
+            entries.update(json.loads(extra.read_text(encoding="utf-8")))
         missing = [k for k in keys if k not in entries]
         unused = [k for k in entries if k not in keys]
         print(f"{catalog.stem}: {len(keys) - len(missing)}/{len(keys)} translated, {len(unused)} unused")
