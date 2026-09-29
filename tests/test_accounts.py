@@ -12,6 +12,14 @@ os.environ.setdefault("HEADSCALE_API_KEY", "test")
 os.environ.setdefault("PUBLIC_URL", "https://vpn.example.com")
 
 import accounts  # noqa: E402
+from i18n import set_lang  # noqa: E402
+
+
+class EnglishCase(unittest.TestCase):
+    """Other test modules switch the language; these expect English."""
+
+    def setUp(self):
+        set_lang("en")
 
 ISSUER = "https://vpn.example.com/authentik/application/o/headscale"
 
@@ -22,7 +30,7 @@ def acct(pk, uid, groups=("headscale-users",), superuser=False, active=True):
                               "groups_obj": [{"name": g} for g in groups]})
 
 
-class Match(unittest.TestCase):
+class Match(EnglishCase):
     def test_matches_by_oidc_subject(self):
         users = [{"id": "1", "providerId": f"{ISSUER}/aaa"}, {"id": "2", "providerId": ""},
                  {"id": "3", "providerId": f"{ISSUER}/zzz"}]
@@ -40,7 +48,7 @@ class Match(unittest.TestCase):
         self.assertIn("reset-3", accounts.reset_item(acct(3, "z")))
 
 
-class Links(unittest.TestCase):
+class Links(EnglishCase):
     def test_public_link(self):
         with mock.patch.object(accounts, "PUBLIC_URL", "https://vpn.example.com"):
             self.assertEqual(
@@ -50,7 +58,7 @@ class Links(unittest.TestCase):
                              "https://vpn.example.com/authentik/if/flow/headscale-easy-invitation/?itoken=u-1")
 
 
-class CreateInvitation(unittest.TestCase):
+class CreateInvitation(EnglishCase):
     def setUp(self):
         accounts._forget()
         self.calls = []

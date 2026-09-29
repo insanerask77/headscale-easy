@@ -2,7 +2,7 @@
 # Run `make` to list the targets.
 
 .DEFAULT_GOAL := help
-.PHONY: help install uninstall purge validate lint i18n status logs restart health \
+.PHONY: help install uninstall purge validate lint test i18n status logs restart health \
         up down ps users nodes routes user key apikey backup restore update config
 
 help: ## Show this help
@@ -30,6 +30,9 @@ lint: ## shellcheck + Python syntax + i18n coverage
 	@shellcheck -S warning install.sh uninstall.sh scripts/*.sh backup/*.sh
 	@python3 -m py_compile web/*.py
 	@python3 scripts/check_i18n.py
+
+test: ## Unit tests (Python standard library only)
+	@python3 -m unittest discover -s tests
 
 i18n: ## Report untranslated UI strings
 	@python3 scripts/check_i18n.py

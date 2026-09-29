@@ -49,5 +49,7 @@
   "Email": "Email",
   "Invited by": "Invitado por",
   "No pending invitations. Invite someone with Invite user.": "No hay invitaciones pendientes. Invita a alguien con Invitar usuario.",
-  "Anyone with the link": "Cualquiera con el enlace"
+  "Anyone with the link": "Cualquiera con el enlace",
+  "invitation link": "enlace de invitación",
+  "Scan it to open the invitation on a phone.": "Escanéalo para abrir la invitación en un móvil."
 }

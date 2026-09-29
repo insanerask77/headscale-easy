@@ -3,6 +3,7 @@
 #   config/     .env, headscale-config.yaml, Caddyfile, compose override,
 #               the web UI's renewed API key
 #   headscale/  db.sqlite (consistent online copy) and the private keys
+#   web/        audit.db, the web UI's activity log
 #   authentik/  authentik.sql (pg_dump), if Authentik is used
 #   caddy/      pki/ (the self-signed CA), if there is one
 # and deletes backups older than BACKUP_KEEP_DAYS.
@@ -20,7 +21,7 @@ B="$WORK/$NAME"
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') backup: $*"; }
 
 # Configuration (the project directory, mounted read-only)
-for f in .env headscale-config.yaml Caddyfile docker-compose.override.yml data/web/api-key; do
+for f in .env headscale-config.yaml Caddyfile docker-compose.override.yml data/web/api-key data/web/mfa-required; do
     [ -f "/project/$f" ] && cp -p "/project/$f" "$B/config/$(echo "$f" | tr / _)"
 done
 
@@ -30,6 +31,12 @@ done
 sqlite3 "file:/headscale/db.sqlite?mode=ro" ".backup '$B/headscale/db.sqlite'"
 [ "$(sqlite3 "$B/headscale/db.sqlite" 'PRAGMA integrity_check;')" = "ok" ] || { log "integrity check failed"; exit 1; }
 for f in /headscale/*.key; do [ -f "$f" ] && cp -p "$f" "$B/headscale/"; done
+
+# The web UI's activity log (Logs page), same consistent online copy
+if [ -f /project/data/web/audit.db ]; then
+    mkdir -p "$B/web"
+    sqlite3 "file:/project/data/web/audit.db?mode=ro" ".backup '$B/web/audit.db'"
+fi
 
 # Authentik: plain SQL dump (restorable into any PostgreSQL of the same major)
 if [ -n "${PGPASSWORD:-}" ] && pg_isready -q -h "${PGHOST:-authentik-postgresql}" -U "${PGUSER:-authentik}" 2>/dev/null; then

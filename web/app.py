@@ -826,6 +826,8 @@ class Handler(BaseHTTPRequestHandler):
                 error = str(exc)
         log.info("%s created an invitation (%s, %s, %s d%s)", who, role, email or "any email", days,
                  ", emailed" if sent else "")
+        # Never the link: it is a secret that creates an account
+        audit.request_event(self, session, "invite.create", email or "", {"role": role, "days": days, "emailed": sent})
         return self.users_view(session, error=error, result={
             "kind": "invite", "link": inv["link"], "expires": inv["expires"], "email": inv["email"], "sent": sent})
 
@@ -837,6 +839,7 @@ class Handler(BaseHTTPRequestHandler):
         if inv is None:
             return self.redirect(f"{BASE}/users?m=not-found")
         log.info("%s revoked the invitation for %s", session["username"] or session["name"], inv["email"] or "any email")
+        audit.request_event(self, session, "invite.revoke", inv["email"] or "")
         return self.redirect(f"{BASE}/users?m=invite-revoked")
 
     def recovery_link(self, session: dict, pk: str, form: dict):
@@ -857,6 +860,7 @@ class Handler(BaseHTTPRequestHandler):
                 error = str(exc)
         log.info("%s created a password reset link for %s (%s h%s)", who, acct["username"], hours,
                  ", emailed" if sent else "")
+        audit.request_event(self, session, "user.password_reset", acct["username"], {"hours": hours, "emailed": sent})
         return self.users_view(session, error=error, result={
             "kind": "reset", "link": link, "expires": iso_in_hours(int(hours)), "username": acct["username"],
             "email": acct["email"], "sent": sent})

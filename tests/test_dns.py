@@ -107,6 +107,9 @@ class FakeHandler:
 
 class DnsTests(unittest.TestCase):
     def setUp(self):
+        # Another test module may have imported headscale first with its own
+        # config path: point it at this module's temp file.
+        hs.HEADSCALE_CONFIG = CONFIG
         set_lang("en")
 
     def test_form_repeated_fields(self):

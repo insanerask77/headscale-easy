@@ -11,6 +11,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "web"))
 
 import expiry  # noqa: E402
 import pages  # noqa: E402
+from i18n import set_lang  # noqa: E402
+
+
+class EnglishCase(unittest.TestCase):
+    """Other test modules switch the language; these expect English."""
+
+    def setUp(self):
+        set_lang("en")
 
 NOW = datetime(2026, 9, 29, 12, 0, tzinfo=timezone.utc)
 NEVER = "0001-01-01T00:00:00Z"  # how Headscale sends "no expiry" / "never seen"
@@ -29,7 +37,7 @@ def node(node_id=1, expiry_in=None, online=False, seen_ago=None, created_ago=400
     return n
 
 
-class ExpiryState(unittest.TestCase):
+class ExpiryState(EnglishCase):
     def test_states(self):
         self.assertEqual(expiry.expiry_state(node(expiry_in=None), NOW), "disabled")
         self.assertEqual(expiry.expiry_state(node(expiry_in=-1), NOW), "expired")
@@ -48,7 +56,7 @@ class ExpiryState(unittest.TestCase):
         self.assertFalse(expiry.expires_soon(node(expiry_in=-2), NOW, days=30))  # expired is not "soon"
 
 
-class Inactive(unittest.TestCase):
+class Inactive(EnglishCase):
     def test_online_is_never_inactive(self):
         self.assertFalse(expiry.is_inactive(node(online=True, seen_ago=90), NOW))
 
@@ -68,7 +76,7 @@ class Inactive(unittest.TestCase):
         self.assertTrue(expiry.is_inactive(node(seen_ago=0.01), NOW, days=0))
 
 
-class Summary(unittest.TestCase):
+class Summary(EnglishCase):
     def test_counts(self):
         nodes = [node(1, expiry_in=5, online=True), node(2, expiry_in=10, seen_ago=1),
                  node(3, expiry_in=-3, seen_ago=60), node(4, expiry_in=100, seen_ago=45),
@@ -95,7 +103,7 @@ class Summary(unittest.TestCase):
         self.assertIn('data-f-apply="inactive"', html)
 
 
-class Form(unittest.TestCase):
+class Form(EnglishCase):
     def test_selected_ids(self):
         form = {"csrf": "x", "node-12": "1", "node-3": "1", "node-x": "1", "nodes-4": "1", "node-5; rm": "1"}
         self.assertEqual(expiry.selected_ids(form), {"12", "3"})
@@ -111,7 +119,7 @@ class Form(unittest.TestCase):
         self.assertEqual(expiry.flash_html("renamed"), "")
 
 
-class MachineView(unittest.TestCase):
+class MachineView(EnglishCase):
     """The Machine view model uses the real clock: dates relative to now."""
 
     def machine(self, **kw):

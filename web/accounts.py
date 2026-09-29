@@ -42,6 +42,7 @@ from email.utils import formataddr, make_msgid
 import headscale as hs
 from i18n import _, ngettext
 from pages import dialog
+from qr import qr_figure
 from ui import BASE, badge, copy_btn, esc, notice, time_tag
 
 log = logging.getLogger("headscale-easy")
@@ -447,6 +448,7 @@ def result_box(result: dict) -> str:
       <p>{esc(text)} {esc(_("Expires:"))} {time_tag(result.get("expires"))}</p>
       <div class="code"><code>{esc(link)}</code>{copy_btn(link)}</div>
       {f'<p class="muted small">{esc(sent)}</p>' if sent else ""}
+      {qr_figure(link, _("invitation link"), _("Scan it to open the invitation on a phone.")) if result["kind"] == "invite" else ""}
     </section>"""
 
 
