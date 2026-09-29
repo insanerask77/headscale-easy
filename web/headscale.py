@@ -234,21 +234,23 @@ def _cached(key: str, ttl: float, loader, fallback):
 
 def derp_regions() -> dict[int, str]:
     """{region_id: name}: Headscale's embedded relay (from config.yaml) and
-    Tailscale's public ones (when there is Internet access)."""
+    Tailscale's public ones (when the config uses them and there is Internet
+    access; a fully self-hosted install never contacts tailscale.com)."""
     def load():
         data = http_json("GET", "https://controlplane.tailscale.com/derpmap/default", timeout=5)
         return {int(k): v.get("RegionName", f"Region {k}") for k, v in data.get("Regions", {}).items()}
 
-    regions = dict(_cached("derpmap", 6 * 3600, load, {}))
     try:
         with open(HEADSCALE_CONFIG, encoding="utf-8") as fh:
             text = fh.read()
-        rid = re.search(r"^\s+region_id:\s*(\d+)", text, re.M)
-        rname = re.search(r"^\s+region_name:\s*\"?([^\"\n]+)", text, re.M)
-        if rid:
-            regions[int(rid.group(1))] = rname.group(1).strip() if rname else "Headscale"
     except OSError:
-        pass
+        text = ""
+    uses_public = not re.search(r"^\s+urls:\s*\[\s*\]", text, re.M)
+    regions = dict(_cached("derpmap", 6 * 3600, load, {})) if uses_public else {}
+    rid = re.search(r"^\s+region_id:\s*(\d+)", text, re.M)
+    rname = re.search(r"^\s+region_name:\s*\"?([^\"\n]+)", text, re.M)
+    if rid:
+        regions[int(rid.group(1))] = rname.group(1).strip() if rname else "Headscale"
     return regions
 
 

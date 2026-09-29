@@ -283,6 +283,27 @@ configure_ports() {
     HEADSCALE_METRICS_PORT=$(ask_input "$(t "Headscale metrics port (internal)" "Puerto de métricas de Headscale (interno)")" "${HEADSCALE_METRICS_PORT:-9090}" validate_port)
 }
 
+# DERP relays. Headscale always embeds its own; on top of it clients can also
+# use Tailscale's public relays (default). Answering "no" makes the install
+# fully self-hosted: nothing is fetched from tailscale.com's DERP map.
+configure_derp() {
+    print_header "$(t "DERP RELAYS" "RELÉS DERP")"
+    print_info "$(t "Devices that cannot connect directly relay their traffic through DERP servers." \
+                    "Los dispositivos que no logran conectar directamente relayan su tráfico por servidores DERP.")"
+    print_info "$(t "This server always runs its own embedded DERP relay." \
+                    "Este servidor siempre ejecuta su propio relé DERP embebido.")"
+    local default="y"
+    [[ "${DERP_USE_PUBLIC:-true}" == "false" ]] && default="n"
+    if ask_yes_no "$(t "Also use Tailscale's public DERP servers? (more relay locations, but depends on a third party)" \
+                       "¿Usar también los servidores DERP públicos de Tailscale? (más ubicaciones de relé, pero depende de un tercero)")" "$default"; then
+        DERP_USE_PUBLIC="true"
+    else
+        DERP_USE_PUBLIC="false"
+        print_warning "$(t "Fully self-hosted: only your DERP relay is used. Keep UDP ${HEADSCALE_DERP_PORT} and HTTPS reachable, or relayed devices will not connect." \
+                           "Totalmente autoalojado: sólo se usa tu relé DERP. Mantén accesibles el UDP ${HEADSCALE_DERP_PORT} y HTTPS, o los dispositivos relayados no conectarán.")"
+    fi
+}
+
 # Public URLs depend on the domain AND the ports. They are what the WORLD sees,
 # not the internal ones: Headscale and the UI speak HTTP inside Docker but
 # announce https:// when that is what clients use.
@@ -640,6 +661,8 @@ HTTPS_PORT=${HTTPS_PORT}
 HEADSCALE_GRPC_PORT=${HEADSCALE_GRPC_PORT}
 HEADSCALE_HTTP_PORT=${HEADSCALE_HTTP_PORT}
 HEADSCALE_DERP_PORT=${HEADSCALE_DERP_PORT}
+# true: also use Tailscale's public DERP relays; false: only this server's own
+DERP_USE_PUBLIC=${DERP_USE_PUBLIC:-true}
 HEADSCALE_METRICS_PORT=${HEADSCALE_METRICS_PORT}
 
 # --- Tailnet ---------------------------------------------------------------------
@@ -825,12 +848,20 @@ EOFC
         TRUSTED_PROXIES_CONFIG+=$'\n'"  # Add your front proxy's CIDR to see real client IPs, e.g.:"
         TRUSTED_PROXIES_CONFIG+=$'\n'"  # - 192.168.1.50/32"
     fi
+    if [[ "${DERP_USE_PUBLIC:-true}" == "true" ]]; then
+        DERP_URLS_CONFIG=$'urls:\n    - https://controlplane.tailscale.com/derpmap/default'
+        DERP_AUTO_UPDATE="true"
+    else
+        DERP_URLS_CONFIG="urls: []"
+        DERP_AUTO_UPDATE="false"
+    fi
     DNS_CONFIG=$(dns_block)
     KEY_EXPIRY_CONFIG=$(key_expiry_block)
 
     export SERVER_URL HEADSCALE_HTTP_PORT HEADSCALE_METRICS_PORT HEADSCALE_GRPC_PORT \
            IP_PREFIXES_V4 IP_PREFIXES_V6 TAILNET_NAME HEADSCALE_DERP_PORT LOG_LEVEL \
-           OIDC_CONFIG TRUSTED_PROXIES_CONFIG DNS_CONFIG KEY_EXPIRY_CONFIG
+           OIDC_CONFIG TRUSTED_PROXIES_CONFIG DNS_CONFIG KEY_EXPIRY_CONFIG \
+           DERP_URLS_CONFIG DERP_AUTO_UPDATE
     envsubst < "$TEMPLATES_DIR/headscale-config.yaml.tmpl" > "$SCRIPT_DIR/headscale-config.yaml"
     print_success "$(t "Written" "Generado"): headscale-config.yaml"
 }
@@ -1367,6 +1398,7 @@ main() {
     check_dependencies
     configure_network
     configure_ports
+    configure_derp
     compute_public_urls
     configure_tailnet
     configure_auth

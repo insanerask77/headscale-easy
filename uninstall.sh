@@ -3,7 +3,7 @@
 #  Headscale Easy — uninstaller
 #  https://github.com/insanerask77/headscale-easy
 #
-#  Usage: ./uninstall.sh [--purge]
+#  Usage: ./uninstall.sh [--purge] [--lang en|es]
 #    (default)  stop and remove the containers; data and configuration stay
 #    --purge    also delete volumes, generated configuration and ./data
 #               (users, machines, keys, certificates: IRREVERSIBLE)
@@ -24,6 +24,7 @@ NC='\033[0m'
 BOLD='\033[1m'
 
 UI_LANG=$(grep -E '^UI_LANG=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || true)
+UI_LANG="${UI_LANG:-en}"
 t() { if [[ "${UI_LANG:-en}" == "es" ]]; then printf '%s' "$2"; else printf '%s' "$1"; fi; }
 
 print_info()    { echo -e "${BLUE}ℹ${NC} $1"; }
@@ -38,14 +39,18 @@ ask_yes_no() {
 }
 
 usage() {
-    echo "Usage: $0 [--purge]"
+    echo "Usage: $0 [--purge] [--lang en|es]"
     echo "  --purge    also delete volumes, generated configuration and ./data"
+    echo "  --lang     interface language (default: the installed one, else en)"
 }
 
 main() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --purge) PURGE=true ;;
+            --lang)
+                [[ "${2:-}" =~ ^(en|es)$ ]] || { print_error "--lang needs en or es"; exit 1; }
+                UI_LANG="$2"; shift ;;
             -h|--help) usage; exit 0 ;;
             *) print_error "Unknown option: $1"; usage; exit 1 ;;
         esac

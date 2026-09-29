@@ -42,6 +42,16 @@ funcionan con un certificado de confianza pública.
 El relay DERP integrado necesita el **UDP 3478** accesible desde internet en
 todos los modos: ningún proxy HTTP puede transportarlo.
 
+### Servidores DERP públicos
+
+El instalador pregunta si usar también los relés DERP públicos de Tailscale
+(`DERP_USE_PUBLIC`, **sí** por defecto). Responde **no** para una instalación
+totalmente autoalojada: sólo se usa tu relé integrado y `derp.urls` queda vacío,
+así que ni Headscale ni el panel web contactan con el mapa DERP de tailscale.com.
+Los dispositivos que no puedan conectar directamente dependerán de tu relé:
+mantén accesibles el UDP 3478 y HTTPS. Vuelve a ejecutar `./install.sh` para
+cambiarlo.
+
 ## Detrás de un reverse proxy existente { #behind-an-existing-reverse-proxy }
 
 Elige `front` e indica al instalador qué proxy usas y la dirección de esta
