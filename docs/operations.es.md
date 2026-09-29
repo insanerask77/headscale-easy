@@ -93,8 +93,12 @@ saltos de versión mayor.
 
 ## Copias de seguridad { #backups }
 
-El contenedor `backup` hace una copia **cada día a las 03:00** y conserva las de
-los últimos **14 días** en `./backups`. Cada copia es un `.tar.gz` con:
+Las copias diarias son **opcionales**: el instalador lo pregunta (desactivadas
+por defecto, porque añaden un contenedor pequeño y ocupan disco, pero
+recomendadas). Si las activas, el contenedor `backup` hace una copia cada día a
+la hora que elijas (03:00 por defecto) y conserva las de los últimos 14 días en
+`./backups`; el instalador hace la primera al momento y te muestra el comando
+exacto para restaurarla. Cada copia es un `.tar.gz` con:
 
 - la base de datos de Headscale (una copia consistente aunque esté en marcha) y
   sus claves privadas, para que los dispositivos sigan registrados al restaurar;
@@ -102,15 +106,18 @@ los últimos **14 días** en `./backups`. Cada copia es un `.tar.gz` con:
 - la configuración (`.env`, `headscale-config.yaml`, `Caddyfile`...);
 - la CA interna de Caddy con `SSL_MODE=selfsigned`.
 
-Cámbialo en `.env` y ejecuta `docker compose up -d backup`:
+Actívalas o desactívalas, o cambia la hora, la carpeta y la retención,
+volviendo a ejecutar `./install.sh`. O edita `.env` y ejecuta `docker compose up -d`:
 
 | Variable | Por defecto | |
 |---|---|---|
+| `BACKUP_ENABLED` | `false` | Añade también `backup` a `COMPOSE_PROFILES` |
 | `BACKUP_SCHEDULE` | `0 3 * * *` | Sintaxis cron (zona horaria `TZ`); `off` la desactiva |
 | `BACKUP_DIR` | `./backups` | Cualquier ruta del servidor, por ejemplo un NAS montado |
 | `BACKUP_KEEP_DAYS` | `14` | Las copias más antiguas se borran |
 
-Para hacer una copia en el momento: `make backup`. Las copias contienen
+Para hacer una copia en el momento: `make backup` (funciona aunque las copias
+programadas estén desactivadas). Las copias contienen
 secretos (`.env`): solo las puedes leer tú; guarda copias en un lugar seguro y
 fuera de este servidor.
 

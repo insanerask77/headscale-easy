@@ -91,8 +91,12 @@ major upgrades.
 
 ## Backups
 
-The `backup` container makes a backup **every day at 03:00** and keeps the last
-**14 days** in `./backups`. Each backup is one `.tar.gz` with:
+Daily backups are **optional**: the installer asks (off by default, since they
+add a small container and disk use, but recommended). When enabled, the
+`backup` container makes a backup every day at the time you chose (03:00 by
+default) and keeps the last 14 days in `./backups`; the installer makes a first
+one right away and shows the exact restore command. Each backup is one
+`.tar.gz` with:
 
 - Headscale's database (a consistent copy taken while it runs) and its private
   keys, so devices stay registered after a restore;
@@ -100,15 +104,17 @@ The `backup` container makes a backup **every day at 03:00** and keeps the last
 - the configuration (`.env`, `headscale-config.yaml`, `Caddyfile`...);
 - Caddy's internal CA with `SSL_MODE=selfsigned`.
 
-Change it in `.env` and run `docker compose up -d backup`:
+Turn them on or off, or change the time, folder and retention, by running
+`./install.sh` again. Or edit `.env` and run `docker compose up -d`:
 
 | Variable | Default | |
 |---|---|---|
+| `BACKUP_ENABLED` | `false` | Also add `backup` to `COMPOSE_PROFILES` |
 | `BACKUP_SCHEDULE` | `0 3 * * *` | Cron syntax (time zone `TZ`); `off` disables it |
 | `BACKUP_DIR` | `./backups` | Any path on the host, e.g. a NAS mount |
 | `BACKUP_KEEP_DAYS` | `14` | Older backups are deleted |
 
-Back up right now with `make backup`. Backups contain secrets (`.env`): they
+Back up right now with `make backup` (works with scheduled backups off too). Backups contain secrets (`.env`): they
 are readable only by you, keep copies somewhere safe and off this server.
 
 ### Restore

@@ -16,6 +16,9 @@ The questions, in order:
 5. **Tailnet** — organization name, initial Headscale user, address ranges.
 6. **Sign-in** — Authentik, your own OIDC provider, or API key only.
 7. **Network isolation** — whether every user only reaches their own devices.
+8. **Backups** — whether to make a daily backup (off by default, recommended);
+   if so, at what time, in which folder and for how many days. See
+   [Backups](operations.md#backups).
 
 Then it deploys: Authentik first (Headscale refuses to start until the OIDC
 issuer answers), then Headscale, creates the initial user and the API key the

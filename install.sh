@@ -23,6 +23,7 @@ TEMPLATES_DIR="${SCRIPT_DIR}/templates"
 INSTALLER_VERSION="1.0.6"
 PROJECT_URL="https://github.com/insanerask77/headscale-easy"
 SPONSOR_URL="https://buymeacoffee.com/insanerask"
+DOCS_URL="https://insanerask77.github.io/headscale-easy/"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -126,6 +127,8 @@ validate_port()         { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 ))
 validate_email()        { [[ "$1" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; }
 validate_alphanumeric() { [[ "$1" =~ ^[a-zA-Z0-9_-]+$ ]]; }
 validate_url()          { [[ "$1" =~ ^https?:// ]]; }
+validate_time()         { [[ "$1" =~ ^([01]?[0-9]|2[0-3]):[0-5][0-9]$ ]]; }
+validate_days()         { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 3650 )); }
 validate_optional_ip()  { [[ -z "$1" || "$1" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; }
 
 generate_secret() {
@@ -460,6 +463,40 @@ configure_auth_authentik() {
     fi
 }
 
+# Daily backups are optional (they add a small container and disk use), off by
+# default but recommended. They are enabled through the 'backup' Compose
+# profile.
+configure_backups() {
+    print_header "$(t "BACKUPS" "COPIAS DE SEGURIDAD")"
+    print_info "$(t "A daily copy of everything needed to rebuild the server: Headscale's database and keys" \
+                    "Una copia diaria de todo lo necesario para rehacer el servidor: base de datos y claves de Headscale,")"
+    print_info "$(t "(devices stay registered), accounts, configuration. It adds a small container (~10 MB RAM)" \
+                    "(los dispositivos siguen registrados), cuentas y configuración. Añade un contenedor pequeño (~10 MB de RAM)")"
+    print_info "$(t "and a few MB of disk per copy. Without backups, losing this server means re-registering every device." \
+                    "y unos MB de disco por copia. Sin copias, perder este servidor obliga a registrar de nuevo cada dispositivo.")"
+
+    if ask_yes_no "$(t "Enable daily backups? (recommended)" "¿Activar copias diarias? (recomendado)")" \
+                  "$([[ "${BACKUP_ENABLED:-false}" == "true" ]] && echo y || echo n)"; then
+        BACKUP_ENABLED="true"
+        # Offer the time of the current schedule when it is a simple daily one
+        local current="03:00" min hour
+        if [[ "${BACKUP_SCHEDULE:-}" =~ ^([0-9]{1,2})\ ([0-9]{1,2})\ \*\ \*\ \*$ ]]; then
+            printf -v current '%02d:%02d' "${BASH_REMATCH[2]}" "${BASH_REMATCH[1]}"
+        fi
+        BACKUP_TIME=$(ask_input "$(t "Time of the daily backup (HH:MM, server time zone ${TZ:-UTC})" "Hora de la copia diaria (HH:MM, zona horaria ${TZ:-UTC})")" "$current" validate_time)
+        hour=$((10#${BACKUP_TIME%%:*})); min=$((10#${BACKUP_TIME##*:}))
+        BACKUP_SCHEDULE="$min $hour * * *"
+        print_info "$(t "Keep them somewhere else too: a NAS or disk mounted on this host is ideal." \
+                        "Guárdalas también en otro sitio: lo ideal es un NAS o un disco montado en esta máquina.")"
+        BACKUP_DIR=$(ask_input "$(t "Folder for the backups" "Carpeta de las copias")" "${BACKUP_DIR:-./backups}")
+        BACKUP_KEEP_DAYS=$(ask_input "$(t "Days to keep" "Días que se conservan")" "${BACKUP_KEEP_DAYS:-14}" validate_days)
+    else
+        BACKUP_ENABLED="false"
+        print_info "$(t "No scheduled backups. You can still make one at any time with: make backup" \
+                        "Sin copias programadas. Puedes hacer una cuando quieras con: make backup")"
+    fi
+}
+
 generate_secrets() {
     # Signs the web UI session cookies; kept so open sessions survive
     [[ -z "${PORTAL_SESSION_SECRET:-}" ]] && PORTAL_SESSION_SECRET=$(generate_secret 32)
@@ -509,8 +546,11 @@ portal_settings() {
 generate_env_file() {
     portal_settings
     # Compose reads COMPOSE_PROFILES from .env: a plain 'docker compose up -d'
-    # also starts Authentik when it is enabled.
-    COMPOSE_PROFILES=$([[ "$AUTH_PROVIDER" == "authentik" ]] && echo "authentik" || echo "")
+    # also starts Authentik and the backup container when they are enabled.
+    local profiles=()
+    [[ "$AUTH_PROVIDER" == "authentik" ]] && profiles+=(authentik)
+    [[ "${BACKUP_ENABLED:-false}" == "true" ]] && profiles+=(backup)
+    COMPOSE_PROFILES=$(IFS=,; echo "${profiles[*]}")
 
     cat > "$ENV_FILE" <<EOF
 # =============================================================================
@@ -607,8 +647,9 @@ GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}"
 GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-}"
 
 # --- Backups -----------------------------------------------------------------------
-# Daily backup (cron syntax, "off" to disable), where and for how many days.
-# Restore with: make restore file=backups/headscale-easy-....tar.gz
+# Daily backups (the 'backup' container). Schedule in cron syntax, where and
+# for how many days. Restore with: make restore file=<backup .tar.gz>
+BACKUP_ENABLED=${BACKUP_ENABLED:-false}
 BACKUP_SCHEDULE="${BACKUP_SCHEDULE:-0 3 * * *}"
 BACKUP_DIR=${BACKUP_DIR:-./backups}
 BACKUP_KEEP_DAYS=${BACKUP_KEEP_DAYS:-14}
@@ -873,7 +914,12 @@ generate_files() {
     generate_env_file
     mkdir -p "$DATA_DIR/caddy-logs" "$DATA_DIR/web"
     # Created here so it belongs to you, not to root (Docker would create it)
-    [[ "${BACKUP_DIR:-./backups}" == ./* ]] && mkdir -p "$SCRIPT_DIR/${BACKUP_DIR:-./backups}"
+    if [[ "${BACKUP_ENABLED:-false}" == "true" ]]; then
+        case "${BACKUP_DIR:-./backups}" in
+            /*) mkdir -p "$BACKUP_DIR" 2>/dev/null || print_warning "$(t "Create $BACKUP_DIR and make it writable before the first backup" "Crea $BACKUP_DIR con permisos de escritura antes de la primera copia")" ;;
+            *)  mkdir -p "$SCRIPT_DIR/${BACKUP_DIR:-./backups}" ;;
+        esac
+    fi
     generate_headscale_config
     generate_caddyfile
     generate_compose_override
@@ -888,7 +934,8 @@ pull_images() {
     print_info "$(t "Pulling images (the web UI is built locally if its image is not published yet)..." \
                     "Descargando imágenes (el panel se construye en local si su imagen aún no está publicada)...")"
     docker compose pull --ignore-pull-failures --quiet 2>/dev/null || true
-    docker compose build --quiet web backup
+    docker compose build --quiet web
+    if [[ "${BACKUP_ENABLED:-false}" == "true" ]]; then docker compose build --quiet backup; fi
 }
 
 # With Authentik, Headscale does not start (only_start_if_oidc_is_available)
@@ -953,6 +1000,31 @@ stop_unused_authentik() {
         docker compose --profile authentik rm -sf authentik-server authentik-worker authentik-postgresql >/dev/null
     fi
     return 0
+}
+
+# The backup container after turning backups off. Existing backups are kept.
+stop_unused_backup() {
+    if [[ "${BACKUP_ENABLED:-false}" != "true" ]] && docker ps -a --format '{{.Names}}' | grep -qx headscale-easy-backup; then
+        print_info "$(t "Removing the backup container (backups turned off; existing backups are kept)..." \
+                        "Quitando el contenedor de copias (copias desactivadas; las existentes se conservan)...")"
+        docker compose --profile backup rm -sf backup >/dev/null
+    fi
+    return 0
+}
+
+# With backups on, make the first one right away: it proves the setup works
+# and gives the summary a real file to show in the restore command.
+first_backup() {
+    [[ "${BACKUP_ENABLED:-false}" == "true" ]] || return 0
+    print_info "$(t "Making a first backup..." "Haciendo una primera copia...")"
+    local out
+    if out=$(docker compose run --rm --no-deps --entrypoint /usr/local/bin/backup.sh backup 2>&1); then
+        FIRST_BACKUP=$(printf '%s\n' "$out" | grep -oE 'headscale-easy-[0-9]{8}-[0-9]{6}\.tar\.gz' | tail -1)
+        print_success "$(t "First backup:" "Primera copia:") ${BACKUP_DIR:-./backups}/${FIRST_BACKUP}"
+    else
+        print_warning "$(t "The first backup failed; check it with: make backup" "La primera copia falló; compruébalo con: make backup")"
+        printf '%s\n' "$out" | tail -3
+    fi
 }
 
 start_headscale_first() {
@@ -1069,6 +1141,7 @@ EOFP
 deploy_stack() {
     print_header "$(t "STARTING THE STACK" "ARRANCANDO EL STACK")"
     stop_unused_authentik
+    stop_unused_backup
     docker compose up -d
     # Caddyfile and UI settings may have changed: 'up' does not re-read files
     docker compose restart caddy web >/dev/null
@@ -1164,6 +1237,24 @@ show_summary() {
     echo -e "    ${YELLOW}tailscale up --login-server=${url}${NC}"
     echo -e "    $(t "or generate an auth key in the web UI (Settings → Keys)." "o genera una clave en el panel (Ajustes → Claves).")"
     echo ""
+    echo -e "  ${BOLD}$(t "Backups" "Copias de seguridad"):${NC}"
+    if [[ "${BACKUP_ENABLED:-false}" == "true" ]]; then
+        local example="${FIRST_BACKUP:-headscale-easy-YYYYmmdd-HHMMSS.tar.gz}"
+        echo -e "    $(t "Every day at" "Cada día a las") ${BACKUP_TIME:-03:00} → ${BACKUP_DIR:-./backups} ($(t "kept" "se conservan") ${BACKUP_KEEP_DAYS:-14} $(t "days" "días"))"
+        echo -e "    $(t "Back up now:" "Copia ahora:")  ${YELLOW}make backup${NC}"
+        echo -e "    $(t "Restore:" "Restaurar:")     ${YELLOW}make restore file=${BACKUP_DIR:-./backups}/${example}${NC}"
+        echo -e "    $(t "It stops the stack, puts everything back and starts it again. On a new server: install" \
+                     "Detiene el stack, lo restaura todo y lo vuelve a arrancar. En un servidor nuevo: instala")"
+        echo -e "    $(t "Docker, clone the repository, copy the backup and run the same command." \
+                     "Docker, clona el repositorio, copia la copia de seguridad y ejecuta el mismo comando.")"
+        echo -e "    $(t "Backups contain your secrets: keep a copy off this server, somewhere safe." \
+                     "Las copias contienen tus secretos: guarda una fuera de este servidor, en un lugar seguro.")"
+        echo -e "    $(t "Guide:" "Guía:") ${DOCS_URL}$([[ "$UI_LANG" == "es" ]] && echo es/)operations/#backups"
+    else
+        echo -e "    $(t "Off. Turn them on by running ./install.sh again, or make a one-off copy with" \
+                     "Desactivadas. Actívalas volviendo a ejecutar ./install.sh, o haz una copia puntual con")" "${YELLOW}make backup${NC}"
+    fi
+    echo ""
     echo -e "  ${BOLD}$(t "Useful commands" "Comandos útiles"):${NC} docker compose ps · docker compose logs -f · ./install.sh"
     echo ""
     echo -e "  ${CYAN}Headscale Easy v${INSTALLER_VERSION}${NC} · $(t "by" "por") Rafa Madolell · ${PROJECT_URL}"
@@ -1214,6 +1305,7 @@ main() {
     compute_public_urls
     configure_tailnet
     configure_auth
+    configure_backups
     generate_files
 
     echo ""
@@ -1229,6 +1321,7 @@ main() {
     apply_network_policy
     deploy_stack
     apply_mfa_mode
+    first_backup
     show_summary
 }
 

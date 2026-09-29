@@ -62,7 +62,7 @@ if ! docker image inspect "$BACKUP_IMAGE" >/dev/null 2>&1; then
 fi
 if [[ "$USE_COMPOSE" == "1" ]]; then
     info "$(t "Stopping the stack..." "Deteniendo el stack...")"
-    docker compose --profile authentik stop headscale web backup authentik-server authentik-worker 2>/dev/null || true
+    docker compose --profile authentik --profile backup stop headscale web backup authentik-server authentik-worker 2>/dev/null || true
 fi
 
 # 1. Configuration: .env holds the secrets the databases depend on (e.g.
