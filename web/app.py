@@ -42,6 +42,7 @@ log = logging.getLogger("headscale-easy")
 
 import admin_pages  # noqa: E402  (after logging is configured)
 import headscale as hs  # noqa: E402
+import apikey  # noqa: E402
 import naming  # noqa: E402
 import pages  # noqa: E402
 from i18n import LANGUAGES, _, pick_lang, set_lang  # noqa: E402
@@ -320,6 +321,15 @@ class Handler(BaseHTTPRequestHandler):
             if path == f"{BASE}/acl":
                 return self.send(200, admin_pages.acl_page(session, CTX, hs.get_policy(), flash))
             self.fail(404, _("Not found"), _("That page does not exist."))
+        except urllib.error.HTTPError as exc:
+            if exc.code == 401:
+                # The web UI's API key expired (the server was off during the
+                # renewal window, or someone expired it by hand)
+                log.error("Headscale rejected the web UI's API key on GET %s", path)
+                return self.fail(503, _("The web UI cannot reach Headscale"),
+                                 _("Its API key has expired or was revoked. On the server, run ./install.sh: it creates a new one."))
+            log.exception("error on GET %s", path)
+            self.fail(500, _("Something went wrong"), _("The operation could not be completed. Try again in a few seconds."))
         except Exception:  # noqa: BLE001 - never show tracebacks in the UI
             log.exception("error on GET %s", path)
             self.fail(500, _("Something went wrong"), _("The operation could not be completed. Try again in a few seconds."))
@@ -761,6 +771,7 @@ def main():
     port = int(os.environ.get("PORT", "8000"))
     log.info("Headscale Easy %s listening on :%d (public: %s%s, SSO=%s, API key sign-in=%s)",
              VERSION, port, PUBLIC_URL, BASE, SSO, API_KEY_LOGIN)
+    apikey.start()
     naming.start()
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 

@@ -141,7 +141,7 @@ Docker socket to validate and restart Headscale.
   proxies, sign-in providers, DNS, `.env` reference.
 - [Operations](https://insanerask77.github.io/headscale-easy/operations/) — users and admins, machines, updates, backups,
   troubleshooting.
-- [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
+- [Roadmap](ROADMAP.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 ## 🙌 Support the project
 

@@ -27,7 +27,9 @@ Only the latest release receives fixes.
   and keys, and checks ownership on every action. With `NETWORK_ISOLATION=true`
   the ACL policy also isolates them at the network level.
 - **The Headscale API key** used by the console lives in `.env` (`chmod 600`)
-  and expires (90 days by default); the installer renews it.
+  and expires (90 days by default). The console renews it 15 days before it
+  expires, keeps the new one in `data/web/api-key` (`chmod 600`) and expires
+  the old one.
 - **The Docker socket.** The console mounts `/var/run/docker.sock` to validate
   (`headscale configtest`) and restart Headscale after a DNS change. Access to
   the socket is equivalent to root on the host. The console only calls those

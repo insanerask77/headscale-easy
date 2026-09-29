@@ -106,7 +106,7 @@ la consola muestra los pasos para cada sistema.
   HTTPS, proxies por delante, proveedores de login, DNS, referencia de `.env`.
 - [Operación](https://insanerask77.github.io/headscale-easy/es/operations/): usuarios y admins, máquinas, actualizaciones,
   copias de seguridad, resolución de problemas.
-- [Contribuir](CONTRIBUTING.md) · [Seguridad](SECURITY.md) · [Cambios](CHANGELOG.md)
+- [Hoja de ruta](ROADMAP.md) · [Contribuir](CONTRIBUTING.md) · [Seguridad](SECURITY.md) · [Cambios](CHANGELOG.md)
 
 ## 🙌 Apoya el proyecto
 

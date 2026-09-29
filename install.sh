@@ -20,7 +20,7 @@ ENV_FILE="${SCRIPT_DIR}/.env"
 DATA_DIR="${SCRIPT_DIR}/data"
 TEMPLATES_DIR="${SCRIPT_DIR}/templates"
 
-INSTALLER_VERSION="1.0.3"
+INSTALLER_VERSION="1.0.4"
 PROJECT_URL="https://github.com/insanerask77/headscale-easy"
 SPONSOR_URL="https://buymeacoffee.com/insanerask"
 
@@ -845,7 +845,7 @@ generate_files() {
     print_header "$(t "GENERATING CONFIGURATION" "GENERANDO CONFIGURACIÓN")"
     generate_secrets
     generate_env_file
-    mkdir -p "$DATA_DIR/caddy-logs"
+    mkdir -p "$DATA_DIR/caddy-logs" "$DATA_DIR/web"
     generate_headscale_config
     generate_caddyfile
     generate_compose_override
@@ -951,6 +951,16 @@ start_headscale_first() {
     exit 1
 }
 
+# 0 if Headscale knows the key and it has not expired
+api_key_valid() {
+    local key="$1" prefix expires
+    [[ "$key" =~ ^hskey-api- ]] || return 1
+    prefix="${key:0:22}"  # hskey-api- + 12-character prefix (may contain "-")
+    expires=$(docker exec headscale headscale apikeys list --output json 2>/dev/null | tr -d ' \t\n' \
+              | grep -oE "\"prefix\":\"${prefix}[^\"]*\",\"expiration\":\{\"seconds\":[0-9]+" | grep -oE '[0-9]+$' || true)
+    [[ -n "$expires" && "$expires" -gt "$(date +%s)" ]]
+}
+
 bootstrap_headscale() {
     print_header "$(t "USER AND API KEY" "USUARIO Y API KEY")"
     # Initial user (idempotent: 'users create' fails if it exists)
@@ -968,10 +978,19 @@ bootstrap_headscale() {
     ADMIN_USER_ID="${ADMIN_USER_ID:-<id>}"
 
     # API key: Headscale only shows the full value once. Keep the one in .env
-    # while it is still valid so reconfiguring does not pile up keys.
+    # while it is still valid so reconfiguring does not pile up keys. The web
+    # UI renews it by itself and saves the new one in data/web/api-key: if the
+    # .env one is no longer valid, try that one before creating another.
+    local renewed="$DATA_DIR/web/api-key"
+    if [[ -s "$renewed" ]] && ! api_key_valid "${HEADSCALE_API_KEY:-}" && api_key_valid "$(tr -d '[:space:]' < "$renewed")"; then
+        HEADSCALE_API_KEY=$(tr -d '[:space:]' < "$renewed")
+        sed -i "s|^HEADSCALE_API_KEY=.*|HEADSCALE_API_KEY=${HEADSCALE_API_KEY}|" "$ENV_FILE"
+        print_info "$(t "Using the API key renewed by the web UI" "Se usa la API key renovada por el panel")"
+        return 0
+    fi
     if [[ -n "${HEADSCALE_API_KEY:-}" ]]; then
         local prefix expires
-        prefix=$(printf '%s' "$HEADSCALE_API_KEY" | cut -d- -f1-3)
+        prefix="${HEADSCALE_API_KEY:0:22}"  # hskey-api- + 12-character prefix (may contain "-")
         expires=$(docker exec headscale headscale apikeys list --output json 2>/dev/null | tr -d ' \t\n' \
                   | grep -oE "\"prefix\":\"${prefix}[^\"]*\",\"expiration\":\{\"seconds\":[0-9]+" | grep -oE '[0-9]+$' || true)
         if [[ -n "$expires" && "$expires" -gt "$(date +%s)" ]]; then

@@ -315,6 +315,8 @@ services:
       - headscale-data:/headscale:ro
       # Writable: admins edit DNS (only the marked block).
       - ./headscale-config.yaml:/etc/headscale/config.yaml
+      # Writable: the renewed Headscale API key (see web/apikey.py)
+      - ./data/web:/data
       # To validate ('headscale configtest') and restart Headscale after a DNS
       # change. Docker socket access is equivalent to root on the host: the UI
       # only uses it for those two operations on the headscale container.
