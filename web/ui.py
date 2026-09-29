@@ -308,7 +308,7 @@ def bare_page(title: str, body: str) -> str:
   <main class="bare-main">
 {body}
     <p class="bare-foot"><a href="{PROJECT_URL}" target="_blank" rel="noopener">Headscale Easy</a> · by Rafa Madolell ·
-      <a href="{SPONSOR_URL}" target="_blank" rel="noopener">{esc(_("Buy me a coffee"))}</a></p>
+      <a href="{SPONSOR_URL}" target="_blank" rel="noopener">{esc(_("Buy me a coffee on Ko-fi"))}</a></p>
   </main>
   <script src="{BASE}/static/app.js?v={V}" defer></script>
 </body>

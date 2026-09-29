@@ -112,9 +112,9 @@ extra:
     - icon: fontawesome/brands/github
       link: https://github.com/insanerask77
       name: Rafa Madolell on GitHub
-    - icon: simple/buymeacoffee
-      link: https://buymeacoffee.com/insanerask
-      name: Buy me a coffee
+    - icon: simple/kofi
+      link: https://ko-fi.com/rafaelmadolell
+      name: Ko-fi
     - icon: fontawesome/brands/docker
       link: https://github.com/insanerask77/headscale-easy/pkgs/container/headscale-easy
       name: Docker image

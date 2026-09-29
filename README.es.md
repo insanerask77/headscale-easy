@@ -15,7 +15,7 @@
   <a href="https://github.com/insanerask77/headscale-easy/releases"><img src="https://img.shields.io/github/v/release/insanerask77/headscale-easy?sort=semver" alt="Versión"></a>
   <a href="https://insanerask77.github.io/headscale-easy/es/"><img src="https://img.shields.io/badge/docs-github.io-3f6fe0" alt="Documentación"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/licencia-MIT-green" alt="Licencia MIT"></a>
-  <a href="https://buymeacoffee.com/insanerask"><img src="https://img.shields.io/badge/Invítame%20a%20un%20café-☕-FFDD00" alt="Invítame a un café"></a>
+  <a href="https://ko-fi.com/rafaelmadolell"><img src="https://img.shields.io/badge/Ko--fi-apóyame-FF5E5B?logo=kofi&logoColor=white" alt="Apóyame en Ko-fi"></a>
 </p>
 
 <p align="center">
@@ -116,7 +116,7 @@ Headscale Easy lo crea y mantiene en su tiempo libre
 **[Rafa Madolell](https://github.com/insanerask77)**. Si te ahorra tiempo o dinero:
 
 - ⭐ **Dale una estrella al repo**: ayuda muchísimo a que otros lo encuentren.
-- ☕ **[Invítame a un café](https://buymeacoffee.com/insanerask)**.
+- ☕ **[Invítame a un café en Ko-fi](https://ko-fi.com/rafaelmadolell)**.
 - 🐛 Reporta errores, propone mejoras o envía un pull request.
 - 🌍 Traduce la consola a tu idioma (ver [CONTRIBUTING](CONTRIBUTING.md#translations)).
 

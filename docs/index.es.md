@@ -17,7 +17,7 @@ Se instala con un solo comando.
 
 [Empezar](getting-started.md){ .md-button .md-button--primary }
 [GitHub](https://github.com/insanerask77/headscale-easy){ .md-button }
-[:simple-buymeacoffee: Invítame a un café](https://buymeacoffee.com/insanerask){ .md-button }
+[:simple-kofi: Invítame a un café en Ko-fi](https://ko-fi.com/rafaelmadolell){ .md-button }
 
 </div>
 
@@ -99,7 +99,7 @@ En los dispositivos usas las apps oficiales de Tailscale; sólo el servidor es t
 Headscale Easy lo crea y mantiene en su tiempo libre
 **[Rafa Madolell](https://github.com/insanerask77)**. Si te ahorra tiempo o dinero,
 ⭐ [dale una estrella al repositorio](https://github.com/insanerask77/headscale-easy) e
-☕ [invítame a un café](https://buymeacoffee.com/insanerask).
+☕ [invítame a un café en Ko-fi](https://ko-fi.com/rafaelmadolell).
 
 <small>Headscale Easy es un proyecto independiente, sin relación con Tailscale Inc.
 ni con el proyecto Headscale. "Tailscale" es una marca de Tailscale Inc.</small>
