@@ -176,10 +176,24 @@ key can add devices.
 
 ## DNS
 
-Admins edit DNS in the console (**DNS** page): MagicDNS, the tailnet domain,
-nameservers, split DNS, search domains and **custom records** (one per line,
-`name address`, e.g. `nas.example.com 100.64.0.5`: every device of the tailnet
-resolves it; A or AAAA from the address). The console writes the `dns:` block
+Admins edit DNS in the console (**DNS** page), laid out like Tailscale's:
+
+- **Tailnet DNS name** — *Rename tailnet…* asks for confirmation first: every
+  machine's full name (`<machine>.<tailnet domain>`) changes.
+- **MagicDNS** — on/off; turning it off asks for confirmation, since machine
+  names stop resolving on every device.
+- **Nameservers** — with MagicDNS on, the tailnet domain always resolves through
+  `100.100.100.100` (shown read-only). Below it, *split DNS* nameservers (a
+  nameserver restricted to a domain) and *global* nameservers, one per row (an
+  IP or a DoH resolver `https://…`). **Use local DNS settings** on: devices keep
+  their own nameservers and the global ones are a fallback; off
+  (`override_local_dns: true`): every device uses the global nameservers.
+- **Search domains** — with MagicDNS on, the tailnet domain is always the first.
+- **Custom records** — `name` + `address` (e.g. `nas.example.com` →
+  `100.64.0.5`): every device of the tailnet resolves it; A or AAAA from the
+  address.
+
+Members see the same settings read-only. The console writes the `dns:` block
 of `headscale-config.yaml` between these markers:
 
 ```yaml
