@@ -42,6 +42,15 @@ work with a publicly trusted certificate.
 The embedded DERP relay needs **UDP 3478** reachable from the Internet in every
 mode: no HTTP proxy can carry it.
 
+### Public DERP servers
+
+The installer asks whether to also use Tailscale's public DERP relays
+(`DERP_USE_PUBLIC`, **yes** by default). Answer **no** for a fully self-hosted
+install: only your own embedded relay is used and `derp.urls` stays empty, so
+neither Headscale nor the web UI contacts tailscale.com's DERP map. Devices that
+cannot connect directly then depend on your relay: keep UDP 3478 and HTTPS
+reachable. Re-run `./install.sh` to change it.
+
 ## Behind an existing reverse proxy
 
 Choose `front` and tell the installer which proxy you use and this machine's
