@@ -260,8 +260,8 @@ class Handler(BaseHTTPRequestHandler):
         if length > 262144:
             return {}
         data = urllib.parse.parse_qs(self.rfile.read(length).decode(), keep_blank_values=True)
-        # 'route' can repeat (checkboxes)
-        return {k: (v if k == "route" else v[0]) for k, v in data.items()}
+        # 'route' (checkboxes) and fields named "...[]" (rows) can repeat
+        return {k: (v if k == "route" or k.endswith("[]") else v[0]) for k, v in data.items()}
 
     def log_message(self, fmt, *args):
         log.info("%s %s", self.address_string(), fmt % args)
@@ -754,45 +754,15 @@ class Handler(BaseHTTPRequestHandler):
 
         def again(error: str):
             # Show what the admin typed again so it is not lost
-            draft = dict(current, **cfg) if cfg else current
-            return self.send(400, pages.dns_page(session, ctx, draft, to_machines(visible_nodes(session)), error=error))
+            return self.send(400, pages.dns_page(session, ctx, cfg or current, to_machines(visible_nodes(session)),
+                                                 error=error))
 
         if not ctx.get("dns_editable"):
             return again(ctx.get("dns_reason", _("Editing DNS is not available.")))
 
-        cfg = {
-            "magic_dns": form.get("magic_dns") == "1",
-            "override_local_dns": form.get("override_local_dns") == "1",
-            "base_domain": str(form.get("base_domain", "")).strip().lower().rstrip("."),
-            "nameservers": lines(str(form.get("nameservers", ""))),
-            "search_domains": [d.lower() for d in lines(str(form.get("search_domains", "")))],
-            "split": {},
-            "extra_records": [],
-        }
-        for line in str(form.get("split", "")).splitlines():
-            if not line.strip():
-                continue
-            domain, _sep, servers = line.partition(":")
-            if not servers.strip() and domain.strip():
-                return again(_("Split DNS: missing nameserver in \"{line}\" (format: domain: server, server).",
-                               line=line.strip()))
-            cfg["split"][domain.strip().lower()] = lines(servers)
-
-        for line in str(form.get("extra_records", "")).splitlines():
-            parts = line.replace(",", " ").split()
-            if not parts:
-                continue
-            if len(parts) != 2:
-                return again(_("Custom records: \"{line}\" must be a name and an address.", line=line.strip()))
-            name, value = parts[0].lower().rstrip("."), parts[1]
-            if not hs.valid_domain(name):
-                return again(_("Invalid domain: {value}", value=name))
-            try:
-                kind = "AAAA" if ipaddress.ip_address(value).version == 6 else "A"
-            except ValueError:
-                return again(_("Custom records: {value} is not an IP address.", value=value))
-            cfg["extra_records"].append({"name": name, "type": kind, "value": value})
-
+        cfg, error = dns_cfg_from_form(form, current)
+        if error:
+            return again(error)
         if not hs.valid_domain(cfg["base_domain"]):
             return again(_("The tailnet DNS name is not a valid domain."))
         if cfg["base_domain"] == SERVER_HOST or SERVER_HOST.endswith("." + cfg["base_domain"]):
@@ -805,14 +775,80 @@ class Handler(BaseHTTPRequestHandler):
         if bad:
             return again(_("Invalid domain: {value}", value=bad[0]))
         if cfg["override_local_dns"] and not cfg["nameservers"]:
-            return again(_("Overriding local DNS needs at least one global nameserver."))
+            return again(_("Turning off \"Use local DNS settings\" needs at least one global nameserver."))
 
         ok, error = hs.apply_dns(cfg)
         if not ok:
             log.warning("%s tried to change DNS: %s", session["username"], error)
             return again(error)
-        log.info("%s changed DNS and restarted Headscale", session["username"])
+        log.info("%s changed DNS (%s) and restarted Headscale", session["username"], form.get("section") or "settings")
         return self.redirect(f"{BASE}/dns?m=dns-saved")
+
+
+def dns_cfg_from_form(form: dict, current: dict) -> tuple[dict, str]:
+    """New DNS settings from a DNS page form, over the current ones, and the
+    first input error ("" if none). 'section' says which form: 'rename' (tailnet
+    name), 'magic' (MagicDNS on/off) or the settings (nameservers, search
+    domains, custom records, local DNS). Each list arrives as repeated "...[]"
+    fields, one per row; blank rows are ignored. The result keeps what was typed
+    so an error can show it again."""
+    cfg = {"magic_dns": bool(current.get("magic_dns")), "base_domain": current.get("base_domain") or "",
+           "override_local_dns": bool(current.get("override_local_dns")),
+           "nameservers": list(current.get("nameservers") or []),
+           "search_domains": list(current.get("search_domains") or []),
+           "split": {d: list(v) for d, v in (current.get("split") or {}).items()},
+           "extra_records": [dict(r) for r in current.get("extra_records") or []]}
+
+    def rows(name: str) -> list[str]:
+        value = form.get(name + "[]") or []
+        return [str(v).strip() for v in (value if isinstance(value, list) else [value])]
+
+    section = form.get("section")
+    if section == "rename":
+        cfg["base_domain"] = str(form.get("base_domain", "")).strip().lower().rstrip(".")
+        return cfg, ""
+    if section == "magic":
+        cfg["magic_dns"] = form.get("magic_dns") == "1"
+        return cfg, ""
+
+    cfg["override_local_dns"] = form.get("use_local_dns") != "1"
+    cfg["nameservers"] = [s for s in rows("ns") if s]
+    cfg["search_domains"] = [d.lower().rstrip(".") for d in rows("search") if d]
+    cfg["split"], cfg["extra_records"] = {}, []
+    error = ""
+    domains, servers = rows("split_domain"), rows("split_ns")
+    for domain, server in zip(domains + [""] * (len(servers) - len(domains)),
+                              servers + [""] * (len(domains) - len(servers))):
+        domain = domain.lower().rstrip(".")
+        if not domain and not server:
+            continue
+        if not server and not error:
+            error = _("Split DNS: {domain} needs a nameserver.", domain=domain)
+        if not domain and not error:
+            error = _("Split DNS: nameserver {value} needs a domain.", value=server)
+        servers_of = cfg["split"].setdefault(domain, [])
+        if server and server not in servers_of:
+            servers_of.append(server)
+
+    names, values = rows("rec_name"), rows("rec_value")
+    for name, value in zip(names + [""] * (len(values) - len(names)), values + [""] * (len(names) - len(values))):
+        name = name.lower().rstrip(".")
+        if not name and not value:
+            continue
+        record = {"name": name, "type": "", "value": value}
+        cfg["extra_records"].append(record)
+        if error:
+            continue
+        if not name or not value:
+            error = _("Custom records: each record needs a name and an address.")
+        elif not hs.valid_domain(name):
+            error = _("Invalid domain: {value}", value=name)
+        else:
+            try:
+                record["type"] = "AAAA" if ipaddress.ip_address(value).version == 6 else "A"
+            except ValueError:
+                error = _("Custom records: {value} is not an IP address.", value=value)
+    return cfg, error
 
 
 def _key_expiry_days(form: dict) -> int | None:

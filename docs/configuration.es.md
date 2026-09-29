@@ -178,11 +178,27 @@ cuándo puede la clave añadir dispositivos.
 
 ## DNS { #dns }
 
-Los admins editan el DNS en la consola (página **DNS**): MagicDNS, el dominio de
-la tailnet, nameservers, split DNS, dominios de búsqueda y **registros
-personalizados** (uno por línea, `nombre dirección`, por ejemplo
-`nas.example.com 100.64.0.5`: lo resuelven todos los dispositivos de la
-tailnet; A o AAAA según la dirección). La consola escribe el
+Los admins editan el DNS en la consola (página **DNS**), organizada como la de
+Tailscale:
+
+- **Nombre DNS de la tailnet** — *Renombrar tailnet…* pide confirmación antes:
+  cambia el nombre completo de cada máquina (`<máquina>.<dominio de la tailnet>`).
+- **MagicDNS** — activar/desactivar; desactivarlo pide confirmación, porque los
+  nombres de las máquinas dejan de resolverse en todos los dispositivos.
+- **Servidores de nombres** — con MagicDNS activado, el dominio de la tailnet se
+  resuelve siempre con `100.100.100.100` (se muestra de solo lectura). Debajo,
+  los de *DNS dividido* (un servidor restringido a un dominio) y los *globales*,
+  uno por fila (una IP o un resolvedor DoH `https://…`). **Usar la configuración
+  DNS local** activado: los dispositivos mantienen sus servidores y los globales
+  son un respaldo; desactivado (`override_local_dns: true`): todos los
+  dispositivos usan los servidores globales.
+- **Dominios de búsqueda** — con MagicDNS activado, el dominio de la tailnet es
+  siempre el primero.
+- **Registros personalizados** — `nombre` + `dirección` (por ejemplo
+  `nas.example.com` → `100.64.0.5`): lo resuelven todos los dispositivos de la
+  tailnet; A o AAAA según la dirección.
+
+Los miembros ven los mismos ajustes en solo lectura. La consola escribe el
 bloque `dns:` de `headscale-config.yaml` entre estos marcadores:
 
 ```yaml
