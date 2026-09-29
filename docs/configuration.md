@@ -177,7 +177,9 @@ key can add devices.
 ## DNS
 
 Admins edit DNS in the console (**DNS** page): MagicDNS, the tailnet domain,
-nameservers, split DNS and search domains. The console writes the `dns:` block
+nameservers, split DNS, search domains and **custom records** (one per line,
+`name address`, e.g. `nas.example.com 100.64.0.5`: every device of the tailnet
+resolves it; A or AAAA from the address). The console writes the `dns:` block
 of `headscale-config.yaml` between these markers:
 
 ```yaml

@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.7] - 2026-09-29
+
+### Added
+- Custom DNS records in the DNS page (`name address`, A or AAAA), resolved by
+  every device of the tailnet (Headscale's `dns.extra_records`).
+
 ## [1.0.6] - 2026-09-29
 
 ### Added
@@ -109,6 +115,7 @@ First release as **Headscale Easy**.
 - Documentation site on GitHub Pages, in English and Spanish:
   https://insanerask77.github.io/headscale-easy/
 
+[1.0.7]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.7
 [1.0.6]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.6
 [1.0.5]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.5
 [1.0.4]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.4

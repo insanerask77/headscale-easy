@@ -373,5 +373,10 @@
   "A code from an authenticator app or a passkey after the password, when signing in with Authentik. Users who already set one up are always asked for it.": "Un código de una app de autenticación o una passkey después de la contraseña, al entrar con Authentik. A quien ya lo configuró siempre se le pide.",
   "Applied in Authentik right away: it affects the next sign-in, nobody is signed out.": "Se aplica en Authentik al momento: afecta al siguiente inicio de sesión, no se cierra la sesión de nadie.",
   "Mode": "Modo",
-  "Two-factor authentication saved. It applies from the next sign-in.": "Verificación en dos pasos guardada. Se aplica desde el siguiente inicio de sesión."
+  "Two-factor authentication saved. It applies from the next sign-in.": "Verificación en dos pasos guardada. Se aplica desde el siguiente inicio de sesión.",
+  "Custom records": "Registros personalizados",
+  "One per line: name address. They resolve on every device of the tailnet (A or AAAA, from the address).": "Uno por línea: nombre dirección. Se resuelven en todos los dispositivos de la tailnet (A o AAAA, según la dirección).",
+  "Custom records: \"{line}\" must be a name and an address.": "Registros personalizados: \"{line}\" debe tener un nombre y una dirección.",
+  "Custom records: {value} is not an IP address.": "Registros personalizados: {value} no es una dirección IP.",
+  "Address": "Dirección"
 }

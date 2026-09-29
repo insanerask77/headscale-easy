@@ -353,7 +353,7 @@ def dns_config() -> dict:
     enough: scalar keys, '- item' lists and inline '[a, b]' lists.
     """
     result = {"magic_dns": None, "base_domain": "", "override_local_dns": True,
-              "nameservers": [], "search_domains": [], "split": {}}
+              "nameservers": [], "search_domains": [], "split": {}, "extra_records": []}
     try:
         with open(HEADSCALE_CONFIG, encoding="utf-8") as fh:
             lines = fh.read().splitlines()
@@ -375,6 +375,15 @@ def dns_config() -> dict:
         if not in_dns:
             continue
         path = path[:indent // 2 - 1]  # key path from the indentation (2 spaces)
+        if path[:1] == ["extra_records"] and (text.startswith("- ") or len(path) >= 1 and indent >= 4):
+            # - name: nas.example.com / type: A / value: 100.64.0.5
+            if text.startswith("- "):
+                result["extra_records"].append({})
+                text = text[2:]
+            key, _sep, value = text.partition(":")
+            if result["extra_records"]:
+                result["extra_records"][-1][key.strip()] = value.strip().strip("\"'")
+            continue
         if text.startswith("- "):
             item = text[2:].strip().strip("\"'")
             if path[-1:] == ["search_domains"]:
@@ -422,6 +431,8 @@ def render_dns_block(cfg: dict) -> str:
         return "".join(f"\n{' ' * indent}- {v}" for v in values) if values else " []"
 
     split = "".join(f"\n      {domain}:{items(servers, 8)}" for domain, servers in cfg.get("split", {}).items())
+    records = "".join(f"\n    - name: {r['name']}\n      type: {r['type']}\n      value: {r['value']}"
+                      for r in cfg.get("extra_records", [])) or " []"
     return "\n".join([
         DNS_BEGIN,
         "dns:",
@@ -432,7 +443,7 @@ def render_dns_block(cfg: dict) -> str:
         f"    global:{items(cfg['nameservers'], 6)}",
         f"    split:{split or ' {}'}",
         f"  search_domains:{items(cfg['search_domains'], 4)}",
-        "  extra_records: []",
+        f"  extra_records:{records}",
         DNS_END,
     ])
 
