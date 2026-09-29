@@ -26,7 +26,9 @@ web/                    The web console (ghcr.io/insanerask77/headscale-easy)
   app.py                HTTP server, routing, sessions, OIDC
   headscale.py          Headscale REST API client, DNS config, Docker socket
   pages.py              Machines, device, DNS, keys, settings pages
-  admin_pages.py        Users, policy editor, sign-in page
+  admin_pages.py        Users, access controls (raw HuJSON tab), sign-in page
+  acl_pages.py          Access controls: Rules, Groups & tags, Test access tabs
+  policy.py             HuJSON parsing/splicing and the access simulator
   ui.py                 Layout, sidebar, icons, shared helpers
   i18n.py, locales/     Translations
   static/               CSS, JS, font, favicon

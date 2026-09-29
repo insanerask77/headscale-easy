@@ -181,6 +181,12 @@ def flash_html(code: str) -> str:
         "user-renamed": ("ok", _("User renamed.")),
         "user-deleted": ("ok", _("User deleted.")),
         "acl-saved": ("ok", _("Policy saved and applied.")),
+        "acl-deleted": ("ok", _("Removed from the policy.")),
+        "acl-invalid": ("error", _("Check the values: something is missing or invalid.")),
+        "acl-not-found": ("error", _("That item no longer exists in the policy.")),
+        "acl-rejected": ("error", _("Headscale rejected the change. Open Advanced to see the full policy.")),
+        "acl-unreachable": ("error", _("Could not read the current policy from Headscale. Try again.")),
+        "acl-unreadable": ("error", _("The saved policy could not be read as HuJSON. Fix it in Advanced first.")),
         "dns-saved": ("ok", _("DNS saved. Headscale restarted with the new settings.")),
         "key-expiry-saved": ("ok", _("Key expiry saved. It applies to devices added from now on.")),
         "apikey-expired": ("ok", _("API key expired.")),
@@ -227,7 +233,7 @@ def sidebar(active: str, session: dict, ctx: dict) -> str:
         groups.append(f"""
       <a class="nav-top {"active" if active == "users" else ""}" href="{BASE}/users">{icon("users")}<span>{esc(_("Users"))}</span></a>""")
         groups.append(_nav_group("lock", _("Access controls"), [
-            ("acl", "acl", _("Policy editor")),
+            ("acl", "acl", _("Rules & policy")),
         ], active))
         groups.append(f"""
       <a class="nav-top {"active" if active == "logs" else ""}" href="{BASE}/logs">{icon("logs")}<span>{esc(_("Logs"))}</span></a>""")

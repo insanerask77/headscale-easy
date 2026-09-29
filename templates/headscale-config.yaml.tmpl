@@ -19,10 +19,10 @@ prefixes:
   v6: ${IP_PREFIXES_V6}
   allocation: sequential
 
-# DERP relays: Tailscale's public ones plus one embedded in Headscale
+# DERP relays: the one embedded in Headscale, plus Tailscale's public ones
+# unless the installer was told to be fully self-hosted (DERP_USE_PUBLIC=false)
 derp:
-  urls:
-    - https://controlplane.tailscale.com/derpmap/default
+  ${DERP_URLS_CONFIG}
   server:
     enabled: true
     region_id: 999
@@ -31,7 +31,7 @@ derp:
     stun_listen_addr: "0.0.0.0:${HEADSCALE_DERP_PORT}"
     private_key_path: /var/lib/headscale/derp_server_private.key
     automatically_add_embedded_derp_region: true
-  auto_update_enabled: true
+  auto_update_enabled: ${DERP_AUTO_UPDATE}
   update_frequency: 24h
 
 private_key_path: /var/lib/headscale/private.key

@@ -114,6 +114,12 @@ def action_labels() -> dict[str, str]:
         "invite.accept": _("Accepted invitation"),
         # policy, DNS and settings
         "acl.save": _("Saved access control policy"),
+        "acl.rule_save": _("Saved an ACL rule"),
+        "acl.rule_delete": _("Deleted an ACL rule"),
+        "acl.group_save": _("Saved an ACL group"),
+        "acl.group_delete": _("Deleted an ACL group"),
+        "acl.tag_save": _("Saved an ACL tag owner"),
+        "acl.tag_delete": _("Deleted an ACL tag owner"),
         "dns.save": _("Changed DNS settings"),
         "settings.key_expiry": _("Changed device key expiry"),
         "settings.mfa": _("Changed two-factor authentication"),
