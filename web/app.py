@@ -1148,8 +1148,8 @@ def _key_expiry_days(form: dict) -> int | None:
 
 def main():
     port = int(os.environ.get("PORT", "8000"))
-    log.info("Headscale Easy %s listening on :%d (public: %s%s, SSO=%s, API key sign-in=%s)",
-             VERSION, port, PUBLIC_URL, BASE, SSO, API_KEY_LOGIN)
+    log.info("Headscale Easy %s listening on :%d (public: %s%s, SSO=%s)",
+             VERSION, port, PUBLIC_URL, BASE, SSO)
     apikey.start()
     audit.start()
     naming.start()
