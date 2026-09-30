@@ -767,3 +767,18 @@ dialog.audit-dialog { width: min(52rem, calc(100vw - 2rem)); }
 .inv-roles { display: grid; gap: 0.45rem; margin: 0; padding: 0; border: 0; }
 .inv-roles legend { margin-bottom: 0.35rem; padding: 0; }
 .inv-result .code code { word-break: break-all; }
+
+/* ---- bulk ---- */
+th.bulk-col, td.bulk-col { width: 2.25rem; }
+.bulk-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+    margin: -0.6rem 0 1.1rem;
+    padding: 0.6rem 0.9rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+}
+.bulk-bar [data-bulk-count] { font-weight: 500; margin-right: 0.3rem; }

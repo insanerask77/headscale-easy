@@ -367,3 +367,59 @@
     }
   });
 })();
+
+/* ---- bulk ---- */
+// Machines table: without JS the per-row and header checkboxes stay hidden
+// (there is no way to submit "just the checked ones" without JS anyway). With
+// JS they appear, a bar shows up once at least one is ticked, and the two
+// dialog-based actions (Remove, Add tag) get the selection mirrored into
+// their own <form> as hidden inputs, since a <dialog> is a separate form from
+// the table's.
+(function () {
+  "use strict";
+  var bar = document.querySelector("[data-bulk-bar]");
+  if (!bar) return;
+  document.querySelectorAll(".bulk-col").forEach(function (el) { el.hidden = false; });
+
+  function items() {
+    return Array.prototype.slice.call(document.querySelectorAll("[data-bulk-item]"));
+  }
+
+  function sync() {
+    var checked = items().filter(function (i) { return i.checked; });
+    bar.hidden = checked.length === 0;
+    var count = document.querySelector("[data-bulk-count]");
+    if (count) count.textContent = checked.length === 1 ? count.dataset.one : count.dataset.many.replace("{n}", checked.length);
+    var all = document.querySelector("[data-bulk-all]");
+    if (all) {
+      all.checked = checked.length > 0 && checked.length === items().length;
+      all.indeterminate = checked.length > 0 && checked.length < items().length;
+    }
+    document.querySelectorAll("[data-bulk-mirror]").forEach(function (target) {
+      target.innerHTML = "";
+      checked.forEach(function (i) {
+        var hidden = document.createElement("input");
+        hidden.type = "hidden";
+        hidden.name = i.name;
+        hidden.value = "1";
+        target.appendChild(hidden);
+      });
+    });
+  }
+
+  document.addEventListener("change", function (ev) {
+    if (ev.target.matches("[data-bulk-all]")) {
+      var checked = ev.target.checked;
+      items().forEach(function (i) { i.checked = checked; });
+      sync();
+    } else if (ev.target.matches("[data-bulk-item]")) {
+      sync();
+    }
+  });
+  document.addEventListener("click", function (ev) {
+    var el = ev.target.closest("[data-bulk-clear]");
+    if (!el) return;
+    items().forEach(function (i) { i.checked = false; });
+    sync();
+  });
+})();

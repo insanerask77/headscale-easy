@@ -7,6 +7,7 @@ from __future__ import annotations
 import csv
 import io
 import ipaddress
+import re
 from datetime import datetime, timezone
 
 import expiry
@@ -237,7 +238,7 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
                      add, (_("See how to manage devices"), docs_url("operations/#managing-machines")))
     head += register_dialog(session, users or []) if admin else ""
     head += notice("error", error) if error else ""
-    head += flash_html(flash) or expiry.flash_html(flash)
+    head += flash_html(flash) or expiry.flash_html(flash) or bulk_flash_html(flash)
 
     if not machines:
         text = (_("No machines are connected to the tailnet yet.") if admin else
@@ -274,13 +275,17 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
         </div>
       </details>"""
 
+    bulk_col = f'<th class="bulk-col" hidden><input type="checkbox" data-bulk-all aria-label="{esc(_("Select all"))}"></th>' if admin else ""
     rows, dialogs = [], []
     for m in machines:
+        bulk_cell = (f'<td class="bulk-col" hidden><input type="checkbox" name="node-{esc(m.id)}" value="1" '
+                    f'data-bulk-item aria-label="{esc(_("Select {name}", name=m.name))}"></td>') if admin else ""
         rows.append(f"""
         <tr data-href="{BASE}/machines/{m.id}" data-search="{esc(m.search_text())}" data-status="{'on' if m.online else 'off'}"
             data-owner="{esc(m.owner.get('id'))}" data-update="{int(m.update_available)}"
             data-routes="{int(m.exit_node or bool(m.subnets))}" data-expired="{int(m.expired)}"
             data-expiring="{int(m.expiring_soon)}" data-inactive="{int(m.inactive)}">
+          {bulk_cell}
           <td><a class="name" href="{BASE}/machines/{m.id}">{esc(m.name)}</a>
             <div class="owner">{esc(m.owner_label)}</div>
             <div class="badges">{m.badges()}</div></td>
@@ -290,6 +295,39 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
           <td class="actions">{machine_menu(m, session)}</td>
         </tr>""")
         dialogs.append(machine_dialogs(m, session, "machines"))
+
+    table = f"""
+    <div class="table-wrap">
+      <table class="machines">
+        <thead><tr>{bulk_col}<th>{esc(_("Machine"))}</th>
+          <th><span title="{esc(_("The machine's Tailscale IP addresses and MagicDNS name"))}">{esc(_("Addresses"))} {icon("info", "i-xs")}</span></th>
+          <th class="hide-sm">{esc(_("Version"))}</th><th>{esc(_("Last seen"))}</th><th></th></tr></thead>
+        <tbody data-live="rows">{"".join(rows)}
+        </tbody>
+      </table>
+    </div>
+    <p class="no-results muted" hidden>{esc(_("No machines match the current filters."))}</p>"""
+    if admin:
+        table = f"""<form method="post" id="bulk-form">{csrf_input(session)}{table}
+    <div class="bulk-bar" data-bulk-bar hidden>
+      <span data-bulk-count data-one="{esc(_("1 machine selected"))}" data-many="{esc(_("{n} machines selected"))}"></span>
+      <button type="submit" formaction="{BASE}/machines/bulk/expire" class="btn small">{esc(_("Expire keys"))}</button>
+      <button type="button" class="btn small" data-open="bulk-tag">{esc(_("Add tag…"))}</button>
+      <button type="button" class="btn small danger-solid" data-open="bulk-remove">{esc(_("Remove…"))}</button>
+      <button type="button" class="btn small" data-bulk-clear>{esc(_("Clear selection"))}</button>
+    </div>
+    </form>
+    {dialog("bulk-remove", _("Remove selected machines?"),
+            esc(_("They are removed from the tailnet. To use one again it has to be connected again.")),
+            f"{BASE}/machines/bulk/remove", session, submit=_("Remove machines"), danger=True,
+            fields='<div data-bulk-mirror="bulk-remove"></div>')}
+    {dialog("bulk-tag", _("Add tag to selected machines"),
+            esc(_("Comma separated, with the tag: prefix. Added to each machine's existing tags. Each tag needs "
+                  "an owner in tagOwners of the policy.")),
+            f"{BASE}/machines/bulk/tags", session, submit=_("Add tag"),
+            fields='<div data-bulk-mirror="bulk-tag"></div>'
+                   f'<label class="field">{esc(_("Tags"))}<input name="tags" placeholder="tag:server, tag:prod" '
+                   f'required autocomplete="off" spellcheck="false"></label>')}"""
 
     body = head + f"""
     <div data-live="expiry-notice">{expiry.notice_html([m.node for m in machines], admin)}</div>
@@ -301,19 +339,23 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
       <a class="icon-btn boxed" href="{BASE}/machines.csv" title="{esc(_("Export to CSV"))}" aria-label="{esc(_("Export to CSV"))}">{icon("download")}</a>
     </div>
     <span class="pill" data-count data-one="{esc(_("1 machine"))}" data-many="{esc(_("{n} machines"))}">{esc(ngettext("{n} machine", "{n} machines", len(machines)))}</span>
-    <div class="table-wrap">
-      <table class="machines">
-        <thead><tr><th>{esc(_("Machine"))}</th>
-          <th><span title="{esc(_("The machine's Tailscale IP addresses and MagicDNS name"))}">{esc(_("Addresses"))} {icon("info", "i-xs")}</span></th>
-          <th class="hide-sm">{esc(_("Version"))}</th><th>{esc(_("Last seen"))}</th><th></th></tr></thead>
-        <tbody data-live="rows">{"".join(rows)}
-        </tbody>
-      </table>
-    </div>
-    <p class="no-results muted" hidden>{esc(_("No machines match the current filters."))}</p>
+    {table}
     <div data-live="dialogs">{"".join(dialogs)}</div>
     {f'<div data-live="inactive">{expiry.remove_inactive_dialog(machines, session)}</div>' if admin else ""}"""
     return layout(_("Machines"), "machines", body, session, ctx)
+
+
+def bulk_flash_html(code: str) -> str:
+    m = re.fullmatch(r"bulk-(expired|removed|tagged)-(\d+)", code or "")
+    if not m:
+        return ""
+    n = int(m.group(2))
+    texts = {
+        "expired": ngettext("{n} machine key expired.", "{n} machine keys expired.", n),
+        "removed": ngettext("{n} machine removed.", "{n} machines removed.", n),
+        "tagged": ngettext("Tag added to {n} machine.", "Tag added to {n} machines.", n),
+    }
+    return notice("ok", texts[m.group(1)])
 
 
 def machines_csv(machines: list[Machine]) -> str:

@@ -55,6 +55,11 @@ aprobar **rutas de subred y exit nodes** o eliminarla. Los miembros pueden
 renombrar, expirar y eliminar sus máquinas; rutas, etiquetas y caducidad son
 sólo para admins, como en Tailscale.
 
+**Acciones en lote** (admins): marca la casilla de varias filas (o la de la
+cabecera, para seleccionar todas las visibles) y aparece una barra para
+**caducar claves**, **añadir una etiqueta** o **eliminar** todas a la vez;
+útil al dar de baja un lote de dispositivos o etiquetar un grupo a posteriori.
+
 **Máquinas que caducan e inactivas.** Cuando alguna de las máquinas que ves
 caduca en los próximos 14 días o ya caducó, un aviso arriba de la lista dice
 cuántas son, con un enlace que las filtra (los miembros lo ven para sus propias
