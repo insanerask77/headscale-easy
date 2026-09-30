@@ -36,6 +36,8 @@
   "Saved an auto-approved route": "Guardó una ruta auto-aprobada",
   "Deleted an auto-approved route": "Eliminó una ruta auto-aprobada",
   "Saved the auto-approved exit node approvers": "Guardó los aprobadores del exit node auto-aprobado",
+  "Saved an SSH rule": "Guardó una regla SSH",
+  "Deleted an SSH rule": "Eliminó una regla SSH",
   "Changed DNS settings": "Cambió la configuración de DNS",
   "Changed device key expiry": "Cambió la caducidad de las claves de dispositivo",
   "Changed two-factor authentication": "Cambió la verificación en dos pasos",

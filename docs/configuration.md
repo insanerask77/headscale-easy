@@ -216,13 +216,13 @@ Each user reaches only their own devices — admins included. An existing policy
 is never overwritten. Edit it in **Access controls**; the syntax is
 [Tailscale's](https://tailscale.com/kb/1337/policy-syntax).
 
-**Access controls** has five tabs:
+**Access controls** has six tabs:
 
 - **Rules**, **Groups & tags**: forms for the common cases — who can reach
   what, reusable groups of users, who owns each tag — without writing HuJSON.
   They edit the same policy Headscale uses: under the hood, each save rewrites
   only the `acls`, `groups` or `tagOwners` block it touched and leaves the rest
-  of the file — comments, key order, an `ssh` or `autoApprovers` section you
+  of the file — comments, key order, a `hosts` section or anything else you
   wrote by hand — exactly as it was. A rule whose destinations mix different
   ports (something the forms cannot represent) can still be deleted from here,
   but only edited in Advanced.
@@ -232,15 +232,21 @@ is never overwritten. Edit it in **Access controls**; the syntax is
   machines](operations.md#managing-machines) for that manual, double opt-in
   flow). This is Headscale's [`autoApprovers` policy
   section](https://headscale.net/stable/ref/routes/).
+- **SSH rules**: who can SSH into which machines, as which host users, using
+  [Tailscale SSH](https://tailscale.com/kb/1193/tailscale-ssh) — no SSH keys
+  to manage. A rule can also require re-authenticating every so often instead
+  of a flat allow. This only controls *who is allowed in*: Tailscale SSH still
+  needs `tailscale up --ssh` (or the equivalent) on each device that should
+  accept connections.
 - **Test access**: pick a source and a destination (a device name, a user, a
   tag…) and it says whether the policy allows it and which rule matched. This
   is a **simulation** over the saved policy, not a live packet test — for
   certainty, test from the actual devices (`tailscale ping`, or try to reach
   the service).
 - **Advanced (HuJSON)**: the original text editor, unchanged. It is the full
-  escape hatch: anything the visual editor cannot represent — `ssh` rules,
-  hand-written comments — is only ever edited here, and nothing is lost by
-  having both.
+  escape hatch: anything the visual editor cannot represent — device
+  postures, hand-written comments — is only ever edited here, and nothing is
+  lost by having both.
 
 ## Device key expiry
 

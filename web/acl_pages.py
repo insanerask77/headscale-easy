@@ -26,6 +26,15 @@ def datalist(vocab: dict) -> str:
     return f'<datalist id="acl-targets">{items}</datalist>'
 
 
+def ssh_users_datalist(vocab: dict) -> str:
+    """Host usernames for the SSH rules form: the two special autogroups plus
+    the Headscale users, as a starting suggestion (any host username typed in
+    is fine too, e.g. 'ubuntu')."""
+    options = ["autogroup:nonroot", "root"] + vocab["users"]
+    items = "".join(f'<option value="{esc(o)}">' for o in options)
+    return f'<datalist id="acl-ssh-users">{items}</datalist>'
+
+
 def _chips(values: list[str]) -> str:
     if not values:
         return f'<span class="muted small">{esc(_("Anyone"))}</span>'
@@ -231,6 +240,76 @@ def auto_approve_panel(session: dict, pol: dict) -> str:
       </form>
     </div>
     {"".join(dialogs)}"""
+
+
+# -----------------------------------------------------------------------------
+# SSH rules
+# -----------------------------------------------------------------------------
+
+def _ssh_dialog(dialog_id: str, session: dict, title: str, view: dict | None, idx: int | None) -> str:
+    v = view or {"src": [], "dst": [], "users": [], "action": "accept", "checkPeriod": ""}
+    action_opts = "".join(
+        f'<option value="{a}" {"selected" if v["action"] == a else ""}>{esc(label)}</option>'
+        for a, label in [("accept", _("Allow")), ("check", _("Allow, but re-authenticate periodically"))])
+    index_input = f'<input type="hidden" name="index" value="{idx}">' if idx is not None else ""
+    return dialog(
+        dialog_id, title,
+        esc(_("Who can SSH into which machines, as which host users -- without managing SSH keys.")),
+        f"{BASE}/acl/ssh", session, submit=_("Save"),
+        fields=f"""{index_input}
+        <label class="field">{esc(_("Source"))}<input name="src" list="acl-targets" value="{esc(", ".join(v["src"]))}"
+          placeholder="autogroup:member, group:sre" required autocomplete="off" spellcheck="false"></label>
+        <label class="field">{esc(_("Destination"))}<input name="dst" list="acl-targets" value="{esc(", ".join(v["dst"]))}"
+          placeholder="autogroup:self, tag:prod" required autocomplete="off" spellcheck="false"></label>
+        <label class="field">{esc(_("Host users"))}<input name="users" list="acl-ssh-users" value="{esc(", ".join(v["users"]))}"
+          placeholder="autogroup:nonroot, root" required autocomplete="off" spellcheck="false"></label>
+        <div class="grid-2">
+          <label class="field">{esc(_("Access"))}<select name="action">{action_opts}</select></label>
+          <label class="field">{esc(_("Re-authenticate every"))}<input name="check_period" value="{esc(v["checkPeriod"])}"
+            placeholder="12h" autocomplete="off" spellcheck="false"></label>
+        </div>""")
+
+
+def ssh_panel(session: dict, pol: dict) -> str:
+    rules = pol.get("ssh") or []
+    rows, dialogs = [], []
+    for idx, rule in enumerate(rules):
+        view = policy.ssh_rule_view(rule)
+        edit_action = (f'<button type="button" data-open="acl-ssh-{idx}">{esc(_("Edit…"))}</button>' if view["editable"]
+                      else f'<span class="menu-note">{esc(_("Edit in Advanced (HuJSON)"))}</span>')
+        access = _("Re-authenticate every {period}", period=view["checkPeriod"] or "?") if view["action"] == "check" \
+            else _("Allow")
+        rows.append(f"""
+        <tr>
+          <td>{_chips(view["src"])}</td>
+          <td>{_chips(view["dst"])}</td>
+          <td>{_chips(view["users"])}</td>
+          <td>{esc(access)}</td>
+          <td class="actions">
+            <details class="dropdown">
+              <summary class="icon-btn" aria-label="{esc(_("Actions"))}">{icon("more")}</summary>
+              <div class="dropdown-body right">
+                {edit_action}<hr>
+                <form method="post" action="{BASE}/acl/ssh">{csrf_input(session)}
+                  <input type="hidden" name="op" value="delete"><input type="hidden" name="index" value="{idx}">
+                  <button type="submit" class="danger">{esc(_("Delete…"))}</button></form>
+              </div>
+            </details>
+          </td>
+        </tr>""")
+        if view["editable"]:
+            dialogs.append(_ssh_dialog(f"acl-ssh-{idx}", session, _("Edit SSH rule"), view, idx))
+    dialogs.append(_ssh_dialog("acl-ssh-new", session, _("Add SSH rule"), None, None))
+
+    content = _table(rows, [_("Source"), _("Destination"), _("Host users"), _("Access"), ""],
+                     _("No SSH rules yet: Tailscale SSH is not enabled by policy."))
+    return f"""<div class="stack">
+      <div class="card-title"><h2>{esc(_("SSH rules"))}</h2>
+        <button class="btn primary small" type="button" data-open="acl-ssh-new">{icon("plus")} {esc(_("Add rule"))}</button></div>
+      <p class="muted small">{esc(_("Tailscale SSH still needs to be enabled on each device ({flag}); this only "
+                                    "controls who is allowed in.", flag="tailscale up --ssh"))}</p>
+      {content}
+    </div>{"".join(dialogs)}"""
 
 
 # -----------------------------------------------------------------------------

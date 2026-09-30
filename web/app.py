@@ -461,6 +461,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.acl_edit(session, form, "auto_route")
             if path == f"{BASE}/acl/autoapprove/exit-node":
                 return self.acl_edit(session, form, "auto_exit")
+            if path == f"{BASE}/acl/ssh":
+                return self.acl_edit(session, form, "ssh_rule")
             if path == f"{BASE}/acl/test":
                 return self.acl_test(session, form)
             if path == f"{BASE}/dns":
@@ -948,16 +950,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200, admin_pages.acl_page(session, CTX, hs.get_policy(), hs.all_nodes(), hs.all_users(), "",
                                             draft=policy_text, result=result, active="raw"))
 
-    # --- policy: visual editor (Rules / Groups & tags / Auto-approval) ---
+    # --- policy: visual editor (Rules / Groups & tags / Auto-approval / SSH) ---
     def acl_edit(self, session: dict, form: dict, kind: str):
-        """Shared save path for the visual ACL editor's small dialogs (rules,
-        groups, tag owners, auto-approved routes and exit node). The policy
-        is re-read straight from Headscale
+        """Shared save path for the visual ACL editor's small dialogs (ACL
+        rules, groups, tag owners, auto-approved routes and exit node, SSH
+        rules). The policy is re-read straight from Headscale
         (never hs.get_policy(), which turns a failed request into an empty
         policy -- building on that would risk overwriting a real one), the
         change is spliced in with policy.replace_block, and it is validated
         and saved exactly like the raw editor's Save button."""
-        tab = "rules" if kind == "rule" else "groups" if kind in ("group", "tag") else "auto"
+        tab = ("rules" if kind == "rule" else "groups" if kind in ("group", "tag")
+              else "ssh" if kind == "ssh_rule" else "auto")
         try:
             current = hs.api("GET", "/policy")
         except urllib.error.HTTPError as exc:
@@ -970,22 +973,25 @@ class Handler(BaseHTTPRequestHandler):
             return self.redirect(f"{BASE}/acl?m=acl-unreadable&tab={tab}")
 
         is_delete = str(form.get("op", "")) == "delete"
-        if kind == "rule":
-            acls = list(parsed.get("acls") or [])
+        if kind in ("rule", "ssh_rule"):
+            key = "acls" if kind == "rule" else "ssh"
+            from_form = acl_rule_from_form if kind == "rule" else ssh_rule_from_form
+            renderer = policy.render_acls if kind == "rule" else policy.render_ssh_rules
+            rules = list(parsed.get(key) or [])
             idx = str(form.get("index", ""))
             if is_delete:
-                if not (idx.isdigit() and int(idx) < len(acls)):
+                if not (idx.isdigit() and int(idx) < len(rules)):
                     return self.redirect(f"{BASE}/acl?m=acl-not-found&tab={tab}")
-                del acls[int(idx)]
+                del rules[int(idx)]
             else:
-                rule, error = acl_rule_from_form(form)
+                rule, error = from_form(form)
                 if error:
                     return self.redirect(f"{BASE}/acl?m=acl-invalid&tab={tab}")
-                if idx.isdigit() and int(idx) < len(acls):
-                    acls[int(idx)] = rule
+                if idx.isdigit() and int(idx) < len(rules):
+                    rules[int(idx)] = rule
                 else:
-                    acls.append(rule)
-            new_text = policy.replace_block(text, "acls", policy.render_acls(acls))
+                    rules.append(rule)
+            new_text = policy.replace_block(text, key, renderer(rules))
         elif kind in ("group", "tag"):
             key = "groups" if kind == "group" else "tagOwners"
             mapping = dict(parsed.get(key) or {})
@@ -1188,6 +1194,36 @@ def acl_rule_from_form(form: dict) -> tuple[dict, str]:
     rule = {"action": "accept", "src": src, "dst": [f"{d}:{port}" for d in dst]}
     if proto:
         rule["proto"] = proto
+    return rule, ""
+
+
+CHECK_PERIOD_RE = re.compile(r"^\d+[a-z]+(\d+[a-z]+)*$")
+
+
+def ssh_rule_from_form(form: dict) -> tuple[dict, str]:
+    """One SSH rule (Headscale's shape) from the SSH rule dialog's fields,
+    and the first input error ("" if none)."""
+    src = policy.split_list(str(form.get("src", "")))
+    dst = policy.split_list(str(form.get("dst", "")))
+    users = policy.split_list(str(form.get("users", "")))
+    action = str(form.get("action", "")).strip().lower() or "accept"
+    check_period = str(form.get("check_period", "")).strip()
+    if not src:
+        return {}, _("Add at least one source.")
+    if not dst:
+        return {}, _("Add at least one destination.")
+    if not users:
+        return {}, _("Add at least one host user.")
+    if action not in ("accept", "check"):
+        return {}, _("Invalid access type.")
+    if check_period and not CHECK_PERIOD_RE.fullmatch(check_period):
+        return {}, _("Invalid re-authentication period: use e.g. 12h, 30m or 1d.")
+    bad = [t for t in src + dst if t.startswith("tag:") and not TAG_RE.fullmatch(t)]
+    if bad:
+        return {}, _("Invalid tag: {value}", value=bad[0])
+    rule = {"action": action, "src": src, "dst": dst, "users": users}
+    if action == "check" and check_period:
+        rule["checkPeriod"] = check_period
     return rule, ""
 
 

@@ -1,5 +1,5 @@
 """ACL policy editing for the visual editor (Access controls -> Rules /
-Groups & tags / Test access).
+Groups & tags / Auto-approval / SSH rules / Test access).
 
 Headscale's policy is HuJSON (JSON with '//' and '/* */' comments and
 trailing commas), the same format as Tailscale's ACL file, kept behind the
@@ -12,7 +12,7 @@ module does two things by hand:
   - replace_block(): finds the exact byte range of one top-level key's VALUE
     in the original text with a small hand-written scanner (spans()) and
     replaces only that range. Comments, key order and every section the
-    visual editor does not understand (ssh, autoApprovers, postures...)
+    visual editor does not touch (postures, hosts written by hand...)
     survive untouched. This is why the visual editor never needs to
     reserialize -- and never destroys -- a hand-written policy.
 
@@ -264,12 +264,26 @@ def render_auto_approvers(cfg: dict) -> str:
     return "{\n" + ",\n".join(parts) + "\n  }"
 
 
+def render_ssh_rules(rules: list[dict]) -> str:
+    if not rules:
+        return "[]"
+    items = []
+    for r in rules:
+        fields = [f'"action": {json.dumps(r.get("action") or "accept")}',
+                  f'"src": {json.dumps(list(r.get("src") or []))}',
+                  f'"dst": {json.dumps(list(r.get("dst") or []))}',
+                  f'"users": {json.dumps(list(r.get("users") or []))}']
+        if r.get("checkPeriod"):
+            fields.append(f'"checkPeriod": {json.dumps(r["checkPeriod"])}')
+        items.append("    {" + ", ".join(fields) + "}")
+    return "[\n" + ",\n".join(items) + "\n  ]"
+
+
 def replace_block(text: str, key: str, rendered: str) -> str:
     """Replace (or insert) the value of a top-level key. rendered is the
     value expression only ('[...]' or '{...}'), no key and no trailing comma.
-    Everything else in the text -- comments, key order, ssh, autoApprovers,
-    hosts, whatever the visual editor did not touch -- is preserved
-    byte-for-byte."""
+    Everything else in the text -- comments, key order, hosts, postures,
+    whatever the visual editor did not touch -- is preserved byte-for-byte."""
     text = text if text and text.strip() else "{}"
     open_i = _skip_ws_comments(text, 0)
     if open_i >= len(text) or text[open_i] != "{":
@@ -343,6 +357,25 @@ def rule_view(rule: dict) -> dict:
         "port": next(iter(ports), "*") if len(ports) <= 1 else "*",
         "proto": rule.get("proto") or "",
         "editable": len(ports) <= 1,
+    }
+
+
+_SSH_RULE_KEYS = {"action", "src", "dst", "users", "checkPeriod"}
+
+
+def ssh_rule_view(rule: dict) -> dict:
+    """A stored SSH rule (Headscale's shape) as-is for the SSH rules form.
+    'editable' is False when the rule uses a field the form does not cover
+    (acceptEnv, or anything else beyond action/src/dst/users/checkPeriod) --
+    such a rule can still be deleted from the visual editor, but only edited
+    in Advanced (HuJSON)."""
+    return {
+        "action": rule.get("action") or "accept",
+        "src": list(rule.get("src") or []),
+        "dst": list(rule.get("dst") or []),
+        "users": list(rule.get("users") or []),
+        "checkPeriod": rule.get("checkPeriod") or "",
+        "editable": set(rule.keys()) <= _SSH_RULE_KEYS,
     }
 
 
