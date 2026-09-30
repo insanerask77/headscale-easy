@@ -1,7 +1,7 @@
 # Documentation site: https://insanerask77.github.io/headscale-easy/
 # Preview locally:  pip install -r docs/requirements.txt && mkdocs serve
 site_name: Headscale Easy
-site_description: The open source Tailscale alternative — Headscale with a built-in web console, installed with one command.
+site_description: Headscale, with everything around it — installer, HTTPS, accounts, a Tailscale-style web console and backups, in one command.
 site_author: Rafa Madolell
 site_url: https://insanerask77.github.io/headscale-easy/
 repo_url: https://github.com/insanerask77/headscale-easy
@@ -63,6 +63,10 @@ plugins:
           build: true
           nav_translations:
             Home: Inicio
+            Why Headscale Easy?: ¿Por qué Headscale Easy?
+            Production and hardening: Producción y seguridad
+            Architecture and resources: Arquitectura y recursos
+            AI usage: Uso de IA
             Getting started: Primeros pasos
             Configuration: Configuración
             Operations: Operación
@@ -77,13 +81,17 @@ exclude_docs: |
 
 nav:
   - Home: index.md
+  - Why Headscale Easy?: why.md
   - Getting started: getting-started.md
   - Configuration: configuration.md
   - Operations: operations.md
+  - Production and hardening: hardening.md
+  - Architecture and resources: architecture.md
   - Project:
       - Contributing: contributing.md
       - Roadmap: roadmap.md
       - Security: security.md
+      - AI usage: ai-usage.md
       - Changelog: changelog.md
 
 markdown_extensions:

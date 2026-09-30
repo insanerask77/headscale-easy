@@ -226,6 +226,46 @@ Headscale API key when it has 15 days left (it keeps the new one in
 whole window or someone expired the key by hand. Re-run `./install.sh`: it
 creates a new one.
 
+**Signing in to the console fails (OIDC).** "The sign-in expired or is not
+valid" means the browser came back without the cookie set when sign-in
+started: check that you open the console with the exact `PUBLIC_URL` (same
+host and scheme — `http` vs `https` matters) and that the browser accepts
+cookies. Other errors are in `docker compose logs web`. With your own
+provider, the redirect URI `https://<domain>/admin/callback` must be
+registered, and admins need a verified email in `PORTAL_ADMIN_EMAILS` or a
+group in `PORTAL_ADMIN_GROUPS`.
+
+**Let's Encrypt does not issue the certificate.** Ports 80 and 443 must be
+reachable from the Internet and the domain must point at this host (check
+with `dig +short <domain>` from outside). `docker compose logs caddy` shows the
+ACME error. Too many failed attempts trigger Let's Encrypt's rate limits: fix
+the cause and wait an hour.
+
+**Behind my own proxy, devices do not connect or stay "offline".** The proxy
+must pass WebSockets and upgrade headers, must not buffer responses, and must
+forward to Caddy on port 80 with the original `Host`. Use the snippet the
+installer generated for your proxy (`NGINX-PROXY-MANAGER.md`,
+`nginx-<domain>.conf` or `traefik-<domain>.yml`), and set
+`FRONT_PROXY_IP` if containers cannot reach the public URL.
+
+**A device stays "waiting for approval" or shows a registration URL.** With
+OIDC the person must finish sign-in in the browser it opened. Without OIDC,
+register it from **Machines → Add device → Register with Auth ID** with the
+ID in that URL, or
+use an auth key. Check the owner: with isolation, a device registered to the
+wrong user is invisible to its owner.
+
+**DNS changes are rejected.** The console runs `headscale configtest` and
+rolls back when Headscale refuses the change; the error shown is Headscale's.
+The tailnet DNS name must differ from the server's domain. If the DNS page is
+read-only, it says why (no Docker socket, or `config.yaml` without the managed
+block — run `./install.sh` once).
+
+**The ACL policy blocks traffic you expect.** Use **Check** in the policy
+editor before saving, and remember that with `NETWORK_ISOLATION=true` each
+user (admins included) only reaches their own devices unless the policy says
+otherwise. Tagged devices belong to the tag, not to a user.
+
 **Somebody signed in with Google but cannot use the VPN.** New Google accounts
 have no group. Add them to `headscale-users` in Authentik.
 

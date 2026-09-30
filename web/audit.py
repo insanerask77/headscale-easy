@@ -192,6 +192,13 @@ def _db() -> sqlite3.Connection:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.executescript(_SCHEMA)
+        # Emails and client IPs: readable only by the web UI's user (the WAL
+        # and shared-memory files take the database's permissions)
+        for path in (DB_PATH, DB_PATH + "-wal", DB_PATH + "-shm"):
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
         _conn, _conn_path = conn, DB_PATH
     return _conn
 

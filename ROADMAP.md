@@ -27,6 +27,37 @@ Effort: **S** = hours · **M** = one or two days · **L** = several days.
   The mode (admins, everyone or optional) can be changed live by admins from
   Settings → General in the web UI.
 
+## 🛡️ Security and trust — from the community's feedback
+
+The project is young, AI-assisted and security-sensitive: making that clear
+and verifiable comes before new features.
+
+- [x] **S1. Security notice, SECURITY.md and AI usage** · S — *1.4.0*
+  Visible warning in the README and docs, what is exposed, known limitations,
+  how to report vulnerabilities, `AI_USAGE.md`.
+- [x] **S2. Permission-boundary tests** · M — *1.4.0*
+  `tests/test_security.py`: sessions, CSRF, admin-only pages and actions,
+  member ownership, path traversal, redirects, OIDC admin-by-email, demo mode.
+- [ ] **S3. Independent security review** · L
+  Ask for a third-party review of sign-in, sessions, the Docker socket and the
+  installer; publish the findings and fixes.
+- [ ] **S4. End-to-end tests in CI** · L
+  Start the real stack (Headscale + console, with and without Authentik) in CI
+  and test auth, OIDC, API, ACL, DNS, devices, backup/restore against it.
+- [ ] **S5. Revocable sessions and sign-in rate limiting** · M
+  Server-side session list (sign out everywhere, role changes take effect at
+  once) and per-IP limits on sign-in attempts.
+- [ ] **S6. Narrower Docker access** · M
+  Replace the raw Docker socket with a restricted proxy or a tiny helper that
+  can only validate and restart Headscale.
+- [x] **S7. Demo mode** · S — *1.4.0*
+  `DEMO_MODE=true`: banner on every page, access-granting and destructive
+  actions disabled.
+- [x] **S8. Positioning and docs** · S — *1.4.0*
+  "Why Headscale Easy?", comparison with Headplane, end-to-end workflow,
+  architecture, measured resource usage, 5-minute quick start, production and
+  hardening guide, troubleshooting.
+
 ## 🟠 High — what daily use misses most
 
 - [x] **4. Invitations and password recovery** · M — *1.1.0*

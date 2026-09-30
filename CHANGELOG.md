@@ -4,6 +4,42 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] - 2026-09-30
+
+### Security
+- An email in `PORTAL_ADMIN_EMAILS` no longer grants admin when the OIDC
+  provider says it is not verified (`email_verified: false`). Before, with a
+  provider that lets users set an unverified email, anyone could claim an
+  admin's address.
+- The activity log database (`data/web/audit.db`, with emails and client IPs)
+  is now readable only by the web UI's user (`600`); it was world-readable.
+- New `DEMO_MODE=true` for public demo instances: a "DEMO ENVIRONMENT" banner
+  on every page and the actions that grant access or change things for
+  everyone (auth keys, API keys, registering devices, invitations, reset
+  links, users, DNS, the ACL policy (visual editor and Advanced), two-factor,
+  key expiry, removing or expiring machines, one by one or in bulk) are
+  refused.
+
+### Added
+- `tests/test_security.py`: permission-boundary tests run in CI (forged and
+  expired sessions, CSRF, admin-only pages and actions, members limited to
+  their own machines and keys, path traversal, redirects, OIDC
+  admin-by-email, demo mode).
+- Documentation: security notice in the README and docs; `SECURITY.md` with
+  what is exposed, review and test status, known limitations and how to
+  report; `AI_USAGE.md`; new pages *Why Headscale Easy?* (the problem it
+  solves, comparison with Headplane, end-to-end workflow), *Production and
+  hardening* and *Architecture and resources* (with measured RAM, CPU and disk
+  use); a 5-minute quick start; more troubleshooting (OIDC, HTTPS, front
+  proxies, device registration, DNS, ACL).
+- Contributing: pull requests say whether they were AI-assisted, and changes to
+  sign-in, sessions, permissions or the Docker socket need a security test.
+
+### Changed
+- The project is described as what it is — a deployment and management layer
+  around the official Headscale — rather than "the open source Tailscale
+  alternative".
+
 ## [1.3.1] - 2026-09-30
 
 ### Fixed
@@ -212,6 +248,7 @@ First release as **Headscale Easy**.
 - Documentation site on GitHub Pages, in English and Spanish:
   https://insanerask77.github.io/headscale-easy/
 
+[1.4.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.4.0
 [1.3.1]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.3.1
 [1.3.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.3.0
 [1.2.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.2.0

@@ -52,7 +52,7 @@ import naming  # noqa: E402
 import pages  # noqa: E402
 import policy  # noqa: E402
 from i18n import LANGUAGES, _, pick_lang, set_lang  # noqa: E402
-from ui import BASE, esc, message_page  # noqa: E402
+from ui import BASE, DEMO, esc, message_page  # noqa: E402
 from version import VERSION  # noqa: E402
 
 # -----------------------------------------------------------------------------
@@ -101,6 +101,16 @@ AUTH_ID_RE = re.compile(r"^[A-Za-z0-9_:-]{8,200}$")
 KEY_DAYS = {"1", "7", "30", "90"}
 APIKEY_DAYS = {"30", "90", "365"}
 EXIT_ROUTES = ["0.0.0.0/0", "::/0"]
+# Public demo (DEMO_MODE=true): what visitors may not do. Anything that grants
+# access (auth keys, API keys, invitations, reset links, registering devices),
+# changes the network or sign-in for everyone (DNS, 2FA, key expiry, the ACL
+# policy from the visual editor; saving it from Advanced is checked in do_POST)
+# or removes data.
+DEMO_BLOCKED = re.compile(
+    rf"{BASE}/(keys|apikeys(/\d+/expire)?|machines/(register|remove-inactive)|machines/\d+/(delete|expire)"
+    rf"|machines/bulk/(expire|remove)|settings/(key-expiry|mfa)|users(/\d+/(rename|delete))?"
+    rf"|invitations(/[0-9a-f-]+/revoke)?|accounts/\d+/recovery|dns"
+    rf"|acl/(rules|groups|tags|autoapprove/(routes|exit-node)|ssh))")
 
 
 # -----------------------------------------------------------------------------
@@ -156,11 +166,12 @@ def my_user(session: dict) -> dict | None:
     return hs.user_for_sub(session["sub"]) if session.get("sub") else None
 
 
-def role_of(groups: list[str], email: str) -> str:
+def role_of(groups: list[str], email: str, email_verified: bool = True) -> str:
     """The session role from an OIDC identity's groups/email: admin (from
     PORTAL_ADMIN_GROUPS or PORTAL_ADMIN_EMAILS) takes priority, then network
-    admin, then auditor (both PORTAL_*_GROUPS only), else member."""
-    if bool(set(groups) & ADMIN_GROUPS) or bool(email and email.lower() in ADMIN_EMAILS):
+    admin, then auditor (both PORTAL_*_GROUPS only), else member. An email the
+    provider reports as unverified never counts for PORTAL_ADMIN_EMAILS."""
+    if bool(set(groups) & ADMIN_GROUPS) or bool(email_verified and email and email.lower() in ADMIN_EMAILS):
         return "admin"
     if set(groups) & NETWORK_ADMIN_GROUPS:
         return "network_admin"
@@ -437,6 +448,9 @@ class Handler(BaseHTTPRequestHandler):
             # CSRF: the form token must match the session's
             if not hmac.compare_digest(str(form.get("csrf", "")), session["csrf"]):
                 return self.fail(403, _("Session expired"), _("Reload the page and try again."))
+            if DEMO and (DEMO_BLOCKED.fullmatch(path) or (path == f"{BASE}/acl" and form.get("action") == "save")):
+                return self.fail(403, _("Not available in the demo"),
+                                 _("This action is disabled in the demo environment."))
 
             if path == f"{BASE}/logout":
                 return self.logout(session)
@@ -604,7 +618,14 @@ class Handler(BaseHTTPRequestHandler):
         info = hs.http_json("GET", d["userinfo_endpoint"], headers={"Authorization": f"Bearer {token['access_token']}"})
         groups = sorted(info.get("groups") or [])
         email = (info.get("email") or "").lower()
-        role = role_of(groups, email)
+        # PORTAL_ADMIN_EMAILS (your own OIDC provider): never trust an email
+        # the provider says it has not verified, or anyone who can set that
+        # address on their account would become an admin
+        verified = info.get("email_verified") is not False
+        if not verified and email in ADMIN_EMAILS:
+            log.warning("%s is in PORTAL_ADMIN_EMAILS but the provider says the email is not verified: "
+                        "not made an admin by email", email)
+        role = role_of(groups, email, verified)
         self.start_session({
             "kind": "oidc",
             "sub": info["sub"],
@@ -1332,8 +1353,8 @@ def _key_expiry_days(form: dict) -> int | None:
 
 def main():
     port = int(os.environ.get("PORT", "8000"))
-    log.info("Headscale Easy %s listening on :%d (public: %s%s, SSO=%s, API key sign-in=%s)",
-             VERSION, port, PUBLIC_URL, BASE, SSO, API_KEY_LOGIN)
+    log.info("Headscale Easy %s listening on :%d (public: %s%s, SSO=%s, API key sign-in=%s%s)",
+             VERSION, port, PUBLIC_URL, BASE, SSO, API_KEY_LOGIN, ", DEMO MODE" if DEMO else "")
     apikey.start()
     audit.start()
     naming.start()

@@ -10,10 +10,10 @@ hide:
 
 # Headscale Easy
 
-**La alternativa open source a Tailscale.**<br>
-Tu propio servidor Headscale con una consola web integrada que se ve y se usa
-como la de Tailscale: cuentas de usuario, login con Google y HTTPS incluidos.
-Se instala con un solo comando.
+**Headscale, con todo lo que lo rodea.**<br>
+Una capa de despliegue y gestión para Headscale: instalador, HTTPS, cuentas e
+inicio de sesión, una consola web estilo Tailscale y copias de seguridad. Se
+instala con un solo comando.
 
 [Empezar](getting-started.md){ .md-button .md-button--primary }
 [GitHub](https://github.com/insanerask77/headscale-easy){ .md-button }
@@ -23,13 +23,19 @@ Se instala con un solo comando.
 
 ![Headscale Easy — Máquinas](images/machines-dark.png){ .hse-shot }
 
-Tailscale es genial, pero su servidor de coordinación es cerrado y lo alojan
-ellos. [Headscale](https://github.com/juanfont/headscale) es la implementación
-open source de ese servidor, pero sólo tiene línea de comandos, y montar a mano
-HTTPS, usuarios y single sign-on lleva una tarde.
+!!! warning "Aviso de seguridad"
+    Es software de red sensible en seguridad y un proyecto joven con un solo
+    mantenedor. Se ha usado desarrollo asistido por IA de forma extensa
+    ([uso de IA](ai-usage.md)) y **no ha pasado ninguna auditoría de seguridad
+    independiente**. Revisa y bastiona tu despliegue antes de exponerlo a
+    Internet: consulta [Seguridad](security.md) y
+    [Producción y bastionado](hardening.md).
 
-**Headscale Easy** es a Headscale lo que [wg-easy](https://github.com/wg-easy/wg-easy)
-es a WireGuard: Headscale y todo lo que lo rodea, instalado por un script
+[Headscale](https://github.com/juanfont/headscale) funciona bien por sí solo;
+lo que lleva tiempo es el pegamento alrededor: auth, DNS, HTTPS, gestión de
+dispositivos y copias. **Headscale Easy** usa el Headscale oficial sin
+modificar y empaqueta ese pegamento, como hace [wg-easy](https://github.com/wg-easy/wg-easy)
+con WireGuard: instalado por un script
 interactivo y gestionado desde una consola inspirada en el panel de Tailscale.
 En los dispositivos usas las apps oficiales de Tailscale; sólo el servidor es tuyo.
 

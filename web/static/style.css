@@ -782,3 +782,7 @@ th.bulk-col, td.bulk-col { width: 2.25rem; }
     border-radius: 8px;
 }
 .bulk-bar [data-bulk-count] { font-weight: 500; margin-right: 0.3rem; }
+
+/* ---- demo instance (DEMO_MODE=true) ---- */
+.notice.demo { font-weight: 600; text-align: center; }
+.bare-main > .notice.demo { max-width: 32rem; }

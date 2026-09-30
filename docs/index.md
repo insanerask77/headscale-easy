@@ -10,9 +10,9 @@ hide:
 
 # Headscale Easy
 
-**The open source Tailscale alternative.**<br>
-Your own Headscale server with a built-in web console that looks and feels like
-Tailscale's — user accounts, Google sign-in and HTTPS included. One command to install.
+**Headscale, with everything around it.**<br>
+A deployment and management layer for Headscale: installer, HTTPS, accounts
+and sign-in, a Tailscale-style web console and backups. One command to install.
 
 [Get started](getting-started.md){ .md-button .md-button--primary }
 [GitHub](https://github.com/insanerask77/headscale-easy){ .md-button }
@@ -22,13 +22,19 @@ Tailscale's — user accounts, Google sign-in and HTTPS included. One command to
 
 ![Headscale Easy — Machines](images/machines-dark.png){ .hse-shot }
 
-Tailscale is wonderful, but its coordination server is closed and hosted by
-them. [Headscale](https://github.com/juanfont/headscale) is the open source
-implementation of that server — but it only has a command line, and wiring up
-HTTPS, users and single sign-on by hand takes an afternoon.
+!!! warning "Security notice"
+    This is security-sensitive networking software, and a young project with
+    one maintainer. AI-assisted development was used extensively
+    ([AI usage](ai-usage.md)) and **there has been no independent security
+    audit**. Review and harden your deployment before exposing it to the
+    Internet: see [Security](security.md) and
+    [Production and hardening](hardening.md).
 
-**Headscale Easy** is what [wg-easy](https://github.com/wg-easy/wg-easy) is to
-WireGuard: Headscale plus everything around it, installed by one interactive
+[Headscale](https://github.com/juanfont/headscale) works well on its own;
+what takes time is the glue around it — auth, DNS, HTTPS, device management
+and backups. **Headscale Easy** runs the official, unmodified Headscale and
+packages that glue, much like [wg-easy](https://github.com/wg-easy/wg-easy)
+does for WireGuard: installed by one interactive
 script and managed from a console modelled on Tailscale's admin panel. Use the
 official Tailscale apps on every device; only the server is yours.
 
