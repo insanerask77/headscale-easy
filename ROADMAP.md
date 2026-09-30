@@ -57,16 +57,16 @@ Effort: **S** = hours · **M** = one or two days · **L** = several days.
   nas:445?"). The raw HuJSON editor stays as a full fallback (Advanced tab);
   edits from the visual editor splice only the block they touch, so comments
   and hand-written sections (`ssh`, `autoApprovers`) are never lost.
-- [ ] **10. Auto-approval of routes and exit nodes** · S/M
+- [x] **10. Auto-approval of routes and exit nodes** · S/M — *1.3.0*
   Expose Headscale's `autoApprovers` (subnets or exit nodes of certain tags are
-  approved automatically) on the routes page.
-- [ ] **11. Tailscale SSH rules** · M
+  approved automatically) on a new Auto-approval tab in Access controls.
+- [x] **11. Tailscale SSH rules** · M — *1.3.0*
   Headscale supports the `ssh` section of the policy: a page to define who can
   SSH into which machines without managing SSH keys.
-- [ ] **12. More roles** · M
+- [x] **12. More roles** · M — *1.3.0*
   Besides admin and member: "Network admin" (ACL and DNS only) and "Auditor"
   (read-only), like Tailscale, built on Authentik groups.
-- [ ] **13. Bulk actions** · S
+- [x] **13. Bulk actions** · S — *1.3.0*
   Select several machines to expire, remove or tag them at once.
 
 ## 🟢 Low — polish and advanced cases
@@ -80,12 +80,15 @@ Effort: **S** = hours · **M** = one or two days · **L** = several days.
 
 ## Suggested order
 
-Items 1–9 are done. Next up:
+Items 1–13 are done — the Critical, High and Medium sections are complete.
+What's left is all 🟢 Low priority, roughly in order:
 
-1. **Now:** 10 and 13 — small, and they build on the visual ACL editor's
-   groups/tags picker while it's fresh.
-2. **Then:** 11 and 12.
-3. **Low priority, as time allows:** 14–19.
+1. Webhook notifications (14) and the server status page (15) are the most
+   generally useful.
+2. DERP relay status (16) and PostgreSQL support (17) are for larger or
+   more specific deployments.
+3. More languages (18) and the "localhost" rename delay (19) are small,
+   pick up anytime.
 
 ## Done
 
@@ -100,3 +103,4 @@ Shipped items move here with their version.
 - [x] Scheduled backups and one-command restore — 1.0.6
 - [x] DNS page like Tailscale's, invitations and password reset, expiry warnings, activity log, QR codes — 1.1.0
 - [x] Visual ACL policy editor (rules, groups, tag owners, access simulator) — 1.2.0
+- [x] Auto-approval of routes/exit nodes, SSH rules, bulk machine actions, Network admin and Auditor roles — 1.3.0

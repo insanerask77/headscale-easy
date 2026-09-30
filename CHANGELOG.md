@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-09-30
+
+Closes out the roadmap's Medium-priority section (items 10-13).
+
+### Added
+- **Auto-approval of routes and exit nodes.** A 5th "Auto-approval" tab in
+  Access controls exposes Headscale's `autoApprovers` policy section:
+  declare which tag, group or user gets a subnet route (or the exit node
+  role) approved automatically, instead of approving each device by hand.
+  Verified live: a tagged test device's advertised route and exit-node role
+  were both approved with zero manual steps.
+- **Tailscale SSH rules.** A 6th "SSH rules" tab: who can SSH into which
+  machines, as which host users, with optional periodic re-authentication —
+  no SSH keys to manage. Tailscale SSH itself still needs turning on per
+  device (`tailscale up --ssh`).
+- **Bulk actions on machines.** Tick several rows in the Machines table (or
+  the header checkbox for all of them) to expire keys, add a tag or remove
+  them all at once, instead of one at a time.
+- **Network admin and Auditor roles**, both opt-in and built on Authentik
+  groups (`PORTAL_NETWORK_ADMIN_GROUPS`, `PORTAL_AUDITOR_GROUPS`): a network
+  admin edits the ACL policy and DNS only; an auditor sees everything an
+  admin sees — every machine, Users, DNS, Access controls, Logs — but can
+  never change anything, anywhere. No Authentik blueprint changes needed:
+  the existing `profile` OIDC scope already sends every group a user belongs
+  to.
+
 ## [1.2.0] - 2026-09-29
 
 ### Added
@@ -173,6 +199,7 @@ First release as **Headscale Easy**.
 - Documentation site on GitHub Pages, in English and Spanish:
   https://insanerask77.github.io/headscale-easy/
 
+[1.3.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.3.0
 [1.2.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.2.0
 [1.1.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.1.0
 [1.0.7]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.7
