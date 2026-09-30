@@ -67,6 +67,13 @@ LAN or tailnet in Caddy or your front proxy — see the
   Admins are members of `PORTAL_ADMIN_GROUPS`, or owners of an email in
   `PORTAL_ADMIN_EMAILS`; an email the provider marks as not verified
   (`email_verified: false`) never grants admin.
+- **Narrower roles are opt-in and group-based.** A network admin
+  (`PORTAL_NETWORK_ADMIN_GROUPS`) can edit the ACL policy and DNS and nothing
+  else; an auditor (`PORTAL_AUDITOR_GROUPS`) sees everything an admin sees and
+  can change nothing. Both are off while their variable is empty, neither can
+  be granted by email, and admin takes priority. The default
+  `MFA_REQUIRED=admins` covers the admin groups only: use `everyone` if these
+  roles should need two-factor too.
 - **Two-factor authentication** (authenticator app or passkey) is required for
   admins by default with the built-in Authentik (`MFA_REQUIRED`), and optional
   for members.
