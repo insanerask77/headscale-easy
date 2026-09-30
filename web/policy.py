@@ -246,6 +246,24 @@ def render_hosts(hosts: dict[str, str]) -> str:
     return "{\n" + ",\n".join(items) + "\n  }"
 
 
+def render_auto_approvers(cfg: dict) -> str:
+    """cfg: {'routes': {cidr: [approvers]}, 'exitNode': [approvers]}. Both
+    parts live under the single top-level 'autoApprovers' key, so this
+    renders the whole object -- replace_block() only splices whole top-level
+    values, not their nested keys."""
+    parts = []
+    routes = cfg.get("routes") or {}
+    if routes:
+        items = [f"      {json.dumps(cidr)}: {json.dumps(list(approvers))}" for cidr, approvers in routes.items()]
+        parts.append('    "routes": {\n' + ",\n".join(items) + "\n    }")
+    exit_node = cfg.get("exitNode") or []
+    if exit_node:
+        parts.append(f'    "exitNode": {json.dumps(list(exit_node))}')
+    if not parts:
+        return "{}"
+    return "{\n" + ",\n".join(parts) + "\n  }"
+
+
 def replace_block(text: str, key: str, rendered: str) -> str:
     """Replace (or insert) the value of a top-level key. rendered is the
     value expression only ('[...]' or '{...}'), no key and no trailing comma.

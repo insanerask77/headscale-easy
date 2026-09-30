@@ -220,7 +220,7 @@ Cada usuario sólo alcanza sus dispositivos, admins incluidos. Una política
 existente nunca se sobrescribe. Edítala en **Control de acceso**; la sintaxis
 es la [de Tailscale](https://tailscale.com/kb/1337/policy-syntax).
 
-**Control de acceso** tiene cuatro pestañas:
+**Control de acceso** tiene cinco pestañas:
 
 - **Reglas**, **Grupos y etiquetas**: formularios para los casos habituales
   —quién puede llegar a qué, grupos reutilizables de usuarios, quién es dueño
@@ -231,6 +231,12 @@ es la [de Tailscale](https://tailscale.com/kb/1337/policy-syntax).
   exactamente igual. Una regla cuyos destinos mezclan puertos distintos (algo
   que los formularios no pueden representar) se puede eliminar desde aquí,
   pero solo se edita en Avanzado.
+- **Auto-aprobación**: declara qué etiqueta, grupo o usuario recibe la
+  aprobación automática de una ruta de subred (o del rol de exit node), en
+  vez de aprobar cada dispositivo a mano desde su página de máquina (ver
+  [Gestionar máquinas](operations.es.md#managing-machines) para ese flujo
+  manual de doble confirmación). Es la sección de política `autoApprovers` de
+  [Headscale](https://headscale.net/stable/ref/routes/).
 - **Probar acceso**: elige un origen y un destino (un dispositivo, un
   usuario, una etiqueta…) y dice si la política lo permite y qué regla
   coincidió. Es una **simulación** sobre la política guardada, no una prueba
@@ -238,8 +244,8 @@ es la [de Tailscale](https://tailscale.com/kb/1337/policy-syntax).
   reales (`tailscale ping`, o intenta llegar al servicio).
 - **Avanzado (HuJSON)**: el editor de texto original, sin cambios. Es la vía
   de escape completa: cualquier cosa que el editor visual no pueda
-  representar —reglas `ssh`, `autoApprovers`, comentarios escritos a mano—
-  solo se edita aquí, y no se pierde nada por tener ambos.
+  representar —reglas `ssh`, comentarios escritos a mano— solo se edita aquí,
+  y no se pierde nada por tener ambos.
 
 ## Caducidad de la clave de los dispositivos { #device-key-expiry }
 

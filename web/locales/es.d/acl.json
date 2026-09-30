@@ -3,6 +3,7 @@
   "Rules & policy": "Reglas y política",
   "Rules": "Reglas",
   "Groups & tags": "Grupos y etiquetas",
+  "Auto-approval": "Auto-aprobación",
   "Test access": "Probar acceso",
   "Advanced (HuJSON)": "Avanzado (HuJSON)",
   "This policy could not be read as HuJSON ({error}). Fix it in Advanced.": "No se pudo leer la política como HuJSON ({error}). Corrígela en Avanzado.",
@@ -64,5 +65,17 @@
   "That item no longer exists in the policy.": "Ese elemento ya no existe en la política.",
   "Headscale rejected the change. Open Advanced to see the full policy.": "Headscale rechazó el cambio. Abre Avanzado para ver la política completa.",
   "Could not read the current policy from Headscale. Try again.": "No se pudo leer la política actual de Headscale. Inténtalo de nuevo.",
-  "The saved policy could not be read as HuJSON. Fix it in Advanced first.": "La política guardada no se pudo leer como HuJSON. Corrígela antes en Avanzado."
+  "The saved policy could not be read as HuJSON. Fix it in Advanced first.": "La política guardada no se pudo leer como HuJSON. Corrígela antes en Avanzado.",
+  "Auto-approved routes": "Rutas auto-aprobadas",
+  "Add route": "Añadir ruta",
+  "Add auto-approved route": "Añadir ruta auto-aprobada",
+  "Edit auto-approved route": "Editar ruta auto-aprobada",
+  "Devices matching an approver that advertise this subnet are approved automatically.": "Los dispositivos que coincidan con un aprobador y anuncien esta subred se aprueban automáticamente.",
+  "A device that advertises one of these subnets is approved automatically if it matches an approver -- no per-device approval needed.": "Un dispositivo que anuncie una de estas subredes se aprueba automáticamente si coincide con un aprobador, sin necesidad de aprobarlo a mano.",
+  "No auto-approved routes yet.": "Aún no hay rutas auto-aprobadas.",
+  "Approvers": "Aprobadores",
+  "Auto-approved exit node": "Exit node auto-aprobado",
+  "A device advertising itself as an exit node is approved automatically if it matches one of these. Leave it empty to turn auto-approval off.": "Un dispositivo que se anuncie como exit node se aprueba automáticamente si coincide con alguno de estos. Déjalo vacío para desactivar la auto-aprobación.",
+  "Add at least one approver.": "Añade al menos un aprobador.",
+  "Invalid subnet: use CIDR notation (e.g. 10.0.0.0/24).": "Subred no válida: usa notación CIDR (p. ej. 10.0.0.0/24)."
 }

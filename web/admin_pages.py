@@ -150,13 +150,14 @@ def _raw_panel(session: dict, text: str, updated: str | None, result: tuple[str,
     </div>"""
 
 
-_TAB_KEYS = ("rules", "groups", "test", "raw")
+_TAB_KEYS = ("rules", "groups", "auto", "test", "raw")
 
 
 def _tab_label(key: str) -> str:
     return {
         "rules": _("Rules"),
         "groups": _("Groups & tags"),
+        "auto": _("Auto-approval"),
         "test": _("Test access"),
         "raw": _("Advanced (HuJSON)"),
     }[key]
@@ -182,13 +183,15 @@ def acl_page(session: dict, ctx: dict, policy_data: dict, nodes: list[dict], use
     if broken:
         note = (f'<div class="notice error" role="status">'
                f'{esc(_("This policy could not be read as HuJSON ({error}). Fix it in Advanced.", error=broken))}</div>')
-        rules_body = groups_body = note
+        rules_body = groups_body = auto_body = note
     else:
         rules_body = acl_pages.rules_panel(session, parsed)
         groups_body = acl_pages.groups_panel(session, parsed)
+        auto_body = acl_pages.auto_approve_panel(session, parsed)
     panels_by_key = {
         "rules": rules_body,
         "groups": groups_body,
+        "auto": auto_body,
         "test": acl_pages.test_panel(session, test),
         "raw": _raw_panel(session, text, policy_data.get("updatedAt"), result),
     }

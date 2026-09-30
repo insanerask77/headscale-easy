@@ -443,6 +443,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.acl_edit(session, form, "group")
             if path == f"{BASE}/acl/tags":
                 return self.acl_edit(session, form, "tag")
+            if path == f"{BASE}/acl/autoapprove/routes":
+                return self.acl_edit(session, form, "auto_route")
+            if path == f"{BASE}/acl/autoapprove/exit-node":
+                return self.acl_edit(session, form, "auto_exit")
             if path == f"{BASE}/acl/test":
                 return self.acl_test(session, form)
             if path == f"{BASE}/dns":
@@ -893,15 +897,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200, admin_pages.acl_page(session, CTX, hs.get_policy(), hs.all_nodes(), hs.all_users(), "",
                                             draft=policy_text, result=result, active="raw"))
 
-    # --- policy: visual editor (Rules / Groups & tags) ---
+    # --- policy: visual editor (Rules / Groups & tags / Auto-approval) ---
     def acl_edit(self, session: dict, form: dict, kind: str):
         """Shared save path for the visual ACL editor's small dialogs (rules,
-        groups, tag owners). The policy is re-read straight from Headscale
+        groups, tag owners, auto-approved routes and exit node). The policy
+        is re-read straight from Headscale
         (never hs.get_policy(), which turns a failed request into an empty
         policy -- building on that would risk overwriting a real one), the
         change is spliced in with policy.replace_block, and it is validated
         and saved exactly like the raw editor's Save button."""
-        tab = "rules" if kind == "rule" else "groups"
+        tab = "rules" if kind == "rule" else "groups" if kind in ("group", "tag") else "auto"
         try:
             current = hs.api("GET", "/policy")
         except urllib.error.HTTPError as exc:
@@ -930,7 +935,7 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     acls.append(rule)
             new_text = policy.replace_block(text, "acls", policy.render_acls(acls))
-        else:
+        elif kind in ("group", "tag"):
             key = "groups" if kind == "group" else "tagOwners"
             mapping = dict(parsed.get(key) or {})
             orig = str(form.get("orig_name", "")).strip()
@@ -947,6 +952,30 @@ class Handler(BaseHTTPRequestHandler):
                 mapping[name] = members
             renderer = policy.render_groups if kind == "group" else policy.render_tag_owners
             new_text = policy.replace_block(text, key, renderer(mapping))
+        elif kind == "auto_route":
+            auto = dict(parsed.get("autoApprovers") or {})
+            routes = dict(auto.get("routes") or {})
+            orig = str(form.get("orig_name", "")).strip()
+            if is_delete:
+                if orig not in routes:
+                    return self.redirect(f"{BASE}/acl?m=acl-not-found&tab={tab}")
+                del routes[orig]
+            else:
+                cidr, approvers, error = acl_auto_route_from_form(form)
+                if error:
+                    return self.redirect(f"{BASE}/acl?m=acl-invalid&tab={tab}")
+                if orig and orig != cidr:
+                    routes.pop(orig, None)
+                routes[cidr] = approvers
+            auto["routes"] = routes
+            new_text = policy.replace_block(text, "autoApprovers", policy.render_auto_approvers(auto))
+        else:  # kind == "auto_exit"
+            approvers, error = acl_auto_exit_node_from_form(form)
+            if error:
+                return self.redirect(f"{BASE}/acl?m=acl-invalid&tab={tab}")
+            auto = dict(parsed.get("autoApprovers") or {})
+            auto["exitNode"] = approvers
+            new_text = policy.replace_block(text, "autoApprovers", policy.render_auto_approvers(auto))
 
         try:
             hs.api("POST", "/policy/check", {"policy": new_text})
@@ -1134,6 +1163,32 @@ def acl_tag_owner_from_form(form: dict) -> tuple[str, list[str], str]:
     if not owners:
         return "", [], _("Add at least one owner.")
     return name, owners, ""
+
+
+def acl_auto_route_from_form(form: dict) -> tuple[str, list[str], str]:
+    """(cidr, approvers, error) for the auto-approved route dialog."""
+    cidr = str(form.get("cidr", "")).strip()
+    approvers = policy.split_list(str(form.get("approvers", "")))
+    try:
+        ipaddress.ip_network(cidr, strict=False)
+    except ValueError:
+        return "", [], _("Invalid subnet: use CIDR notation (e.g. 10.0.0.0/24).")
+    if not approvers:
+        return "", [], _("Add at least one approver.")
+    bad = [a for a in approvers if a.startswith("tag:") and not TAG_RE.fullmatch(a)]
+    if bad:
+        return "", [], _("Invalid tag: {value}", value=bad[0])
+    return cidr, approvers, ""
+
+
+def acl_auto_exit_node_from_form(form: dict) -> tuple[list[str], str]:
+    """(approvers, error) for the auto-approved exit node form. An empty list
+    is valid: it turns auto-approval off."""
+    approvers = policy.split_list(str(form.get("approvers", "")))
+    bad = [a for a in approvers if a.startswith("tag:") and not TAG_RE.fullmatch(a)]
+    if bad:
+        return [], _("Invalid tag: {value}", value=bad[0])
+    return approvers, ""
 
 
 def _key_expiry_days(form: dict) -> int | None:
