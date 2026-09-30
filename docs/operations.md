@@ -53,6 +53,11 @@ The **⋯** menu (and the machine's page) lets you rename it, expire its key
 and exit nodes**, or remove it. Members can rename, expire and remove their own
 machines; routes, tags and key expiry are admin-only, as in Tailscale.
 
+**Bulk actions** (admins): tick the checkbox on several rows (or the one in
+the header, to select every visible machine) and a bar appears to **expire
+keys**, **add a tag** or **remove** all of them at once — useful when
+decommissioning a batch of devices or tagging a group of them after the fact.
+
 **Expiring and inactive machines.** When some of the machines you can see
 expire in the next 14 days or already expired, a notice at the top of the list
 says how many, with a link that filters them (members see it for their own

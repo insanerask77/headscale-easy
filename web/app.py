@@ -204,6 +204,17 @@ def lines(value: str) -> list[str]:
     return [x.strip() for x in re.split(r"[\n,]", value or "") if x.strip()]
 
 
+def bulk_tags_from_form(form: dict) -> tuple[list[str], str]:
+    """(tags, error) for the Machines bulk "Add tag…" dialog."""
+    tags = [t.lower() for t in lines(str(form.get("tags", "")))]
+    if not tags:
+        return [], _("Add at least one tag.")
+    bad = [t for t in tags if not TAG_RE.fullmatch(t)]
+    if bad:
+        return [], _("Invalid tag: {value}", value=bad[0])
+    return tags, ""
+
+
 def iso_in(days: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -418,6 +429,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.register_node(session, form)
             if path == f"{BASE}/machines/remove-inactive":
                 return self.remove_inactive(session, form)
+            m = re.fullmatch(rf"{BASE}/machines/bulk/(expire|remove|tags)", path)
+            if m:
+                return self.bulk_machines(session, form, m.group(1))
             if path == f"{BASE}/settings/key-expiry":
                 return self.save_key_expiry(session, form)
             if path == f"{BASE}/settings/mfa":
@@ -716,6 +730,43 @@ class Handler(BaseHTTPRequestHandler):
         if removed:
             audit.request_event(self, session, "machines.remove_inactive", "", {"nodes": removed})
         return self.redirect(f"{BASE}/machines?m={expiry.remove_result(len(removed), len(failed))}")
+
+    def bulk_machines(self, session: dict, form: dict, op: str):
+        """Admin: act on every machine ticked in the Machines table's bulk
+        selection at once (expire keys, remove, or add a tag)."""
+        wanted = expiry.selected_ids(form)
+        nodes = {str(n.get("id")): n for n in hs.all_nodes()}
+
+        tags_to_add: list[str] = []
+        if op == "tags":
+            tags_to_add, error = bulk_tags_from_form(form)
+            if error:
+                return self.redirect(f"{BASE}/machines?m=failed")
+
+        done, failed = [], []
+        for node_id in wanted:
+            node = nodes.get(node_id)
+            if node is None:
+                continue
+            try:
+                if op == "expire":
+                    hs.api("POST", f"/node/{node_id}/expire")
+                elif op == "remove":
+                    hs.api("DELETE", f"/node/{node_id}")
+                else:
+                    current = set(node.get("tags") or [])
+                    hs.api("POST", f"/node/{node_id}/tags", {"tags": sorted(current | set(tags_to_add))})
+                done.append(node.get("givenName") or node.get("name") or node_id)
+            except urllib.error.HTTPError as exc:
+                log.warning("headscale rejected bulk %s on node %s: %s", op, node_id, hs.api_error(exc))
+                failed.append(node_id)
+        log.info("%s bulk-%s %d machine(s): %s", session["username"], op, len(done), ", ".join(done))
+        if done:
+            details = {"nodes": done, "tags": tags_to_add} if op == "tags" else {"nodes": done}
+            audit.request_event(self, session, f"machines.bulk_{op}", "", details)
+        flash_op = {"expire": "expired", "remove": "removed", "tags": "tagged"}[op]
+        code = f"bulk-{flash_op}-{len(done)}" if done else "failed"
+        return self.redirect(f"{BASE}/machines?m={code}")
 
     # --- keys ---
     def create_key(self, session: dict, form: dict):

@@ -98,6 +98,9 @@ def action_labels() -> dict[str, str]:
         "machine.tags": _("Changed tags"),
         "machine.register": _("Registered machine with Auth ID"),
         "machines.remove_inactive": _("Removed inactive machines"),
+        "machines.bulk_expire": _("Expired keys on several machines"),
+        "machines.bulk_remove": _("Removed several machines"),
+        "machines.bulk_tags": _("Added a tag to several machines"),
         # users
         "user.create": _("Created user"),
         "user.rename": _("Renamed user"),
