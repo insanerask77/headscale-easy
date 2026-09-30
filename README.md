@@ -160,6 +160,14 @@ money:
 
 <a href="https://ko-fi.com/rafaelmadolell"><img src="https://img.shields.io/badge/Ko--fi-rafaelmadolell-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white" alt="Support on Ko-fi"></a>
 
+## 👥 Contributors
+
+Thanks to everyone who has sent a fix or an improvement:
+
+- [@vhryniv](https://github.com/vhryniv) — application user agent on outbound
+  OIDC requests, so SSO works behind proxies that block Python's default one
+  ([#21](https://github.com/insanerask77/headscale-easy/pull/21)).
+
 ## ⚖️ License and credits
 
 [MIT](LICENSE) © 2026 [Rafa Madolell](https://github.com/insanerask77).

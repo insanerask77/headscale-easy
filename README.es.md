@@ -122,6 +122,15 @@ Headscale Easy lo crea y mantiene en su tiempo libre
 - 🐛 Reporta errores, propone mejoras o envía un pull request.
 - 🌍 Traduce la consola a tu idioma (ver [CONTRIBUTING](CONTRIBUTING.md#translations)).
 
+## 👥 Contribuidores
+
+Gracias a quienes han enviado un arreglo o una mejora:
+
+- [@vhryniv](https://github.com/vhryniv): user agent propio en las peticiones
+  OIDC salientes, para que el SSO funcione detrás de proxies que bloquean el
+  de Python por defecto
+  ([#21](https://github.com/insanerask77/headscale-easy/pull/21)).
+
 ## ⚖️ Licencia
 
 [MIT](LICENSE) © 2026 [Rafa Madolell](https://github.com/insanerask77).

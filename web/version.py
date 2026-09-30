@@ -1,6 +1,6 @@
 """Project metadata shown in the UI."""
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 PROJECT_URL = "https://github.com/insanerask77/headscale-easy"
 SPONSOR_URL = "https://ko-fi.com/rafaelmadolell"
 DOCS_URL = "https://insanerask77.github.io/headscale-easy/"

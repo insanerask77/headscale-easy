@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.3.1] - 2026-09-30
+
+### Fixed
+- **SSO login behind proxies that block Python's default user agent.** The
+  console now identifies its outbound OIDC requests (discovery, token
+  exchange, userinfo) as `headscale-easy/<version>`. Some identity-provider
+  proxies reject `Python-urllib`: Pocket ID behind Cloudflare answered
+  discovery with HTTP 403 / Error 1010, which broke sign-in. Thanks to
+  [@vhryniv](https://github.com/vhryniv) for the report and the fix (#21).
+
+### Changed
+- The README now lists the project's contributors.
+
 ## [1.3.0] - 2026-09-30
 
 Closes out the roadmap's Medium-priority section (items 10-13).
@@ -199,6 +212,7 @@ First release as **Headscale Easy**.
 - Documentation site on GitHub Pages, in English and Spanish:
   https://insanerask77.github.io/headscale-easy/
 
+[1.3.1]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.3.1
 [1.3.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.3.0
 [1.2.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.2.0
 [1.1.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.1.0
