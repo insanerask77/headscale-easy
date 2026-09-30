@@ -112,23 +112,25 @@ class Machine:
 
 def machine_menu(m: Machine, session: dict, detail: bool = False) -> str:
     admin = session.get("admin")
+    read_only = session.get("role") == "auditor"
     items = [] if detail else [f'<a href="{BASE}/machines/{m.id}">{esc(_("View details"))}</a>']
-    items.append(f'<button type="button" data-open="rename-{m.id}">{esc(_("Edit machine name…"))}</button>')
-    if admin:
-        items.append(f'<button type="button" data-open="tags-{m.id}">{esc(_("Edit ACL tags…"))}</button>')
-        if m.exit_node or m.subnets:
-            items.append(f'<a href="{BASE}/machines/{m.id}#routes">{esc(_("Edit route settings…"))}</a>')
     if m.ipv4:
         items.append(f'<button type="button" data-copy="{esc(m.ipv4)}">{esc(_("Copy IPv4"))}</button>')
-    items.append(f'<button type="button" data-open="expire-{m.id}">{esc(_("Expire key…"))}</button>')
-    if admin:
-        label = _("Enable key expiry") if m.expiry_disabled else _("Disable key expiry")
-        items.append(f"""<form method="post" action="{BASE}/machines/{m.id}/expiry">{csrf_input(session)}
-            <input type="hidden" name="back" value="{'machines/' + m.id if detail else 'machines'}">
-            <input type="hidden" name="disable" value="{'0' if m.expiry_disabled else '1'}">
-            <button type="submit">{esc(label)}</button></form>""")
-    items.append("<hr>")
-    items.append(f'<button type="button" class="danger" data-open="remove-{m.id}">{esc(_("Remove…"))}</button>')
+    if not read_only:
+        items.append(f'<button type="button" data-open="rename-{m.id}">{esc(_("Edit machine name…"))}</button>')
+        if admin:
+            items.append(f'<button type="button" data-open="tags-{m.id}">{esc(_("Edit ACL tags…"))}</button>')
+            if m.exit_node or m.subnets:
+                items.append(f'<a href="{BASE}/machines/{m.id}#routes">{esc(_("Edit route settings…"))}</a>')
+        items.append(f'<button type="button" data-open="expire-{m.id}">{esc(_("Expire key…"))}</button>')
+        if admin:
+            label = _("Enable key expiry") if m.expiry_disabled else _("Disable key expiry")
+            items.append(f"""<form method="post" action="{BASE}/machines/{m.id}/expiry">{csrf_input(session)}
+                <input type="hidden" name="back" value="{'machines/' + m.id if detail else 'machines'}">
+                <input type="hidden" name="disable" value="{'0' if m.expiry_disabled else '1'}">
+                <button type="submit">{esc(label)}</button></form>""")
+        items.append("<hr>")
+        items.append(f'<button type="button" class="danger" data-open="remove-{m.id}">{esc(_("Remove…"))}</button>')
     return f"""
       <details class="dropdown">
         <summary class="icon-btn" aria-label="{esc(_("Actions"))}">{icon("more")}</summary>

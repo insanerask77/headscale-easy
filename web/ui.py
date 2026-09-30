@@ -225,16 +225,21 @@ def _nav_group(group_icon: str, label: str, items: list[tuple[str, str, str]], a
 
 def sidebar(active: str, session: dict, ctx: dict) -> str:
     admin = session.get("admin")
+    role_key = session.get("role") or ("admin" if admin else "member")
+    sees_all = admin or role_key == "auditor"
+    edits_network = admin or role_key == "network_admin"
     groups = [_nav_group("network", _("Network"), [
         ("machines", "machines", _("Machines")),
         ("dns", "dns", _("DNS")),
     ], active)]
-    if admin:
+    if sees_all:
         groups.append(f"""
       <a class="nav-top {"active" if active == "users" else ""}" href="{BASE}/users">{icon("users")}<span>{esc(_("Users"))}</span></a>""")
+    if sees_all or edits_network:
         groups.append(_nav_group("lock", _("Access controls"), [
             ("acl", "acl", _("Rules & policy")),
         ], active))
+    if sees_all:
         groups.append(f"""
       <a class="nav-top {"active" if active == "logs" else ""}" href="{BASE}/logs">{icon("logs")}<span>{esc(_("Logs"))}</span></a>""")
     groups.append(_nav_group("settings", _("Settings"), [
@@ -247,7 +252,7 @@ def sidebar(active: str, session: dict, ctx: dict) -> str:
 
     name = session.get("name") or session.get("username") or _("Administrator")
     sub = session.get("email") or (_("API key session") if session.get("kind") == "apikey" else "")
-    role = _("Admin") if admin else _("Member")
+    role = {"admin": _("Admin"), "network_admin": _("Network admin"), "auditor": _("Auditor")}.get(role_key, _("Member"))
     langs = "".join(
         f'<button type="submit" name="lang" value="{code}" class="{"active" if get_lang() == code else ""}">{esc(label)}</button>'
         for code, label in LANGUAGES.items())

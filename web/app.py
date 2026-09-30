@@ -76,6 +76,12 @@ AUTHENTIK_SIGN_OUT = (OIDC_ISSUER.split("/application/o/")[0] + "/if/flow/headsc
 API_KEY_LOGIN = os.environ.get("PORTAL_API_KEY_LOGIN", "false").lower() == "true" or not SSO
 ADMIN_GROUPS = _csv("PORTAL_ADMIN_GROUPS", "vpn-admins,authentik Admins")
 ADMIN_EMAILS = {e.lower() for e in _csv("PORTAL_ADMIN_EMAILS")}
+# Two narrower roles, opt-in only (empty unless configured): a network admin
+# edits the ACL policy and DNS; an auditor sees everything an admin sees but
+# can never change anything. Both are Authentik-group based only -- unlike
+# ADMIN_GROUPS there is no sensible default group name to grant them from.
+NETWORK_ADMIN_GROUPS = _csv("PORTAL_NETWORK_ADMIN_GROUPS")
+AUDITOR_GROUPS = _csv("PORTAL_AUDITOR_GROUPS")
 SESSION_SECRET = os.environ["SESSION_SECRET"].encode()
 TAILNET_NAME = os.environ.get("TAILNET_NAME", "")
 AUTHENTIK = "/authentik/" in OIDC_ISSUER
@@ -150,17 +156,41 @@ def my_user(session: dict) -> dict | None:
     return hs.user_for_sub(session["sub"]) if session.get("sub") else None
 
 
+def role_of(groups: list[str], email: str) -> str:
+    """The session role from an OIDC identity's groups/email: admin (from
+    PORTAL_ADMIN_GROUPS or PORTAL_ADMIN_EMAILS) takes priority, then network
+    admin, then auditor (both PORTAL_*_GROUPS only), else member."""
+    if bool(set(groups) & ADMIN_GROUPS) or bool(email and email.lower() in ADMIN_EMAILS):
+        return "admin"
+    if set(groups) & NETWORK_ADMIN_GROUPS:
+        return "network_admin"
+    if set(groups) & AUDITOR_GROUPS:
+        return "auditor"
+    return "member"
+
+
+def is_auditor(session: dict) -> bool:
+    return session.get("role") == "auditor"
+
+
+def can_edit_network(session: dict) -> bool:
+    """Admins and network admins can edit the ACL policy and DNS -- the two
+    surfaces roadmap item 12 scopes "Network admin" to."""
+    return bool(session.get("admin")) or session.get("role") == "network_admin"
+
+
 def visible_nodes(session: dict) -> list[dict]:
-    if session.get("admin"):
+    if session.get("admin") or is_auditor(session):
         return hs.all_nodes()
     user = my_user(session)
     return hs.user_nodes(user) if user else []
 
 
 def node_for(session: dict, node_id: str) -> dict | None:
-    """The node if the session may manage it: any node for an admin, only
-    their own for a member. Every action on a node goes through here."""
-    if session.get("admin"):
+    """The node if the session may manage it: any node for an admin or an
+    auditor (read only -- machine_action() blocks auditors before any write),
+    only their own for a member. Every action on a node goes through here."""
+    if session.get("admin") or is_auditor(session):
         return hs.get_node(node_id)
     return hs.owned_node(my_user(session), node_id)
 
@@ -321,9 +351,10 @@ class Handler(BaseHTTPRequestHandler):
 
             if path in (BASE, f"{BASE}/"):
                 return self.redirect(f"{BASE}/machines")
+            sees_all = admin or is_auditor(session)
             if path == f"{BASE}/machines":
-                users = hs.all_users() if admin else None
-                has_user = True if admin else my_user(session) is not None
+                users = hs.all_users() if sees_all else None
+                has_user = True if sees_all else my_user(session) is not None
                 return self.send(200, pages.machines_page(session, CTX, to_machines(visible_nodes(session)),
                                                           has_user, flash, users))
             if path == f"{BASE}/machines.csv":
@@ -339,8 +370,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == f"{BASE}/add":
                 return self.send(200, pages.add_page(session, CTX))
             if path == f"{BASE}/dns":
-                return self.send(200, pages.dns_page(session, dns_ctx() if admin else CTX, hs.dns_config(),
-                                                     to_machines(visible_nodes(session)), flash=flash))
+                return self.send(200, pages.dns_page(session, dns_ctx() if can_edit_network(session) else CTX,
+                                                     hs.dns_config(), to_machines(visible_nodes(session)), flash=flash))
             if path in (f"{BASE}/settings", f"{BASE}/settings/"):
                 return self.redirect(f"{BASE}/settings/general")
             if path == f"{BASE}/settings/general":
@@ -350,8 +381,11 @@ class Handler(BaseHTTPRequestHandler):
             if path == f"{BASE}/settings/keys":
                 return self.keys_view(session, flash, preselect=params.get("user", ""))
 
-            # --- admins only ---
-            if path in (f"{BASE}/users", f"{BASE}/acl", f"{BASE}/logs", f"{BASE}/logs.csv") and not admin:
+            # --- admins only (Access controls: also network admins and auditors;
+            # Users/Logs: also auditors, view only -- see can_edit_network()/is_auditor()) ---
+            if path == f"{BASE}/acl" and not (can_edit_network(session) or is_auditor(session)):
+                return self.fail(403, _("No permission"), _("This section is for admins only."))
+            if path in (f"{BASE}/users", f"{BASE}/logs", f"{BASE}/logs.csv") and not sees_all:
                 return self.fail(403, _("No permission"), _("This section is for admins only."))
             if path == f"{BASE}/users":
                 return self.users_view(session, flash=flash)
@@ -422,6 +456,25 @@ class Handler(BaseHTTPRequestHandler):
             if m:
                 return self.machine_action(session, m.group(1), m.group(2), form)
 
+            # --- ACL and DNS: admins and network admins (auditors: test/simulate only) ---
+            if path == f"{BASE}/acl/test":
+                if not (can_edit_network(session) or is_auditor(session)):
+                    return self.fail(403, _("No permission"), _("This action is for admins only."))
+                return self.acl_test(session, form)
+            if path == f"{BASE}/acl" or path.startswith(f"{BASE}/acl/") or path == f"{BASE}/dns":
+                if not can_edit_network(session):
+                    return self.fail(403, _("No permission"), _("This action is for admins only."))
+                if path == f"{BASE}/dns":
+                    return self.save_dns(session, form)
+                if path == f"{BASE}/acl":
+                    return self.save_acl(session, form)
+                acl_kinds = {f"{BASE}/acl/rules": "rule", f"{BASE}/acl/groups": "group", f"{BASE}/acl/tags": "tag",
+                            f"{BASE}/acl/autoapprove/routes": "auto_route", f"{BASE}/acl/autoapprove/exit-node": "auto_exit",
+                            f"{BASE}/acl/ssh": "ssh_rule"}
+                if path in acl_kinds:
+                    return self.acl_edit(session, form, acl_kinds[path])
+                return self.fail(404, _("Not found"), "")
+
             # --- admins only ---
             if not session.get("admin"):
                 return self.fail(403, _("No permission"), _("This action is for admins only."))
@@ -449,24 +502,6 @@ class Handler(BaseHTTPRequestHandler):
             m = re.fullmatch(rf"{BASE}/accounts/(\d+)/recovery", path)
             if m and AUTHENTIK:
                 return self.recovery_link(session, m.group(1), form)
-            if path == f"{BASE}/acl":
-                return self.save_acl(session, form)
-            if path == f"{BASE}/acl/rules":
-                return self.acl_edit(session, form, "rule")
-            if path == f"{BASE}/acl/groups":
-                return self.acl_edit(session, form, "group")
-            if path == f"{BASE}/acl/tags":
-                return self.acl_edit(session, form, "tag")
-            if path == f"{BASE}/acl/autoapprove/routes":
-                return self.acl_edit(session, form, "auto_route")
-            if path == f"{BASE}/acl/autoapprove/exit-node":
-                return self.acl_edit(session, form, "auto_exit")
-            if path == f"{BASE}/acl/ssh":
-                return self.acl_edit(session, form, "ssh_rule")
-            if path == f"{BASE}/acl/test":
-                return self.acl_test(session, form)
-            if path == f"{BASE}/dns":
-                return self.save_dns(session, form)
             if path == f"{BASE}/apikeys":
                 return self.create_apikey(session, form)
             m = re.fullmatch(rf"{BASE}/apikeys/(\d+)/expire", path)
@@ -569,6 +604,7 @@ class Handler(BaseHTTPRequestHandler):
         info = hs.http_json("GET", d["userinfo_endpoint"], headers={"Authorization": f"Bearer {token['access_token']}"})
         groups = sorted(info.get("groups") or [])
         email = (info.get("email") or "").lower()
+        role = role_of(groups, email)
         self.start_session({
             "kind": "oidc",
             "sub": info["sub"],
@@ -576,7 +612,8 @@ class Handler(BaseHTTPRequestHandler):
             "name": info.get("name", ""),
             "email": info.get("email", ""),
             "groups": groups,
-            "admin": bool(set(groups) & ADMIN_GROUPS) or bool(email and email in ADMIN_EMAILS),
+            "admin": role == "admin",
+            "role": role,
             "idt": token.get("id_token", ""),
         })
 
@@ -597,12 +634,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(401, admin_pages.login_page(SSO, API_KEY_LOGIN, _("Invalid or expired API key.")))
         log.info("sign-in with API key (%s…)", key[:14])
         self.start_session({"kind": "apikey", "sub": "", "username": "", "name": _("Administrator"),
-                            "email": "", "groups": [], "admin": True, "key": hs.api_key_prefix(key)})
+                            "email": "", "groups": [], "admin": True, "role": "admin", "key": hs.api_key_prefix(key)})
 
     def start_session(self, data: dict):
         data.update(csrf=secrets.token_urlsafe(24), exp=time.time() + SESSION_TTL)
-        audit.request_event(self, data, "auth.signin", "", {"method": data["kind"], "admin": bool(data["admin"])})
-        log.info("sign-in: %s (%s%s)", data["username"] or data["name"], data["kind"], ", admin" if data["admin"] else "")
+        role = data.get("role") or ("admin" if data["admin"] else "member")
+        audit.request_event(self, data, "auth.signin", "", {"method": data["kind"], "role": role})
+        log.info("sign-in: %s (%s, %s)", data["username"] or data["name"], data["kind"], role)
         self.redirect(f"{BASE}/machines", [
             self.set_cookie("hse_session", sign(data), SESSION_TTL),
             self.set_cookie("hse_oidc", "", 0),
@@ -640,6 +678,10 @@ class Handler(BaseHTTPRequestHandler):
         if node is None:
             log.warning("%s tried '%s' on node %s, which they cannot manage", session["username"], action, node_id)
             return self.redirect(f"{BASE}/machines?m=not-found")
+        if is_auditor(session):
+            # node_for() resolves any node for an auditor so they can view it;
+            # never let that translate into a write, on their own devices or anyone else's
+            return self.redirect(f"{dest}?m=forbidden")
         if action in {"expiry", "routes", "tags"} and not session.get("admin"):
             return self.redirect(f"{dest}?m=forbidden")
         try:
