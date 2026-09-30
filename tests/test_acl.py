@@ -121,6 +121,15 @@ class SpliceTests(unittest.TestCase):
         self.assertEqual(policy.parse(result)["autoApprovers"], {"routes": {"192.168.0.0/24": ["tag:router"]}})
         self.assertEqual(policy.parse(result)["groups"], policy.parse(WITH_SSH)["groups"])
 
+    def test_editing_ssh_preserves_comments_and_other_sections(self):
+        new_ssh = policy.render_ssh_rules([{"action": "check", "src": ["group:staff"], "dst": ["tag:nas"],
+                                            "users": ["root"], "checkPeriod": "12h"}])
+        result = policy.replace_block(WITH_SSH, "ssh", new_ssh)
+        self.assertIn("// do not touch this comment", result)
+        self.assertIn('"group:staff": ["alice@", "bob@"]', result)
+        self.assertIn("tag:nas:445", result)  # untouched acls entry
+        self.assertEqual(policy.parse(result)["ssh"][0]["checkPeriod"], "12h")
+
 
 class AutoApproveRenderTests(unittest.TestCase):
     def test_routes_and_exit_node_round_trip(self):
@@ -160,6 +169,25 @@ class RuleViewTests(unittest.TestCase):
     def test_no_port_suffix_defaults_to_star(self):
         view = policy.rule_view({"action": "accept", "src": ["*"], "dst": ["tag:a"]})
         self.assertEqual(view["port"], "*")
+        self.assertTrue(view["editable"])
+
+
+class SshRuleViewTests(unittest.TestCase):
+    def test_known_fields_are_editable(self):
+        view = policy.ssh_rule_view({"action": "check", "src": ["group:sre"], "dst": ["tag:prod"],
+                                     "users": ["root"], "checkPeriod": "12h"})
+        self.assertTrue(view["editable"])
+        self.assertEqual(view["checkPeriod"], "12h")
+
+    def test_accept_env_is_not_editable(self):
+        view = policy.ssh_rule_view({"action": "accept", "src": ["*"], "dst": ["*"], "users": ["root"],
+                                     "acceptEnv": ["LANG"]})
+        self.assertFalse(view["editable"])
+
+    def test_defaults(self):
+        view = policy.ssh_rule_view({"src": ["*"], "dst": ["*"], "users": ["root"]})
+        self.assertEqual(view["action"], "accept")
+        self.assertEqual(view["checkPeriod"], "")
         self.assertTrue(view["editable"])
 
 
@@ -282,6 +310,41 @@ class FormTests(unittest.TestCase):
         _, error = app.acl_auto_exit_node_from_form({"approvers": "tag:Bad Name"})
         self.assertIn("tag", error)
 
+    def test_ssh_rule_from_form(self):
+        rule, error = app.ssh_rule_from_form({"src": "group:sre", "dst": "tag:prod", "users": "root",
+                                              "action": "check", "check_period": "12h"})
+        self.assertEqual(error, "")
+        self.assertEqual(rule, {"action": "check", "src": ["group:sre"], "dst": ["tag:prod"], "users": ["root"],
+                                "checkPeriod": "12h"})
+
+    def test_ssh_rule_defaults_to_accept_and_drops_check_period(self):
+        rule, error = app.ssh_rule_from_form({"src": "*", "dst": "autogroup:self", "users": "autogroup:nonroot"})
+        self.assertEqual(error, "")
+        self.assertEqual(rule["action"], "accept")
+        self.assertNotIn("checkPeriod", rule)
+
+    def test_ssh_rule_check_period_ignored_without_check_action(self):
+        rule, error = app.ssh_rule_from_form({"src": "*", "dst": "*", "users": "root", "check_period": "12h"})
+        self.assertEqual(error, "")
+        self.assertNotIn("checkPeriod", rule)
+
+    def test_ssh_rule_requires_fields(self):
+        _, error = app.ssh_rule_from_form({"src": "", "dst": "*", "users": "root"})
+        self.assertIn("source", error)
+        _, error = app.ssh_rule_from_form({"src": "*", "dst": "", "users": "root"})
+        self.assertIn("destination", error)
+        _, error = app.ssh_rule_from_form({"src": "*", "dst": "*", "users": ""})
+        self.assertIn("host user", error)
+
+    def test_ssh_rule_rejects_bad_period_and_action_and_tag(self):
+        _, error = app.ssh_rule_from_form({"src": "*", "dst": "*", "users": "root", "action": "check",
+                                           "check_period": "not-a-period"})
+        self.assertIn("re-authentication", error)
+        _, error = app.ssh_rule_from_form({"src": "*", "dst": "*", "users": "root", "action": "bogus"})
+        self.assertIn("access", error)
+        _, error = app.ssh_rule_from_form({"src": "tag:Bad Name", "dst": "*", "users": "root"})
+        self.assertIn("tag", error)
+
 
 class RenderTests(unittest.TestCase):
     def setUp(self):
@@ -316,12 +379,25 @@ class RenderTests(unittest.TestCase):
         self.assertIn("&lt;script&gt;x", panel)
         self.assertIn("No auto-approved routes yet.", acl_pages.auto_approve_panel(SESSION_ADMIN, {}))
 
+    def test_ssh_panel_renders_and_marks_uneditable(self):
+        pol = {"ssh": [{"action": "check", "src": ["group:sre"], "dst": ["tag:prod"], "users": ["root"],
+                        "checkPeriod": "12h"},
+                       {"action": "accept", "src": ["*"], "dst": ["*"], "users": ["<script>x"], "acceptEnv": ["X"]}]}
+        panel = acl_pages.ssh_panel(SESSION_ADMIN, pol)
+        self.assertIn("group:sre", panel)
+        self.assertIn("tag:prod", panel)
+        self.assertNotIn("<script>x", panel)
+        self.assertIn("&lt;script&gt;x", panel)
+        self.assertIn("Edit in Advanced (HuJSON)", panel)
+        self.assertIn("No SSH rules yet", acl_pages.ssh_panel(SESSION_ADMIN, {}))
+
     def test_acl_page_renders_every_tab(self):
         policy_data = {"policy": ISOLATION, "updatedAt": ""}
-        for active in ("rules", "groups", "auto", "test", "raw"):
+        for active in ("rules", "groups", "auto", "ssh", "test", "raw"):
             page = admin_pages.acl_page(SESSION_ADMIN, CTX, policy_data, NODES, USERS, "", active=active)
             self.assertNotIn("<script>", page)
             self.assertIn('id="acl-targets"', page)
+            self.assertIn('id="acl-ssh-users"', page)
             self.assertIn(f'data-panel="{active}"', page)
 
     def test_broken_policy_shows_a_warning_and_no_forms_to_lose_data(self):

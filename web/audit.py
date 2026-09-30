@@ -126,6 +126,8 @@ def action_labels() -> dict[str, str]:
         "acl.auto_route_save": _("Saved an auto-approved route"),
         "acl.auto_route_delete": _("Deleted an auto-approved route"),
         "acl.auto_exit_save": _("Saved the auto-approved exit node approvers"),
+        "acl.ssh_rule_save": _("Saved an SSH rule"),
+        "acl.ssh_rule_delete": _("Deleted an SSH rule"),
         "dns.save": _("Changed DNS settings"),
         "settings.key_expiry": _("Changed device key expiry"),
         "settings.mfa": _("Changed two-factor authentication"),
