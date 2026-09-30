@@ -1,5 +1,22 @@
 # Getting started
 
+## In five minutes
+
+1. **Clone:** `git clone https://github.com/insanerask77/headscale-easy.git && cd headscale-easy`
+2. **Run the installer:** `./install.sh`
+3. **Configure the domain:** enter the domain that points at this server and
+   choose who handles HTTPS (Let's Encrypt is the default).
+4. **Configure sign-in:** built-in Authentik (accounts, two-factor, optional
+   Google), your own OIDC provider, or none (API key only).
+5. **Log in:** open `https://<your-domain>/admin` with the credentials the
+   installer prints.
+6. **Connect your first device:** `tailscale up --login-server=https://<your-domain>`
+   ([details below](#connect-your-first-device)).
+
+This gets you a working server. Before relying on it — or exposing it to the
+Internet for other people — go through
+[Production and hardening](hardening.md).
+
 ## Requirements
 
 - A Linux host (a small VPS is plenty: 1 vCPU, 1 GB RAM without Authentik,

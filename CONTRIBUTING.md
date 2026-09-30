@@ -119,7 +119,12 @@ language there is welcome too.
 3. Use [Conventional Commits](https://www.conventionalcommits.org/)
    (`feat: add tailnet lock page`, `fix(installer): …`).
 4. Describe what you tested. Screenshots help for UI changes.
-5. CI must pass.
+5. Say if the change was written with an AI assistant. That is fine — most of
+   this project was (see [AI usage](https://insanerask77.github.io/headscale-easy/ai-usage/))
+   — but you must have read and tested it yourself, and changes to sign-in,
+   sessions, permissions or the Docker socket need a test in
+   `tests/test_security.py`.
+6. CI must pass.
 
 By contributing you agree your work is licensed under the [MIT License](https://github.com/insanerask77/headscale-easy/blob/main/LICENSE)
 and to follow the [Code of Conduct](https://github.com/insanerask77/headscale-easy/blob/main/CODE_OF_CONDUCT.md).

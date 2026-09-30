@@ -5,9 +5,9 @@
 <h1 align="center">Headscale Easy</h1>
 
 <p align="center">
-  <b>La alternativa open source a Tailscale.</b><br>
-  Tu propio servidor <a href="https://github.com/juanfont/headscale">Headscale</a> con una consola web integrada que se ve y se usa como la de Tailscale:
-  cuentas de usuario, login con Google y HTTPS incluidos. Se instala con un solo comando.
+  <b>Headscale, con todo lo que lo rodea.</b><br>
+  Una capa de despliegue y gestión para <a href="https://github.com/juanfont/headscale">Headscale</a>, el servidor de control open source de Tailscale:
+  instalador, HTTPS, cuentas e inicio de sesión, una consola web estilo Tailscale y copias de seguridad. Se instala con un solo comando.
 </p>
 
 <p align="center">
@@ -22,22 +22,51 @@
   <a href="README.md">English</a> · <b>Español</b>
 </p>
 
+> [!WARNING]
+> **Aviso de seguridad.** Es software de red sensible en seguridad y un
+> proyecto joven (septiembre de 2026) con un solo mantenedor. Se ha usado
+> desarrollo asistido por IA de forma extensa y **no ha pasado ninguna
+> auditoría de seguridad independiente**. Revisa y bastiona tu despliegue antes
+> de exponerlo a Internet: consulta [SECURITY.md](SECURITY.md), la
+> [guía de bastionado](https://insanerask77.github.io/headscale-easy/es/hardening/) y el [uso de IA](AI_USAGE.md).
+
 <p align="center">
   <img src="docs/images/machines-dark.png" alt="Headscale Easy — Máquinas" width="900">
 </p>
 
 ---
 
-Tailscale es genial, pero su servidor de coordinación es cerrado y lo alojan
-ellos. [Headscale](https://github.com/juanfont/headscale) es la implementación
-open source de ese servidor, pero sólo tiene línea de comandos, y montar a mano
-HTTPS, usuarios y single sign-on lleva una tarde.
+## 🤔 ¿Por qué Headscale Easy?
 
-**Headscale Easy** es a Headscale lo que [wg-easy](https://github.com/wg-easy/wg-easy)
-es a WireGuard: Headscale y todo lo que lo rodea, instalado y configurado por un
-script interactivo y gestionado desde una consola web inspirada en el panel de
-Tailscale. En los dispositivos usas las apps oficiales de Tailscale; sólo el
-servidor es tuyo.
+[Headscale](https://github.com/juanfont/headscale) funciona bien por sí solo, y
+Headscale Easy usa la imagen **oficial y sin modificar** de Headscale: no es un
+fork ni un sustituto. Lo que lleva tiempo es el "pegamento" alrededor cuando
+quieres una instalación completa y autoalojada para varias personas:
+
+> auth + DNS + HTTPS + gestión de dispositivos + copias = un proyecto de fin de semana
+
+Headscale Easy empaqueta ese pegamento, en el espíritu de
+[wg-easy](https://github.com/wg-easy/wg-easy) para WireGuard:
+
+- **Despliegue automatizado**: un instalador interactivo escribe y conecta
+  todas las piezas; vuelve a ejecutarlo para cambiar ajustes.
+- **Una consola web** para el día a día, inspirada en el panel de Tailscale,
+  donde cada miembro gestiona sólo sus dispositivos.
+- **Configuración centralizada**: un `.env`, un dominio.
+- **Auth, DNS, HTTPS y copias** configurados con valores seguros por defecto.
+- **Todo autoalojado**: en los dispositivos usas las apps oficiales de
+  Tailscale; sólo el servidor es tuyo.
+
+Si ya estás a gusto usando Headscale a mano, no necesitas este proyecto.
+Más en [¿Por qué Headscale Easy?](https://insanerask77.github.io/headscale-easy/es/why/), con el flujo completo de principio a fin.
+
+### Headscale Easy y Headplane
+
+[Headplane](https://github.com/tale/headplane) es una interfaz web consolidada
+y completa para un Headscale **que ya tienes**: una buena elección si ya usas
+Headscale. Headscale Easy **instala y conecta todo el stack** (Headscale,
+HTTPS, Authentik opcional con 2FA e invitaciones, copias) e incluye su propia
+consola. Mira la [comparativa detallada](https://insanerask77.github.io/headscale-easy/es/why/#headscale-easy-and-headplane).
 
 ## ✨ Funcionalidades
 
@@ -72,6 +101,13 @@ servidor es tuyo.
 Necesitas un Linux con Docker (el instalador puede instalarlo) y, para HTTPS
 real, un dominio que apunte a él.
 
+1. **Clona** el repositorio.
+2. **Ejecuta el instalador**: `./install.sh`.
+3. **Configura el dominio** y quién pone el HTTPS.
+4. **Configura el inicio de sesión**: Authentik integrado, tu proveedor OIDC o ninguno.
+5. **Entra** en `https://tu-dominio/admin`.
+6. **Conecta tu primer dispositivo** con la app oficial de Tailscale.
+
 ```bash
 git clone https://github.com/insanerask77/headscale-easy.git
 cd headscale-easy
@@ -94,12 +130,38 @@ En móviles y apps de escritorio elige **"Use an alternate server"** /
 **"Change server"** e introduce la misma URL. La página **Añadir dispositivo** de
 la consola muestra los pasos para cada sistema.
 
+**Antes de producción**, repasa la [guía de producción y bastionado](https://insanerask77.github.io/headscale-easy/es/hardening/):
+cortafuegos, HTTPS, inicio de sesión y doble factor, restringir la consola, el
+socket de Docker, secretos, copias fuera del servidor y actualizaciones.
+
 ### Puertos
 
 | Puerto | Protocolo | Uso |
 |--------|-----------|-----|
 | 80 / 443 | TCP | Consola web, plano de control, Let's Encrypt |
 | 3478 | UDP | STUN del relay DERP integrado (debe ser accesible) |
+
+## 🧩 Cómo funciona
+
+Los clientes de Tailscale sólo hablan con Headscale (imagen oficial). Caddy
+sirve todo en un dominio: `/` para Headscale, `/admin` para la consola (que usa
+la API REST de Headscale) y `/authentik` para Authentik (opcional, proveedor
+OIDC de ambos). La consola no está en el camino del tráfico: si se para, los
+dispositivos siguen funcionando. Detalles en
+[Arquitectura y recursos](https://insanerask77.github.io/headscale-easy/es/architecture/).
+
+### Consumo de recursos
+
+Medido en reposo en una instalación pequeña:
+
+| Configuración | Contenedores | RAM | Imágenes en disco |
+|---|---:|---:|---:|
+| Sólo Headscale, como referencia | 1 | ~20 MB | 113 MB |
+| Headscale Easy sin Authentik | 3 | ~65 MB (+45 MB) | ~270 MB |
+| Headscale Easy con Authentik | 6 | ~1,1 GB | ~2,6 GB |
+
+Authentik (cuentas, doble factor, login con Google, invitaciones) es la parte
+pesada y opcional; usa tu propio proveedor OIDC para prescindir de él.
 
 ## 📚 Documentación
 
@@ -110,7 +172,27 @@ la consola muestra los pasos para cada sistema.
   HTTPS, proxies por delante, proveedores de login, DNS, referencia de `.env`.
 - [Operación](https://insanerask77.github.io/headscale-easy/es/operations/): usuarios y admins, máquinas, actualizaciones,
   copias de seguridad, resolución de problemas.
-- [Hoja de ruta](ROADMAP.md) · [Contribuir](CONTRIBUTING.md) · [Seguridad](SECURITY.md) · [Cambios](CHANGELOG.md)
+- [Producción y bastionado](https://insanerask77.github.io/headscale-easy/es/hardening/): lista de comprobación, cortafuegos,
+  HTTPS, inicio de sesión, restringir la consola, socket de Docker, secretos,
+  copias, actualizaciones, logs.
+- [¿Por qué Headscale Easy?](https://insanerask77.github.io/headscale-easy/es/why/): el problema que resuelve, comparativa
+  con Headplane, flujo completo.
+- [Arquitectura y recursos](https://insanerask77.github.io/headscale-easy/es/architecture/): qué hace cada componente y
+  cuánto consume.
+- [Hoja de ruta](ROADMAP.md) · [Contribuir](CONTRIBUTING.md) · [Seguridad](SECURITY.md) · [Uso de IA](AI_USAGE.md) · [Cambios](CHANGELOG.md)
+
+Las páginas nuevas (producción, comparativa, arquitectura, uso de IA) están de
+momento sólo en inglés.
+
+## 🤖 Uso de IA
+
+Headscale Easy se ha construido con ayuda extensa de
+[Claude Code](https://claude.com/claude-code): generó o modificó una parte
+importante del código y ayudó con depuración, refactorización, traducciones y
+documentación. El mantenedor diseñó el proyecto, revisó, probó e integró cada
+cambio, y es responsable del código y de las decisiones finales. Los commits en
+los que participó llevan la línea `Co-Authored-By: Claude`. Se recomienda
+encarecidamente una revisión independiente: consulta [AI_USAGE.md](AI_USAGE.md).
 
 ## 🙌 Apoya el proyecto
 

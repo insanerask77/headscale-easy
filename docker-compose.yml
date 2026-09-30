@@ -378,6 +378,7 @@ services:
       # Narrower roles, opt-in (empty = disabled): edits ACL + DNS only, or read-only everywhere
       PORTAL_NETWORK_ADMIN_GROUPS: ${PORTAL_NETWORK_ADMIN_GROUPS:-}
       PORTAL_AUDITOR_GROUPS: ${PORTAL_AUDITOR_GROUPS:-}
+      DEMO_MODE: ${DEMO_MODE:-false}
       # To find a member's Headscale user: its providerId is <issuer>/<sub>
       HEADSCALE_OIDC_ISSUER: ${OIDC_ISSUER_URL:-}
       HEADSCALE_URL: http://headscale:${HEADSCALE_HTTP_PORT:-8080}

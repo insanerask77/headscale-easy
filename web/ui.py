@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,6 +17,9 @@ from version import DOCS_URL, PROJECT_URL, SPONSOR_URL, VERSION
 
 BASE = "/admin"
 
+# Public demo instance (DEMO_MODE=true): a banner on every page, and app.py
+# refuses the actions listed in DEMO_BLOCKED
+DEMO = os.environ.get("DEMO_MODE", "false").lower() == "true"
 
 
 def docs_url(page: str = "") -> str:
@@ -166,6 +170,13 @@ def notice(kind: str, text: str) -> str:
     return f'<div class="notice {kind}" role="status">{esc(text)}</div>'
 
 
+def demo_banner() -> str:
+    if not DEMO:
+        return ""
+    return notice("warn demo", _("DEMO ENVIRONMENT — Do not use for production data or credentials. "
+                                 "Data is fictitious and reset regularly; some actions are disabled."))
+
+
 def flash_html(code: str) -> str:
     messages = {
         "renamed": ("ok", _("Machine renamed.")),
@@ -308,7 +319,7 @@ def layout(title: str, active: str, body: str, session: dict, ctx: dict) -> str:
     {sidebar(active, session, ctx)}
     <label for="nav-toggle" class="scrim" aria-hidden="true"></label>
     <main class="content">
-{body}
+{demo_banner()}{body}
     </main>
   </div>
   <script src="{BASE}/static/app.js?v={V}" defer></script>
@@ -321,7 +332,7 @@ def bare_page(title: str, body: str) -> str:
     return f"""{_head(title)}
 <body class="bare" data-copied="{esc(_("Copied"))}" data-working="{esc(_("Working"))}">
   <main class="bare-main">
-{body}
+{demo_banner()}{body}
     <p class="bare-foot"><a href="{PROJECT_URL}" target="_blank" rel="noopener">Headscale Easy</a> · by Rafa Madolell ·
       <a href="{SPONSOR_URL}" target="_blank" rel="noopener">{esc(_("Buy me a coffee on Ko-fi"))}</a></p>
   </main>

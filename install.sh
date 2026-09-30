@@ -20,7 +20,7 @@ ENV_FILE="${SCRIPT_DIR}/.env"
 DATA_DIR="${SCRIPT_DIR}/data"
 TEMPLATES_DIR="${SCRIPT_DIR}/templates"
 
-INSTALLER_VERSION="1.3.1"
+INSTALLER_VERSION="1.4.0"
 PROJECT_URL="https://github.com/insanerask77/headscale-easy"
 SPONSOR_URL="https://ko-fi.com/rafaelmadolell"
 DOCS_URL="https://insanerask77.github.io/headscale-easy/"
@@ -701,6 +701,9 @@ PORTAL_API_KEY_LOGIN=${PORTAL_API_KEY_LOGIN}
 # Admins: members of these groups (Authentik) or owners of these emails
 PORTAL_ADMIN_GROUPS="${PORTAL_ADMIN_GROUPS:-vpn-admins,authentik Admins}"
 PORTAL_ADMIN_EMAILS="${PORTAL_ADMIN_EMAILS:-}"
+# Public demo instance only: banner on every page, access-granting and
+# destructive actions disabled (see SECURITY.md)
+DEMO_MODE=${DEMO_MODE:-false}
 # uid/gid the UI runs with (owner of the project files) and the Docker socket gid
 PORTAL_UID=${PORTAL_UID}
 PORTAL_GID=${PORTAL_GID}
