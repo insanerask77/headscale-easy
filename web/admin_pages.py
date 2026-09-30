@@ -119,21 +119,23 @@ ISOLATION = """{
 }"""
 
 
-def _raw_panel(session: dict, text: str, updated: str | None, result: tuple[str, str] | None) -> str:
+def _raw_panel(session: dict, text: str, updated: str | None, result: tuple[str, str] | None,
+               can_edit: bool = True) -> str:
     res = ""
     if result:
         kind, msg = result
         res = f'<div class="notice {kind}" role="status"><pre class="plainpre">{esc(msg)}</pre></div>'
+    buttons = f"""<div class="form-foot">
+        <button class="btn" type="submit" name="action" value="check">{esc(_("Check"))}</button>
+        <button class="btn primary" type="submit" name="action" value="save">{esc(_("Save"))}</button>
+      </div>""" if can_edit else ""
     return res + f"""
     <form method="post" action="{BASE}/acl" class="stack">
       {csrf_input(session)}
       <div class="card-title"><h2>{esc(_("Policy file"))}</h2>
         <span class="muted small">{(esc(_("Updated")) + " " + time_tag(updated)) if updated else esc(_("No policy: every machine can reach every other one"))}</span></div>
-      <textarea name="policy" class="code-editor" spellcheck="false" rows="22" data-tab-indent>{esc(text)}</textarea>
-      <div class="form-foot">
-        <button class="btn" type="submit" name="action" value="check">{esc(_("Check"))}</button>
-        <button class="btn primary" type="submit" name="action" value="save">{esc(_("Save"))}</button>
-      </div>
+      <textarea name="policy" class="code-editor" spellcheck="false" rows="22" data-tab-indent {"readonly" if not can_edit else ""}>{esc(text)}</textarea>
+      {buttons}
     </form>
     <hr>
     <div class="stack">
@@ -176,6 +178,7 @@ def acl_page(session: dict, ctx: dict, policy_data: dict, nodes: list[dict], use
     vocab = policy.vocabulary(parsed, nodes, users)
     if active not in _TAB_KEYS:
         active = "rules"
+    can_edit = bool(session.get("admin")) or session.get("role") == "network_admin"
 
     tabs = "".join(
         f'<button type="button" role="tab" data-tab="{k}" class="{"active" if k == active else ""}">{esc(_tab_label(k))}</button>'
@@ -186,17 +189,17 @@ def acl_page(session: dict, ctx: dict, policy_data: dict, nodes: list[dict], use
                f'{esc(_("This policy could not be read as HuJSON ({error}). Fix it in Advanced.", error=broken))}</div>')
         rules_body = groups_body = auto_body = ssh_body = note
     else:
-        rules_body = acl_pages.rules_panel(session, parsed)
-        groups_body = acl_pages.groups_panel(session, parsed)
-        auto_body = acl_pages.auto_approve_panel(session, parsed)
-        ssh_body = acl_pages.ssh_panel(session, parsed)
+        rules_body = acl_pages.rules_panel(session, parsed, can_edit)
+        groups_body = acl_pages.groups_panel(session, parsed, can_edit)
+        auto_body = acl_pages.auto_approve_panel(session, parsed, can_edit)
+        ssh_body = acl_pages.ssh_panel(session, parsed, can_edit)
     panels_by_key = {
         "rules": rules_body,
         "groups": groups_body,
         "auto": auto_body,
         "ssh": ssh_body,
         "test": acl_pages.test_panel(session, test),
-        "raw": _raw_panel(session, text, policy_data.get("updatedAt"), result),
+        "raw": _raw_panel(session, text, policy_data.get("updatedAt"), result, can_edit),
     }
     panels = "".join(f'<div class="tab-panel" data-panel="{k}" {"" if k == active else "hidden"}>{panels_by_key[k]}</div>'
                      for k in _TAB_KEYS)

@@ -76,20 +76,16 @@ def _rule_dialog(dialog_id: str, session: dict, title: str, view: dict | None, i
         </div>""")
 
 
-def rules_panel(session: dict, pol: dict) -> str:
+def rules_panel(session: dict, pol: dict, can_edit: bool = True) -> str:
     acls = pol.get("acls") or []
     rows, dialogs = [], []
     for idx, rule in enumerate(acls):
         view = policy.rule_view(rule)
-        edit_action = (f'<button type="button" data-open="acl-rule-{idx}">{esc(_("Edit…"))}</button>' if view["editable"]
-                      else f'<span class="menu-note">{esc(_("Edit in Advanced (HuJSON)"))}</span>')
-        rows.append(f"""
-        <tr>
-          <td>{_chips(view["src"])}</td>
-          <td>{_chips(view["dst"])}</td>
-          <td><code>{esc(view["port"])}</code></td>
-          <td>{esc(view["proto"].upper()) if view["proto"] else esc(_("Any"))}</td>
-          <td class="actions">
+        actions_cell = ""
+        if can_edit:
+            edit_action = (f'<button type="button" data-open="acl-rule-{idx}">{esc(_("Edit…"))}</button>' if view["editable"]
+                          else f'<span class="menu-note">{esc(_("Edit in Advanced (HuJSON)"))}</span>')
+            actions_cell = f"""<td class="actions">
             <details class="dropdown">
               <summary class="icon-btn" aria-label="{esc(_("Actions"))}">{icon("more")}</summary>
               <div class="dropdown-body right">
@@ -99,17 +95,26 @@ def rules_panel(session: dict, pol: dict) -> str:
                   <button type="submit" class="danger">{esc(_("Delete…"))}</button></form>
               </div>
             </details>
-          </td>
+          </td>"""
+        rows.append(f"""
+        <tr>
+          <td>{_chips(view["src"])}</td>
+          <td>{_chips(view["dst"])}</td>
+          <td><code>{esc(view["port"])}</code></td>
+          <td>{esc(view["proto"].upper()) if view["proto"] else esc(_("Any"))}</td>
+          {actions_cell}
         </tr>""")
-        if view["editable"]:
+        if can_edit and view["editable"]:
             dialogs.append(_rule_dialog(f"acl-rule-{idx}", session, _("Edit rule"), view, idx))
-    dialogs.append(_rule_dialog("acl-rule-new", session, _("Add rule"), None, None))
+    if can_edit:
+        dialogs.append(_rule_dialog("acl-rule-new", session, _("Add rule"), None, None))
 
-    content = _table(rows, [_("Source"), _("Destination"), _("Port"), _("Protocol"), ""],
+    content = _table(rows, [_("Source"), _("Destination"), _("Port"), _("Protocol"), *([""] if can_edit else [])],
                      _("No rules yet: every machine can reach every other one."))
+    add_btn = (f'<button class="btn primary small" type="button" data-open="acl-rule-new">{icon("plus")} '
+              f'{esc(_("Add rule"))}</button>') if can_edit else ""
     return f"""<div class="stack">
-      <div class="card-title"><h2>{esc(_("Rules"))}</h2>
-        <button class="btn primary small" type="button" data-open="acl-rule-new">{icon("plus")} {esc(_("Add rule"))}</button></div>
+      <div class="card-title"><h2>{esc(_("Rules"))}</h2>{add_btn}</div>
       {content}
     </div>{"".join(dialogs)}"""
 
@@ -138,16 +143,16 @@ def _tag_owner_dialog(dialog_id: str, session: dict, title: str, name: str, owne
           placeholder="alice@, group:admins" required autocomplete="off" spellcheck="false"></label>""")
 
 
-def groups_panel(session: dict, pol: dict) -> str:
+def groups_panel(session: dict, pol: dict, can_edit: bool = True) -> str:
     groups: dict[str, list[str]] = pol.get("groups") or {}
     tag_owners: dict[str, list[str]] = pol.get("tagOwners") or {}
 
     def rows_for(mapping: dict[str, list[str]], action_path: str, dialog_prefix: str, make_dialog):
         rows, dialogs = [], []
         for name, members in sorted(mapping.items()):
-            rows.append(f"""
-            <tr><td><code>{esc(name)}</code></td><td>{_chips(members)}</td>
-              <td class="actions">
+            actions_cell = ""
+            if can_edit:
+                actions_cell = f"""<td class="actions">
                 <details class="dropdown">
                   <summary class="icon-btn" aria-label="{esc(_("Actions"))}">{icon("more")}</summary>
                   <div class="dropdown-body right">
@@ -157,29 +162,33 @@ def groups_panel(session: dict, pol: dict) -> str:
                       <button type="submit" class="danger">{esc(_("Delete…"))}</button></form>
                   </div>
                 </details>
-              </td></tr>""")
-            dialogs.append(make_dialog(f"{dialog_prefix}-{name}", _("Edit"), name, members))
+              </td>"""
+                dialogs.append(make_dialog(f"{dialog_prefix}-{name}", _("Edit"), name, members))
+            rows.append(f'<tr><td><code>{esc(name)}</code></td><td>{_chips(members)}</td>{actions_cell}</tr>')
         return rows, dialogs
 
     g_rows, g_dialogs = rows_for(groups, f"{BASE}/acl/groups", "acl-group",
                                  lambda did, title, name, members: _group_dialog(did, session, title, name, members))
-    g_dialogs.append(_group_dialog("acl-group-new", session, _("Add group"), "", []))
     t_rows, t_dialogs = rows_for(tag_owners, f"{BASE}/acl/tags", "acl-tag",
                                  lambda did, title, name, owners: _tag_owner_dialog(did, session, title, name, owners))
-    t_dialogs.append(_tag_owner_dialog("acl-tag-new", session, _("Add tag owner"), "", []))
+    g_add = t_add = ""
+    if can_edit:
+        g_dialogs.append(_group_dialog("acl-group-new", session, _("Add group"), "", []))
+        t_dialogs.append(_tag_owner_dialog("acl-tag-new", session, _("Add tag owner"), "", []))
+        g_add = f'<button class="btn primary small" type="button" data-open="acl-group-new">{icon("plus")} {esc(_("Add group"))}</button>'
+        t_add = f'<button class="btn primary small" type="button" data-open="acl-tag-new">{icon("plus")} {esc(_("Add tag owner"))}</button>'
 
+    extra_col = [""] if can_edit else []
     return f"""<div class="stack">
-      <div class="card-title"><h2>{esc(_("Groups"))}</h2>
-        <button class="btn primary small" type="button" data-open="acl-group-new">{icon("plus")} {esc(_("Add group"))}</button></div>
+      <div class="card-title"><h2>{esc(_("Groups"))}</h2>{g_add}</div>
       <p class="muted small">{esc(_("Reusable sets of users for rules, referenced with the group: prefix."))}</p>
-      {_table(g_rows, [_("Group"), _("Members"), ""], _("No groups yet."))}
+      {_table(g_rows, [_("Group"), _("Members"), *extra_col], _("No groups yet."))}
     </div>
     <hr>
     <div class="stack">
-      <div class="card-title"><h2>{esc(_("Tag owners"))}</h2>
-        <button class="btn primary small" type="button" data-open="acl-tag-new">{icon("plus")} {esc(_("Add tag owner"))}</button></div>
+      <div class="card-title"><h2>{esc(_("Tag owners"))}</h2>{t_add}</div>
       <p class="muted small">{esc(_("Who can assign each tag to a machine. A tag with no owner here is rejected."))}</p>
-      {_table(t_rows, [_("Tag"), _("Owners"), ""], _("No tag owners yet."))}
+      {_table(t_rows, [_("Tag"), _("Owners"), *extra_col], _("No tag owners yet."))}
     </div>
     {"".join(g_dialogs)}{"".join(t_dialogs)}"""
 
@@ -199,16 +208,16 @@ def _route_dialog(dialog_id: str, session: dict, title: str, cidr: str, approver
           placeholder="tag:router, group:admins" required autocomplete="off" spellcheck="false"></label>""")
 
 
-def auto_approve_panel(session: dict, pol: dict) -> str:
+def auto_approve_panel(session: dict, pol: dict, can_edit: bool = True) -> str:
     auto = pol.get("autoApprovers") or {}
     routes: dict[str, list[str]] = auto.get("routes") or {}
     exit_node: list[str] = auto.get("exitNode") or []
 
     rows, dialogs = [], []
     for cidr, approvers in sorted(routes.items()):
-        rows.append(f"""
-        <tr><td><code>{esc(cidr)}</code></td><td>{_chips(approvers)}</td>
-          <td class="actions">
+        actions_cell = ""
+        if can_edit:
+            actions_cell = f"""<td class="actions">
             <details class="dropdown">
               <summary class="icon-btn" aria-label="{esc(_("Actions"))}">{icon("more")}</summary>
               <div class="dropdown-body right">
@@ -218,26 +227,32 @@ def auto_approve_panel(session: dict, pol: dict) -> str:
                   <button type="submit" class="danger">{esc(_("Delete…"))}</button></form>
               </div>
             </details>
-          </td></tr>""")
-        dialogs.append(_route_dialog(f"acl-route-{cidr}", session, _("Edit auto-approved route"), cidr, approvers))
-    dialogs.append(_route_dialog("acl-route-new", session, _("Add auto-approved route"), "", []))
+          </td>"""
+            dialogs.append(_route_dialog(f"acl-route-{cidr}", session, _("Edit auto-approved route"), cidr, approvers))
+        rows.append(f'<tr><td><code>{esc(cidr)}</code></td><td>{_chips(approvers)}</td>{actions_cell}</tr>')
+    add_route_btn = exit_form = ""
+    if can_edit:
+        dialogs.append(_route_dialog("acl-route-new", session, _("Add auto-approved route"), "", []))
+        add_route_btn = f'<button class="btn primary small" type="button" data-open="acl-route-new">{icon("plus")} {esc(_("Add route"))}</button>'
+        exit_form = f"""<form method="post" action="{BASE}/acl/autoapprove/exit-node" class="stack">
+        {csrf_input(session)}
+        <label class="field">{esc(_("Approvers"))}<input name="approvers" list="acl-targets" value="{esc(', '.join(exit_node))}"
+          placeholder="tag:exit, group:admins" autocomplete="off" spellcheck="false"></label>
+        <div class="form-foot"><button class="btn primary" type="submit">{esc(_("Save"))}</button></div>
+      </form>"""
+    else:
+        exit_form = _chips(exit_node)
 
     return f"""<div class="stack">
-      <div class="card-title"><h2>{esc(_("Auto-approved routes"))}</h2>
-        <button class="btn primary small" type="button" data-open="acl-route-new">{icon("plus")} {esc(_("Add route"))}</button></div>
+      <div class="card-title"><h2>{esc(_("Auto-approved routes"))}</h2>{add_route_btn}</div>
       <p class="muted small">{esc(_("A device that advertises one of these subnets is approved automatically if it matches an approver -- no per-device approval needed."))}</p>
-      {_table(rows, [_("Subnet"), _("Approvers"), ""], _("No auto-approved routes yet."))}
+      {_table(rows, [_("Subnet"), _("Approvers"), *([""] if can_edit else [])], _("No auto-approved routes yet."))}
     </div>
     <hr>
     <div class="stack">
       <h2>{esc(_("Auto-approved exit node"))}</h2>
       <p class="muted small">{esc(_("A device advertising itself as an exit node is approved automatically if it matches one of these. Leave it empty to turn auto-approval off."))}</p>
-      <form method="post" action="{BASE}/acl/autoapprove/exit-node" class="stack">
-        {csrf_input(session)}
-        <label class="field">{esc(_("Approvers"))}<input name="approvers" list="acl-targets" value="{esc(', '.join(exit_node))}"
-          placeholder="tag:exit, group:admins" autocomplete="off" spellcheck="false"></label>
-        <div class="form-foot"><button class="btn primary" type="submit">{esc(_("Save"))}</button></div>
-      </form>
+      {exit_form}
     </div>
     {"".join(dialogs)}"""
 
@@ -270,22 +285,18 @@ def _ssh_dialog(dialog_id: str, session: dict, title: str, view: dict | None, id
         </div>""")
 
 
-def ssh_panel(session: dict, pol: dict) -> str:
+def ssh_panel(session: dict, pol: dict, can_edit: bool = True) -> str:
     rules = pol.get("ssh") or []
     rows, dialogs = [], []
     for idx, rule in enumerate(rules):
         view = policy.ssh_rule_view(rule)
-        edit_action = (f'<button type="button" data-open="acl-ssh-{idx}">{esc(_("Edit…"))}</button>' if view["editable"]
-                      else f'<span class="menu-note">{esc(_("Edit in Advanced (HuJSON)"))}</span>')
         access = _("Re-authenticate every {period}", period=view["checkPeriod"] or "?") if view["action"] == "check" \
             else _("Allow")
-        rows.append(f"""
-        <tr>
-          <td>{_chips(view["src"])}</td>
-          <td>{_chips(view["dst"])}</td>
-          <td>{_chips(view["users"])}</td>
-          <td>{esc(access)}</td>
-          <td class="actions">
+        actions_cell = ""
+        if can_edit:
+            edit_action = (f'<button type="button" data-open="acl-ssh-{idx}">{esc(_("Edit…"))}</button>' if view["editable"]
+                          else f'<span class="menu-note">{esc(_("Edit in Advanced (HuJSON)"))}</span>')
+            actions_cell = f"""<td class="actions">
             <details class="dropdown">
               <summary class="icon-btn" aria-label="{esc(_("Actions"))}">{icon("more")}</summary>
               <div class="dropdown-body right">
@@ -295,17 +306,26 @@ def ssh_panel(session: dict, pol: dict) -> str:
                   <button type="submit" class="danger">{esc(_("Delete…"))}</button></form>
               </div>
             </details>
-          </td>
+          </td>"""
+            if view["editable"]:
+                dialogs.append(_ssh_dialog(f"acl-ssh-{idx}", session, _("Edit SSH rule"), view, idx))
+        rows.append(f"""
+        <tr>
+          <td>{_chips(view["src"])}</td>
+          <td>{_chips(view["dst"])}</td>
+          <td>{_chips(view["users"])}</td>
+          <td>{esc(access)}</td>
+          {actions_cell}
         </tr>""")
-        if view["editable"]:
-            dialogs.append(_ssh_dialog(f"acl-ssh-{idx}", session, _("Edit SSH rule"), view, idx))
-    dialogs.append(_ssh_dialog("acl-ssh-new", session, _("Add SSH rule"), None, None))
+    add_btn = ""
+    if can_edit:
+        dialogs.append(_ssh_dialog("acl-ssh-new", session, _("Add SSH rule"), None, None))
+        add_btn = f'<button class="btn primary small" type="button" data-open="acl-ssh-new">{icon("plus")} {esc(_("Add rule"))}</button>'
 
-    content = _table(rows, [_("Source"), _("Destination"), _("Host users"), _("Access"), ""],
+    content = _table(rows, [_("Source"), _("Destination"), _("Host users"), _("Access"), *([""] if can_edit else [])],
                      _("No SSH rules yet: Tailscale SSH is not enabled by policy."))
     return f"""<div class="stack">
-      <div class="card-title"><h2>{esc(_("SSH rules"))}</h2>
-        <button class="btn primary small" type="button" data-open="acl-ssh-new">{icon("plus")} {esc(_("Add rule"))}</button></div>
+      <div class="card-title"><h2>{esc(_("SSH rules"))}</h2>{add_btn}</div>
       <p class="muted small">{esc(_("Tailscale SSH still needs to be enabled on each device ({flag}); this only "
                                     "controls who is allowed in.", flag="tailscale up --ssh"))}</p>
       {content}

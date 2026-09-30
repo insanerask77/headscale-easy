@@ -2,10 +2,15 @@
 
 ## Users and admins
 
-Headscale Easy has two roles:
+Headscale Easy has four roles:
 
 - **Members** see and manage only their own machines and auth keys.
 - **Admins** see every machine and user and manage DNS, the ACL policy and API keys.
+- **Network admins** (optional) edit the ACL policy and DNS only.
+- **Auditors** (optional) see everything an admin sees, read only.
+
+See [Roles](configuration.md#roles) to set up the last two, built on their own
+Authentik group(s).
 
 With the built-in Authentik, admins are the members of `vpn-admins` (and
 Authentik's own `authentik Admins`). Add people at `/add-user` or from **Users →

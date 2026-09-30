@@ -80,6 +80,24 @@ set `FRONT_PROXY_IP` to the proxy's LAN address.
 | `external` | Your OIDC provider | Everyone signs in; admins are listed in `PORTAL_ADMIN_EMAILS` (or the groups in `PORTAL_ADMIN_GROUPS`, if your provider sends a `groups` claim) |
 | `none` | None | Admins only, with a Headscale API key |
 
+### Roles
+
+Besides admin and member, two narrower roles are available, both opt-in
+(off unless configured) and built on Authentik groups the same way
+`PORTAL_ADMIN_GROUPS` already is:
+
+| Role | Env var | Can do |
+|---|---|---|
+| Network admin | `PORTAL_NETWORK_ADMIN_GROUPS` | Edit the **Access controls** policy and **DNS**. Nothing else — no Users, Machines beyond their own, Logs or Settings. |
+| Auditor | `PORTAL_AUDITOR_GROUPS` | See everything an admin sees (all machines, Users, DNS, Access controls, Logs) but change nothing, anywhere — not even their own devices. |
+
+Admin takes priority if someone is in more than one of these groups. With
+built-in Authentik, create the group(s) yourself (**Directory → Groups**) and
+add members: the console already receives every group a signed-in user
+belongs to (the default `profile` OIDC scope includes it), so no blueprint
+change is needed. With your own OIDC provider, make sure it sends a `groups`
+claim.
+
 ### Built-in Authentik
 
 - The first admin is `akadmin`; the installer prints its first-start password.
