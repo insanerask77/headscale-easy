@@ -30,6 +30,7 @@ import urllib.parse
 import urllib.request
 
 from i18n import _
+from version import VERSION
 
 log = logging.getLogger("headscale-easy")
 
@@ -55,7 +56,10 @@ TLS = _tls_context()
 
 def http_json(method: str, url: str, *, headers: dict | None = None, body: bytes | None = None,
               timeout: float = 15) -> dict:
-    req = urllib.request.Request(url, data=body, method=method, headers=headers or {})
+    # Some identity-provider proxies reject urllib's default Python user agent.
+    request_headers = {"User-Agent": f"headscale-easy/{VERSION}"}
+    request_headers.update(headers or {})
+    req = urllib.request.Request(url, data=body, method=method, headers=request_headers)
     with urllib.request.urlopen(req, timeout=timeout, context=TLS) as resp:
         raw = resp.read()
     return json.loads(raw) if raw else {}
