@@ -7,7 +7,6 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
-<<<<<<< HEAD
 - Remote backups: set `BACKUP_REMOTE` and every backup is also uploaded to S3,
   B2, SFTP... (any rclone remote) or to a server with rsync over SSH
   (`rsync:user@host:/dir`). Remote retention with `BACKUP_REMOTE_KEEP_DAYS`;
@@ -16,7 +15,6 @@ All notable changes to this project are documented here. The format follows
   backup first. A failed upload is reported without losing the local backup.
 - `tests/test_backup_remote.py`: tests `backup/remote.sh` against a local
   destination with fake rclone/rsync.
-=======
 - DERP relay status: the machine detail shows the preferred relay with its
   latency and the latency to every relay the device measured; the Machines
   list has a Relay column.
@@ -57,7 +55,6 @@ All notable changes to this project are documented here. The format follows
   contacted. Installations with an older `docker-compose.yml` that still
   mounts the socket in `web` keep working, with a warning in the logs.
   `make validate` fails if any other service mounts the socket.
->>>>>>> main
 
 ## [1.4.0] - 2026-09-30
 
