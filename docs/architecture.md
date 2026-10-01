@@ -86,7 +86,7 @@ devices; the other components barely change with tailnet size.
 - **Authentik is the heavy part.** It is optional: with your own OIDC provider
   (`AUTH_PROVIDER=external`) or API key sign-in only (`none`), it is not
   installed. Plan 1 GB of RAM without Authentik and 2 GB with it.
-- Data on disk is small: Headscale's SQLite database, the activity log
+- Data on disk is small: Headscale's SQLite (or PostgreSQL) database, the activity log
   (`data/web/audit.db`, capped by `AUDIT_RETENTION_DAYS`) and Caddy's logs are
   a few MB for a small tailnet. Backups are one compressed file per day.
 

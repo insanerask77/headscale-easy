@@ -621,9 +621,85 @@ configure_backups() {
     fi
 }
 
+# Headscale's database: SQLite (default, a file in the headscale-data volume)
+# or PostgreSQL, either in this stack (the 'postgres' Compose profile,
+# container headscale-postgresql) or one you already run. The web UI reads
+# Hostinfo from it with a read-only role of its own (HEADSCALE_PG_RO_USER).
+validate_db_host()     { [[ "$1" =~ ^[a-zA-Z0-9._-]+$ ]]; }
+validate_db_name()     { [[ "$1" =~ ^[a-zA-Z_][a-zA-Z0-9_]{0,62}$ ]]; }
+# Goes into .env, Headscale's YAML and its "key=value" connection string
+validate_db_password() { [[ -n "$1" && "$1" != *[[:space:]]* ]] && validate_env_text "$1"; }
+
+configure_database() {
+    print_header "$(t "DATABASE" "BASE DE DATOS")"
+    print_info "$(t "SQLite is the right choice for almost every tailnet (Headscale's own recommendation)." \
+                    "SQLite es lo adecuado para casi cualquier tailnet (lo que recomienda el propio Headscale).")"
+    print_info "$(t "PostgreSQL is for large tailnets or if you already run and back up a PostgreSQL server." \
+                    "PostgreSQL es para tailnets grandes o si ya tienes un servidor PostgreSQL con sus copias.")"
+
+    local previous current="sqlite" choice
+    previous="${HEADSCALE_DB_TYPE:-sqlite}"
+    if [[ "$previous" == "postgres" ]]; then
+        current=$([[ "${HEADSCALE_PG_EXTERNAL:-false}" == "true" ]] && echo external || echo postgres)
+    fi
+    choice=$(ask_choice "$(t "Headscale's database" "Base de datos de Headscale")" "$current" \
+        "sqlite|$(t "SQLite (recommended)" "SQLite (recomendado)")|$(t "A file next to Headscale's keys. Nothing else to run or maintain." "Un fichero junto a las claves de Headscale. Nada más que arrancar o mantener.")" \
+        "postgres|$(t "PostgreSQL in this stack" "PostgreSQL en este stack")|$(t "An extra container (headscale-postgresql, ~30 MB RAM), backed up with the rest." "Un contenedor más (headscale-postgresql, ~30 MB de RAM), con copia junto al resto.")" \
+        "external|$(t "My own PostgreSQL server" "Mi propio servidor PostgreSQL")|$(t "You give the host, database and user; you look after its backups too." "Indicas host, base de datos y usuario; sus copias también las gestionas tú.")")
+
+    # Changing the database of an existing install does not move the data
+    local new_type="sqlite"
+    [[ "$choice" != "sqlite" ]] && new_type="postgres"
+    if [[ -f "$ENV_FILE" && "$new_type" != "$previous" ]]; then
+        print_warning "$(t "Switching between SQLite and PostgreSQL does NOT migrate users, machines or keys:" \
+                           "Cambiar entre SQLite y PostgreSQL NO migra usuarios, máquinas ni claves:")"
+        print_warning "$(t "Headscale starts with an empty database and every device has to register again." \
+                           "Headscale arranca con una base de datos vacía y cada dispositivo tiene que registrarse de nuevo.")"
+        if ! ask_yes_no "$(t "Switch anyway?" "¿Cambiar de todos modos?")" "n"; then
+            choice="$current"; new_type="$previous"
+        fi
+    fi
+
+    HEADSCALE_DB_TYPE="$new_type"
+    [[ "$HEADSCALE_DB_TYPE" == "postgres" ]] || return 0
+
+    if [[ "$choice" == "postgres" ]]; then
+        HEADSCALE_PG_EXTERNAL="false"
+        HEADSCALE_PG_HOST="headscale-postgresql"
+        HEADSCALE_PG_PORT="5432"
+        HEADSCALE_PG_NAME="headscale"
+        HEADSCALE_PG_USER="headscale"
+        # Same Docker network, no TLS needed
+        HEADSCALE_PG_SSLMODE="disable"
+        HEADSCALE_PG_RO_USER="headscale_ro"
+        return 0
+    fi
+
+    HEADSCALE_PG_EXTERNAL="true"
+    [[ "${HEADSCALE_PG_HOST:-}" == "headscale-postgresql" ]] && HEADSCALE_PG_HOST=""
+    HEADSCALE_PG_HOST=$(ask_input "$(t "PostgreSQL host (as seen from the containers)" "Host de PostgreSQL (visto desde los contenedores)")" "${HEADSCALE_PG_HOST:-}" validate_db_host)
+    HEADSCALE_PG_PORT=$(ask_input "$(t "Port" "Puerto")" "${HEADSCALE_PG_PORT:-5432}" validate_port)
+    HEADSCALE_PG_NAME=$(ask_input "$(t "Database (must exist)" "Base de datos (debe existir)")" "${HEADSCALE_PG_NAME:-headscale}" validate_db_name)
+    HEADSCALE_PG_USER=$(ask_input "$(t "User that owns it (Headscale creates its tables with it)" "Usuario propietario (Headscale crea sus tablas con él)")" "${HEADSCALE_PG_USER:-headscale}" validate_db_name)
+    HEADSCALE_PG_PASS=$(ask_input "$(t "Its password (no spaces or quotes)" "Su contraseña (sin espacios ni comillas)")" "${HEADSCALE_PG_PASS:-}" validate_db_password)
+    HEADSCALE_PG_SSLMODE=$(ask_choice "$(t "TLS to the server" "TLS hacia el servidor")" "${HEADSCALE_PG_SSLMODE:-require}" \
+        "require|require|$(t "Encrypted, certificate not checked (libpq's require)." "Cifrado, sin comprobar el certificado (require de libpq).")" \
+        "verify-full|verify-full|$(t "Encrypted and the certificate must match the host (needs a publicly trusted certificate)." "Cifrado y el certificado debe coincidir con el host (necesita un certificado de confianza pública).")" \
+        "prefer|prefer|$(t "Encrypted if the server offers it." "Cifrado si el servidor lo ofrece.")" \
+        "disable|disable|$(t "No TLS: only on a trusted private network." "Sin TLS: solo en una red privada de confianza.")")
+    HEADSCALE_PG_RO_USER=$(ask_input "$(t "Read-only role for the web UI (created by the installer)" "Rol de solo lectura para el panel (lo crea el instalador)")" "${HEADSCALE_PG_RO_USER:-headscale_ro}" validate_db_name)
+}
+
 generate_secrets() {
     # Signs the web UI session cookies; kept so open sessions survive
     [[ -z "${PORTAL_SESSION_SECRET:-}" ]] && PORTAL_SESSION_SECRET=$(generate_secret 32)
+
+    # PostgreSQL passwords: fixed once the database exists (the bundled one
+    # takes HEADSCALE_PG_PASS on its first start only)
+    if [[ "${HEADSCALE_DB_TYPE:-sqlite}" == "postgres" ]]; then
+        [[ -z "${HEADSCALE_PG_PASS:-}" ]] && HEADSCALE_PG_PASS=$(generate_secret 24)
+        [[ -z "${HEADSCALE_PG_RO_PASS:-}" ]] && HEADSCALE_PG_RO_PASS=$(generate_secret 24)
+    fi
 
     [[ "$AUTH_PROVIDER" == "authentik" ]] || return 0
     # Never regenerated once set: the Postgres password is fixed when the
@@ -674,6 +750,7 @@ generate_env_file() {
     local profiles=()
     [[ "$AUTH_PROVIDER" == "authentik" ]] && profiles+=(authentik)
     [[ "${BACKUP_ENABLED:-false}" == "true" ]] && profiles+=(backup)
+    [[ "${HEADSCALE_DB_TYPE:-sqlite}" == "postgres" && "${HEADSCALE_PG_EXTERNAL:-false}" != "true" ]] && profiles+=(postgres)
     COMPOSE_PROFILES=$(IFS=,; echo "${profiles[*]}")
 
     cat > "$ENV_FILE" <<EOF
@@ -727,6 +804,25 @@ NETWORK_ISOLATION=${NETWORK_ISOLATION}
 # Filled in by the installer. When it expires, re-run ./install.sh.
 APIKEY_EXPIRATION=${APIKEY_EXPIRATION:-90d}
 HEADSCALE_API_KEY=${HEADSCALE_API_KEY:-}
+
+# --- Headscale database ---------------------------------------------------------
+# sqlite (default) | postgres. With postgres, HEADSCALE_PG_EXTERNAL=false runs
+# it in this stack (container headscale-postgresql, 'postgres' profile);
+# true uses your own server. Switching type does NOT migrate the data.
+HEADSCALE_DB_TYPE=${HEADSCALE_DB_TYPE:-sqlite}
+HEADSCALE_PG_EXTERNAL=${HEADSCALE_PG_EXTERNAL:-false}
+HEADSCALE_PG_HOST=${HEADSCALE_PG_HOST:-headscale-postgresql}
+HEADSCALE_PG_PORT=${HEADSCALE_PG_PORT:-5432}
+HEADSCALE_PG_NAME=${HEADSCALE_PG_NAME:-headscale}
+# Owner of the database: Headscale and the backups use it. Never change the
+# password of the bundled one after its first start.
+HEADSCALE_PG_USER=${HEADSCALE_PG_USER:-headscale}
+HEADSCALE_PG_PASS="${HEADSCALE_PG_PASS:-}"
+# disable | prefer | require | verify-ca | verify-full
+HEADSCALE_PG_SSLMODE=${HEADSCALE_PG_SSLMODE:-disable}
+# The web UI's read-only role (SELECT on 3 columns of "nodes"), made by the installer
+HEADSCALE_PG_RO_USER=${HEADSCALE_PG_RO_USER:-headscale_ro}
+HEADSCALE_PG_RO_PASS="${HEADSCALE_PG_RO_PASS:-}"
 
 # --- Sign-in ---------------------------------------------------------------------
 # authentik | external | none
@@ -811,6 +907,7 @@ HSE_VERSION=${HSE_VERSION:-latest}
 HEADSCALE_IMAGE_TAG=${HEADSCALE_IMAGE_TAG:-latest}
 CADDY_IMAGE_TAG=${CADDY_IMAGE_TAG:-2-alpine}
 AUTHENTIK_IMAGE_TAG=${AUTHENTIK_IMAGE_TAG:-2026.8.3}
+HEADSCALE_PG_IMAGE_TAG=${HEADSCALE_PG_IMAGE_TAG:-17-alpine}
 EOF
     chmod 600 "$ENV_FILE"
     print_success "$(t "Written" "Generado"): .env"
@@ -872,6 +969,41 @@ key_expiry_block() {
         return 0
     fi
     printf '%s\n  expiry: %s\n%s\n' "$begin" "${NODE_KEY_EXPIRY:-180d}" "$end"
+}
+
+# database: block of headscale-config.yaml. Headscale's "ssl" takes a boolean
+# or a libpq sslmode: false = disable, true = prefer.
+database_block() {
+    if [[ "${HEADSCALE_DB_TYPE:-sqlite}" != "postgres" ]]; then
+        cat <<'EOFDB'
+database:
+  type: sqlite
+  sqlite:
+    path: /var/lib/headscale/db.sqlite
+    write_ahead_log: true
+EOFDB
+        return 0
+    fi
+    local ssl
+    case "${HEADSCALE_PG_SSLMODE:-disable}" in
+        disable) ssl="false" ;;
+        prefer)  ssl="true" ;;
+        *)       ssl="\"${HEADSCALE_PG_SSLMODE}\"" ;;
+    esac
+    cat <<EOFDB
+database:
+  type: postgres
+  postgres:
+    host: "${HEADSCALE_PG_HOST}"
+    port: ${HEADSCALE_PG_PORT:-5432}
+    name: "${HEADSCALE_PG_NAME:-headscale}"
+    user: "${HEADSCALE_PG_USER:-headscale}"
+    pass: "${HEADSCALE_PG_PASS}"
+    max_open_conns: 10
+    max_idle_conns: 10
+    conn_max_idle_time_secs: 3600
+    ssl: ${ssl}
+EOFDB
 }
 
 # Own DERP map (DERP relays page): derp.paths lives in a marked block the web
@@ -939,11 +1071,12 @@ EOFC
     DNS_CONFIG=$(dns_block)
     KEY_EXPIRY_CONFIG=$(key_expiry_block)
     DERP_PATHS_CONFIG=$(derp_paths_block)
+    DATABASE_CONFIG=$(database_block)
 
     export SERVER_URL HEADSCALE_HTTP_PORT HEADSCALE_METRICS_PORT HEADSCALE_GRPC_PORT \
            IP_PREFIXES_V4 IP_PREFIXES_V6 TAILNET_NAME HEADSCALE_DERP_PORT LOG_LEVEL \
            OIDC_CONFIG TRUSTED_PROXIES_CONFIG DNS_CONFIG KEY_EXPIRY_CONFIG DERP_PATHS_CONFIG \
-           DERP_URLS_CONFIG DERP_AUTO_UPDATE
+           DERP_URLS_CONFIG DERP_AUTO_UPDATE DATABASE_CONFIG
     envsubst < "$TEMPLATES_DIR/headscale-config.yaml.tmpl" > "$SCRIPT_DIR/headscale-config.yaml"
     print_success "$(t "Written" "Generado"): headscale-config.yaml"
 }
@@ -1179,6 +1312,18 @@ stop_unused_authentik() {
     return 0
 }
 
+# The bundled PostgreSQL after switching to SQLite or to an external server.
+# Its volume (headscale-db) is kept.
+stop_unused_postgres() {
+    if [[ "${HEADSCALE_DB_TYPE:-sqlite}" != "postgres" || "${HEADSCALE_PG_EXTERNAL:-false}" == "true" ]] \
+        && docker ps -a --format '{{.Names}}' | grep -qx headscale-postgresql; then
+        print_info "$(t "Stopping the bundled PostgreSQL (no longer used; its data is kept)..." \
+                        "Deteniendo el PostgreSQL incluido (ya no se usa; sus datos se conservan)...")"
+        docker compose --profile postgres rm -sf headscale-postgresql >/dev/null
+    fi
+    return 0
+}
+
 # The backup container after turning backups off. Existing backups are kept.
 stop_unused_backup() {
     if [[ "${BACKUP_ENABLED:-false}" != "true" ]] && docker ps -a --format '{{.Names}}' | grep -qx headscale-easy-backup; then
@@ -1204,10 +1349,59 @@ first_backup() {
     fi
 }
 
+# The bundled PostgreSQL must accept connections before Headscale starts
+start_postgres_first() {
+    [[ "${HEADSCALE_DB_TYPE:-sqlite}" == "postgres" && "${HEADSCALE_PG_EXTERNAL:-false}" != "true" ]] || return 0
+    docker compose up -d headscale-postgresql
+    local waited=0
+    while [ $waited -lt 60 ]; do
+        [[ "$(docker inspect -f '{{.State.Health.Status}}' headscale-postgresql 2>/dev/null)" == "healthy" ]] && return 0
+        sleep 2; waited=$((waited + 2)); echo -n "."
+    done
+    echo ""
+    print_error "$(t "PostgreSQL did not become healthy after 60 s" "PostgreSQL no llegó a estar sano tras 60 s")"
+    print_info "docker compose logs headscale-postgresql"
+    exit 1
+}
+
+# The web UI's read-only PostgreSQL role (templates/headscale-pg-readonly.sql):
+# SELECT on the three columns of "nodes" it needs. Runs after Headscale has
+# created its tables, on every install (idempotent: re-applies the grant if
+# a Headscale upgrade recreated the table). Passwords travel in the
+# environment, never on a command line.
+apply_pg_readonly_role() {
+    [[ "${HEADSCALE_DB_TYPE:-sqlite}" == "postgres" ]] || return 0
+    local sql="$TEMPLATES_DIR/headscale-pg-readonly.sql" ok=0
+    if [[ "${HEADSCALE_PG_EXTERNAL:-false}" != "true" ]]; then
+        HSE_RO_USER="$HEADSCALE_PG_RO_USER" HSE_RO_PASS="$HEADSCALE_PG_RO_PASS" \
+            docker exec -i -e HSE_RO_USER -e HSE_RO_PASS headscale-postgresql \
+            psql -q -v ON_ERROR_STOP=1 -U "$HEADSCALE_PG_USER" -d "$HEADSCALE_PG_NAME" < "$sql" >/dev/null && ok=1
+    else
+        # Your server: a throwaway psql container on the stack's network
+        HSE_RO_USER="$HEADSCALE_PG_RO_USER" HSE_RO_PASS="$HEADSCALE_PG_RO_PASS" \
+        PGPASSWORD="$HEADSCALE_PG_PASS" PGSSLMODE="$HEADSCALE_PG_SSLMODE" \
+            docker run --rm -i --network "${NETWORK_NAME:-headscale-net}" \
+            -e HSE_RO_USER -e HSE_RO_PASS -e PGPASSWORD -e PGSSLMODE \
+            "postgres:${HEADSCALE_PG_IMAGE_TAG:-17-alpine}" \
+            psql -q -v ON_ERROR_STOP=1 -h "$HEADSCALE_PG_HOST" -p "$HEADSCALE_PG_PORT" \
+                 -U "$HEADSCALE_PG_USER" -d "$HEADSCALE_PG_NAME" < "$sql" >/dev/null && ok=1
+    fi
+    if [[ $ok -eq 1 ]]; then
+        print_success "$(t "Read-only database role for the web UI:" "Rol de solo lectura de la base de datos para el panel:") ${HEADSCALE_PG_RO_USER}"
+    else
+        print_warning "$(t "Could not create the web UI's read-only role (the OS and version columns stay empty)." \
+                           "No se pudo crear el rol de solo lectura del panel (las columnas de SO y versión quedan vacías).")"
+        print_info "$(t "Run templates/headscale-pg-readonly.sql as a user that may create roles, with" \
+                        "Ejecuta templates/headscale-pg-readonly.sql con un usuario que pueda crear roles, con")"
+        print_info "  HSE_RO_USER=${HEADSCALE_PG_RO_USER} HSE_RO_PASS=<HEADSCALE_PG_RO_PASS of .env>"
+    fi
+}
+
 start_headscale_first() {
     # Headscale must be up BEFORE the UI: only a running Headscale can issue
     # the API key the UI needs.
     print_header "$(t "STARTING HEADSCALE" "ARRANCANDO HEADSCALE")"
+    start_postgres_first
     # --force-recreate: on reconfigure the config changes but the container does not
     docker compose up -d --force-recreate headscale
     local max_wait=90 waited=0 state
@@ -1319,6 +1513,7 @@ deploy_stack() {
     print_header "$(t "STARTING THE STACK" "ARRANCANDO EL STACK")"
     stop_unused_authentik
     stop_unused_backup
+    stop_unused_postgres
     docker compose up -d
     # Caddyfile and UI settings may have changed: 'up' does not re-read files
     docker compose restart caddy web >/dev/null
@@ -1484,6 +1679,7 @@ main() {
     compute_public_urls
     configure_tailnet
     configure_auth
+    configure_database
     configure_notifications
     configure_backups
     generate_files
@@ -1497,6 +1693,7 @@ main() {
     pull_images
     start_authentik_first
     start_headscale_first
+    apply_pg_readonly_role
     bootstrap_headscale
     apply_network_policy
     deploy_stack

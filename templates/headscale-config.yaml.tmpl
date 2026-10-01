@@ -39,11 +39,8 @@ private_key_path: /var/lib/headscale/private.key
 noise:
   private_key_path: /var/lib/headscale/noise_private.key
 
-database:
-  type: sqlite
-  sqlite:
-    path: /var/lib/headscale/db.sqlite
-    write_ahead_log: true
+# SQLite (default) or PostgreSQL, chosen in the installer (HEADSCALE_DB_TYPE)
+${DATABASE_CONFIG}
 
 # ACL policy. "database" stores it in the database so the web UI can edit it
 # (Access controls → Policy editor). With "file" and an empty path the API

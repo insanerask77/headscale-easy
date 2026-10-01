@@ -74,13 +74,13 @@ main() {
     # shellcheck source=/dev/null
     if [[ -f "$ENV_FILE" ]]; then set -a; source "$ENV_FILE"; set +a; fi
 
-    # Every profile, so Authentik goes too when it is enabled
-    docker compose --profile authentik down --remove-orphans || print_warning "$(t "Some containers could not be removed" "Algunos contenedores no se pudieron eliminar")"
+    # Every profile, so Authentik, PostgreSQL and backups go too when enabled
+    docker compose --profile authentik --profile postgres --profile backup down --remove-orphans || print_warning "$(t "Some containers could not be removed" "Algunos contenedores no se pudieron eliminar")"
     print_success "$(t "Containers removed" "Contenedores eliminados")"
 
     if $PURGE; then
         local v
-        for v in headscale-data headscale-socket hse-helper caddy-data caddy-config authentik-db authentik-data authentik-media; do
+        for v in headscale-data headscale-db headscale-socket hse-helper caddy-data caddy-config authentik-db authentik-data authentik-media; do
             docker volume rm "$v" >/dev/null 2>&1 && print_success "$(t "Volume deleted:" "Volumen borrado:") $v"
         done
         docker network rm "${NETWORK_NAME:-headscale-net}" >/dev/null 2>&1 || true

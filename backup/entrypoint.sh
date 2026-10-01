@@ -11,7 +11,7 @@ if [ "$SCHEDULE" = "off" ]; then
 fi
 
 # crond runs jobs without the container's environment: pass it through a file
-env | grep -E '^(BACKUP_|PG|TZ=|AUTHENTIK_|AWS_|RCLONE_)' | sed 's/^/export /; s/=\(.*\)$/="\1"/' > /etc/backup.env
+env | grep -E '^(BACKUP_|PG|TZ=|AUTHENTIK_|HEADSCALE_|AWS_|RCLONE_)' | sed 's/^/export /; s/=\(.*\)$/="\1"/' > /etc/backup.env
 echo "$SCHEDULE . /etc/backup.env; /usr/local/bin/backup.sh >> /proc/1/fd/1 2>&1" > /etc/crontabs/root
 echo "scheduled backups: '$SCHEDULE' (TZ=${TZ:-UTC}), keeping ${BACKUP_KEEP_DAYS:-14} days in /backups"
 exec crond -f -l 8

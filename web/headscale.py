@@ -4,10 +4,11 @@ Three sources, all read-only except the API:
 
   - Headscale REST API v1 (with the API key): nodes, users, keys, policy and
     every write operation.
-  - Headscale's SQLite database, mounted read-only: the Hostinfo each client
-    reports (OS, Tailscale version, DERP relay, endpoints), which API v1 does
-    not expose. If it is unavailable (e.g. Headscale on PostgreSQL) those
-    columns are simply shown empty.
+  - Headscale's database, read-only: the Hostinfo each client reports (OS,
+    Tailscale version, DERP relay, endpoints), which API v1 does not expose.
+    SQLite (the file, mounted read-only) or PostgreSQL (HEADSCALE_DB_TYPE=
+    postgres, through a read-only role and the stdlib client in pgwire.py).
+    If it is unavailable those columns are simply shown empty.
   - Headscale's config.yaml: the tailnet DNS settings. The web UI rewrites
     only the marked dns: block (see apply_dns).
 """
@@ -29,6 +30,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import pgwire
 from i18n import _
 from version import VERSION
 
@@ -38,6 +40,18 @@ HEADSCALE_URL = os.environ.get("HEADSCALE_URL", "http://headscale:8080").rstrip(
 HEADSCALE_API_KEY = os.environ["HEADSCALE_API_KEY"]
 HEADSCALE_OIDC_ISSUER = os.environ.get("HEADSCALE_OIDC_ISSUER", "")
 HEADSCALE_DB = os.environ.get("HEADSCALE_DB", "/headscale/db.sqlite")
+# sqlite (default) or postgres: where host_details() reads Hostinfo from
+HEADSCALE_DB_TYPE = os.environ.get("HEADSCALE_DB_TYPE", "sqlite").strip().lower()
+# PostgreSQL: the web UI's read-only role (the installer creates it), not Headscale's
+HEADSCALE_PG = {
+    "host": os.environ.get("HEADSCALE_PG_HOST", "headscale-postgresql"),
+    "port": int(os.environ.get("HEADSCALE_PG_PORT") or 5432),
+    "database": os.environ.get("HEADSCALE_PG_NAME", "headscale"),
+    "user": os.environ.get("HEADSCALE_PG_USER", "headscale_ro"),
+    "password": os.environ.get("HEADSCALE_PG_PASSWORD", ""),
+    "sslmode": os.environ.get("HEADSCALE_PG_SSLMODE", "prefer"),
+    "sslrootcert": os.environ.get("HEADSCALE_PG_SSLROOTCERT") or None,
+}
 HEADSCALE_CONFIG = os.environ.get("HEADSCALE_CONFIG", "/etc/headscale/config.yaml")
 
 # With a self-signed certificate: Caddy's CA, to verify the public OIDC issuer
@@ -181,29 +195,52 @@ def own_api_key_prefix() -> str:
 def host_details(node_ids: list[str]) -> dict[str, dict]:
     """{node_id: {"hostinfo": {...}, "endpoints": [...]}} for those nodes.
 
-    Headscale runs SQLite in WAL mode, which allows readers in another process
-    with mode=ro as long as the -wal and -shm files exist (Headscale keeps them).
+    Read from SQLite or PostgreSQL depending on HEADSCALE_DB_TYPE. Any failure
+    is logged and gives {}: the pages then show those columns empty.
     """
-    if not node_ids or not os.path.isfile(HEADSCALE_DB):
+    ids = [int(i) for i in node_ids]
+    if not ids:
         return {}
-    try:
-        con = sqlite3.connect(f"file:{HEADSCALE_DB}?mode=ro", uri=True, timeout=3)
-        try:
-            marks = ",".join("?" * len(node_ids))
-            rows = con.execute(
-                f"SELECT id, host_info, endpoints FROM nodes WHERE id IN ({marks})",
-                [int(i) for i in node_ids],
-            ).fetchall()
-        finally:
-            con.close()
-    except sqlite3.Error as exc:
-        log.warning("could not read Hostinfo from the database: %s", exc)
-        return {}
-
+    if HEADSCALE_DB_TYPE in ("postgres", "postgresql"):
+        rows = _rows_postgres(ids)
+    else:
+        rows = _rows_sqlite(ids)
     return {
         str(node_id): {"hostinfo": _loads(host_info, {}), "endpoints": _loads(endpoints, []) or []}
         for node_id, host_info, endpoints in rows
     }
+
+
+def _rows_sqlite(ids: list[int]) -> list[tuple]:
+    """Headscale runs SQLite in WAL mode, which allows readers in another
+    process with mode=ro as long as the -wal and -shm files exist (Headscale
+    keeps them)."""
+    if not os.path.isfile(HEADSCALE_DB):
+        return []
+    try:
+        con = sqlite3.connect(f"file:{HEADSCALE_DB}?mode=ro", uri=True, timeout=3)
+        try:
+            marks = ",".join("?" * len(ids))
+            return con.execute(f"SELECT id, host_info, endpoints FROM nodes WHERE id IN ({marks})", ids).fetchall()
+        finally:
+            con.close()
+    except sqlite3.Error as exc:
+        log.warning("could not read Hostinfo from the database: %s", exc)
+        return []
+
+
+def _rows_postgres(ids: list[int]) -> list[tuple]:
+    """The simple query protocol has no parameters: the ids are integers
+    converted by host_details(), so the IN list cannot carry SQL."""
+    in_list = ",".join(str(int(i)) for i in ids)
+    sql = f"SELECT id, host_info, endpoints FROM nodes WHERE id IN ({in_list})"
+    try:
+        rows = pgwire.query(sql, timeout=3, **HEADSCALE_PG)
+    except (pgwire.PgError, OSError, ValueError) as exc:
+        hint = " (re-run ./install.sh to grant the read-only role access)" if getattr(exc, "code", "") == "42501" else ""
+        log.warning("could not read Hostinfo from PostgreSQL: %s%s", exc, hint)
+        return []
+    return [(int(node_id), host_info, endpoints) for node_id, host_info, endpoints in rows]
 
 
 def _loads(raw, default):

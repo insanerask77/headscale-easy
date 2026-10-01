@@ -313,6 +313,47 @@ file, so your DNS settings survive reconfiguration.
 Validating and restarting go through the `hs-helper` container, the only one
 with the Docker socket; see [Security](security.md).
 
+## Database
+
+Headscale keeps users, machines and keys in **SQLite** by default: one file next
+to its private keys, nothing else to run. That is Headscale's own
+recommendation and the right choice for almost every tailnet. The installer
+also offers **PostgreSQL**, for large tailnets or if you already run (and back
+up) a PostgreSQL server:
+
+| Choice | What runs | `.env` |
+|---|---|---|
+| SQLite (default) | Nothing extra | `HEADSCALE_DB_TYPE=sqlite` |
+| PostgreSQL in this stack | Container `headscale-postgresql` (`postgres` Compose profile, volume `headscale-db`), not published | `HEADSCALE_DB_TYPE=postgres`, `HEADSCALE_PG_EXTERNAL=false` |
+| Your own PostgreSQL | Nothing extra; you give host, port, database, owner user and password, and the TLS mode | `HEADSCALE_DB_TYPE=postgres`, `HEADSCALE_PG_EXTERNAL=true` |
+
+- **Switching does not migrate data.** Moving an existing install between
+  SQLite and PostgreSQL starts Headscale with an empty database: users and
+  machines have to be created and registered again. The installer warns and
+  asks before switching.
+- **The web UI reads with a read-only role.** It needs the Hostinfo devices
+  report (OS, Tailscale version, DERP relay, endpoints), which Headscale's API
+  does not expose. The installer creates `HEADSCALE_PG_RO_USER`
+  (`headscale_ro`) with
+  [`templates/headscale-pg-readonly.sql`](https://github.com/insanerask77/headscale-easy/blob/main/templates/headscale-pg-readonly.sql):
+  it may only `SELECT` the `id`, `host_info` and `endpoints` columns of
+  `nodes` (no keys, no other tables) and its sessions are read-only. The UI
+  never gets Headscale's own credentials. It talks to PostgreSQL with a small
+  built-in client (standard library only: SCRAM-SHA-256, optional
+  TLS), so the image still has no third-party packages.
+- **Your own server:** it must authenticate with `scram-sha-256` (PostgreSQL's
+  default since 14; the legacy `md5` method is refused). The database must
+  exist and its owner must be the user
+  you give (Headscale creates its tables with it). To create the read-only
+  role the installer runs that SQL as the owner, which needs the `CREATEROLE`
+  privilege; if it cannot, it prints the command to run as a superuser.
+  `HEADSCALE_PG_SSLMODE` (`disable`, `prefer`, `require`, `verify-ca`,
+  `verify-full`) applies to Headscale, the web UI and backups.
+- If a Headscale upgrade recreates the `nodes` table, the OS and version
+  columns turn empty and the web UI logs `permission denied`: run
+  `./install.sh` again to re-apply the grant.
+- Backups use `pg_dump` (see [Operations → Backups](operations.md#backups)).
+
 ## Language
 
 The console follows the browser's language (English, Spanish, French, German or Portuguese) and each person
