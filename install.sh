@@ -539,6 +539,25 @@ configure_email() {
     print_info "$(t "After deploying, test it with:" "Tras desplegar, pruébalo con:") docker exec authentik-worker ak test_email <$(t "your-email" "tu-email")>"
 }
 
+# Optional webhook notifications (Slack, Telegram, ntfy, generic JSON): a message
+# when a device joins, is removed or its key expires. NOTIFY_URLS may hold several
+# destinations, see docs/operations.md.
+configure_notifications() {
+    echo ""
+    print_info "$(t "Notifications are optional: a message in Slack, Telegram, ntfy or a webhook when a device joins, is removed or expires." \
+                    "Las notificaciones son opcionales: un mensaje en Slack, Telegram, ntfy o un webhook cuando un dispositivo se une, se elimina o caduca.")"
+    if ! ask_yes_no "$(t "Set up notifications?" "¿Configurar notificaciones?")" \
+                    "$([[ -n "${NOTIFY_URLS:-}" ]] && echo y || echo n)"; then
+        NOTIFY_URLS=""
+        return 0
+    fi
+    print_info "$(t "Format: slack:<webhook URL>, telegram:<bot token>@<chat id>, ntfy:<topic>, webhook:<URL>; several separated by spaces" \
+                    "Formato: slack:<URL del webhook>, telegram:<token del bot>@<id del chat>, ntfy:<tema>, webhook:<URL>; varios separados por espacios")"
+    NOTIFY_URLS=$(ask_input "$(t "Destinations" "Destinos")" "${NOTIFY_URLS:-}" validate_env_text)
+    print_info "$(t "After deploying, send a test from Settings > General > Notifications." \
+                    "Tras desplegar, envía una prueba desde Ajustes > General > Notificaciones.")"
+}
+
 # Daily backups are optional (they add a small container and disk use), off by
 # default but recommended. They are enabled through the 'backup' Compose
 # profile.
@@ -704,6 +723,11 @@ PORTAL_ADMIN_EMAILS="${PORTAL_ADMIN_EMAILS:-}"
 # Public demo instance only: banner on every page, access-granting and
 # destructive actions disabled (see SECURITY.md)
 DEMO_MODE=${DEMO_MODE:-false}
+# Webhook notifications (empty = off): slack:<webhook>, telegram:<token>@<chat id>,
+# ntfy:<topic or URL>, webhook:<URL>; separated by spaces. Events: device.registered,
+# device.key_expired, device.expiring, device.removed
+NOTIFY_URLS="${NOTIFY_URLS:-}"
+NOTIFY_EVENTS="${NOTIFY_EVENTS:-device.registered,device.key_expired,device.expiring,device.removed}"
 # uid/gid the UI and hs-helper run with (owner of the project files) and the
 # Docker socket gid (hs-helper only)
 PORTAL_UID=${PORTAL_UID}
@@ -1406,6 +1430,7 @@ main() {
     compute_public_urls
     configure_tailnet
     configure_auth
+    configure_notifications
     configure_backups
     generate_files
 

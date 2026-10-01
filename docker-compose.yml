@@ -406,6 +406,9 @@ services:
       # Machines page: "Expires soon" window and "inactive" threshold (days)
       EXPIRY_WARNING_DAYS: ${EXPIRY_WARNING_DAYS:-14}
       INACTIVE_DAYS: ${INACTIVE_DAYS:-30}
+      # Webhook notifications (empty NOTIFY_URLS = off), see docs/operations.md
+      NOTIFY_URLS: ${NOTIFY_URLS:-}
+      NOTIFY_EVENTS: ${NOTIFY_EVENTS:-}
       # Activity log (Logs page, ./data/web/audit.db): days to keep events, 0 = forever
       AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-90}
       SESSION_SECRET: ${PORTAL_SESSION_SECRET:-}

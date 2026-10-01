@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Webhook notifications (roadmap item 14): Slack, Telegram, ntfy and a generic
+  JSON webhook, for new, expired, about-to-expire and removed devices.
+  Configured with `NOTIFY_URLS` / `NOTIFY_EVENTS` (the installer asks,
+  optionally); sending is in the background with a timeout and retries, and
+  never slows down or breaks the web UI. **Settings -> General ->
+  Notifications** lists the destinations and has a "Send a test" button
+  (admins; blocked in the demo).
 ### Security
 - Sessions are now revocable: the signed cookie carries a session id that must
   exist, unrevoked, in `data/web/sessions.db` (`600`). New **Settings →

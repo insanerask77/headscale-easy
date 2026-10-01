@@ -134,6 +134,7 @@ def action_labels() -> dict[str, str]:
         "dns.save": _("Changed DNS settings"),
         "settings.key_expiry": _("Changed device key expiry"),
         "settings.mfa": _("Changed two-factor authentication"),
+        "settings.notify_test": _("Sent a test notification"),
         # devices (seen in Headscale's state)
         "device.registered": _("Device registered"),
         "device.removed": _("Device removed"),
@@ -248,6 +249,15 @@ def _scrub(value, key: str = ""):
     return str(value)
 
 
+def _notify(action: str, target: str, details: dict | None) -> None:
+    """Webhook notifications (web/notify.py) for the events the admin chose."""
+    try:
+        import notify
+        notify.event(action, target, details)
+    except Exception:  # noqa: BLE001 - notifications never break the log
+        pass
+
+
 def record(actor: str, action: str, target: str = "", details: dict | None = None, ip: str = "",
            ref: str = "", ts: str | None = None) -> int | None:
     """Append one event. Returns its id, or None if it could not be stored."""
@@ -262,7 +272,9 @@ def record(actor: str, action: str, target: str = "", details: dict | None = Non
             cur = _db().execute(
                 "INSERT INTO events (ts, category, action, actor, target, ref, details, ip) VALUES (?,?,?,?,?,?,?,?)",
                 row)
-            return cur.lastrowid
+            rowid = cur.lastrowid
+        _notify(action, target, details)
+        return rowid
     except Exception as exc:  # noqa: BLE001 - never break the caller
         if time.time() - _last_error > 300:  # do not flood the container log
             log.warning("could not write to the activity log (%s): %s", DB_PATH, exc)
