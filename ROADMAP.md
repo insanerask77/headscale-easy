@@ -102,7 +102,7 @@ and verifiable comes before new features.
 
 ## 🟢 Low — polish and advanced cases
 
-- [ ] **14. Webhook notifications** (Slack, Telegram, ntfy): new or expired device · M
+- [x] **14. Webhook notifications** (Slack, Telegram, ntfy): new or expired device · M — *next*
 - [ ] **15. Server status page**: Headscale version with update notice, container health, disk use, basic metrics · S/M
 - [ ] **16. DERP relay status**: region and latency per device, editor for an own DERP map · M
 - [ ] **17. PostgreSQL support** for large tailnets instead of SQLite · M

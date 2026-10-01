@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Webhook notifications (roadmap item 14): Slack, Telegram, ntfy and a generic
+  JSON webhook, for new, expired, about-to-expire and removed devices.
+  Configured with `NOTIFY_URLS` / `NOTIFY_EVENTS` (the installer asks,
+  optionally); sending is in the background with a timeout and retries, and
+  never slows down or breaks the web UI. **Settings -> General ->
+  Notifications** lists the destinations and has a "Send a test" button
+  (admins; blocked in the demo).
+
 ## [1.4.0] - 2026-09-30
 
 ### Security

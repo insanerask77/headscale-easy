@@ -206,6 +206,38 @@ los dispositivos sí se registra.
     cuál y cuándo): hacen falta datos de los clientes que solo recoge el
     servidor de coordinación de Tailscale.
 
+## Notificaciones { #notifications }
+
+Headscale Easy puede avisarte cuando pasa algo con un dispositivo. Define los
+destinos en `.env` (o responde la pregunta opcional de `./install.sh`) y
+ejecuta `docker compose up -d`:
+
+```bash
+# separados por coma, espacio o salto de línea
+NOTIFY_URLS="slack:https://hooks.slack.com/services/T000/B000/XXXX ntfy:mi-tema"
+NOTIFY_EVENTS="device.registered,device.key_expired,device.expiring,device.removed"
+```
+
+| Destino | Formato |
+| --- | --- |
+| Slack | `slack:<URL del webhook entrante>` (también vale una URL `hooks.slack.com` sin prefijo) |
+| Telegram | `telegram:<token del bot>@<id del chat>`, p. ej. `telegram:123456:ABC-def@-100987` |
+| ntfy | `ntfy:<tema>` (ntfy.sh) o `ntfy:https://tu-ntfy/tema` |
+| Webhook genérico | `webhook:<URL>` (o una URL `https://` sin prefijo): POST con cuerpo JSON `{source, event, target, message, details, timestamp}` |
+
+Eventos (todos por defecto; `NOTIFY_EVENTS` elige algunos): `device.registered`
+(se unió un dispositivo nuevo), `device.key_expired`, `device.expiring` (la
+clave caduca dentro de `EXPIRY_WARNING_DAYS`; se envía una vez por dispositivo
+y fecha de caducidad, comprobado cada 15 minutos) y `device.removed`. Los
+mensajes salen en segundo plano con un tiempo máximo de 10 segundos y 3
+intentos, así que un destino lento o roto nunca ralentiza la interfaz web; los
+fallos solo aparecen en el registro del contenedor web (sin la URL, que
+contiene secretos).
+
+Los admins ven los destinos (solo el host) en **Ajustes → General →
+Notificaciones**, con un botón **Enviar prueba** (bloqueado en la demo y
+registrado en el registro de actividad).
+
 ## Resolución de problemas { #troubleshooting }
 
 **Headscale nunca llega a estar sano (con OIDC).** No arranca hasta que puede

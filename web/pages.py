@@ -11,6 +11,7 @@ import re
 from datetime import datetime, timezone
 
 import expiry
+import notify
 from i18n import LANGUAGES, _, get_lang, ngettext
 from qr import qr_figure
 from ui import (BASE, LOGO, badge, copy_btn, csrf_input, docs_url, esc, flash_html, icon, initials, layout, notice,
@@ -791,6 +792,29 @@ def mfa_section(session: dict, mfa: dict) -> str:
     </section>"""
 
 
+def notify_section(session: dict) -> str:
+    """Settings > General (admins): where notifications go, and "Send a test"."""
+    dests = notify.destinations()
+    if not dests:
+        body = (f'<p class="muted">{esc(_("Get a message in Slack, Telegram, ntfy or any webhook when a device joins, is removed or its key expires."))}</p>'
+                f'<p class="muted small">{esc(_("Set NOTIFY_URLS in .env (or run ./install.sh) and restart the web container."))}</p>')
+    else:
+        labels = {"device.registered": _("New device"), "device.key_expired": _("Key expired"),
+                  "device.expiring": _("Key expiring soon"), "device.removed": _("Device removed")}
+        chosen = notify.events()
+        items = "".join(f"<li>{esc(d['label'])}</li>" for d in dests)
+        evs = ", ".join(labels[e] for e in notify.ALL_EVENTS if e in chosen)
+        body = (f'<ul>{items}</ul>'
+                f'<p class="muted small">{esc(_("Events: {events}", events=evs))}</p>'
+                f'<form method="post" action="{BASE}/settings/notify-test" data-busy>{csrf_input(session)}'
+                f'<button class="btn" type="submit">{esc(_("Send a test"))}</button></form>')
+    return f"""
+    <section class="card">
+      <h2>{esc(_("Notifications"))}</h2>
+      {body}
+    </section>"""
+
+
 def general_page(session: dict, ctx: dict, flash: str = "", key_expiry: int | None = None,
                  error: str = "", mfa: dict | None = None) -> str:
     role = _("Admin") if session.get("admin") else _("Member")
@@ -818,6 +842,7 @@ def general_page(session: dict, ctx: dict, flash: str = "", key_expiry: int | No
         <div><button class="btn primary" type="submit">{esc(_("Save"))}</button></div>
       </form>
     </section>"""
+    notifications = notify_section(session) if session.get("admin") else ""
     body = page_head(_("General"), esc(_("Your account and how Headscale Easy looks for you."))) + flash_html(flash) + (notice("error", error) if error else "") + f"""
     <section class="card">
       <h2>{esc(_("Account"))}</h2>
@@ -831,6 +856,7 @@ def general_page(session: dict, ctx: dict, flash: str = "", key_expiry: int | No
       {manage}
     </section>
     {devices}
+    {notifications}
     {mfa_section(session, mfa) if session.get("admin") and mfa is not None else ""}
     <section class="card">
       <h2>{esc(_("Appearance"))}</h2>

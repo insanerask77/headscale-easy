@@ -49,6 +49,7 @@ import expiry  # noqa: E402
 import audit  # noqa: E402
 import mfa  # noqa: E402
 import naming  # noqa: E402
+import notify  # noqa: E402
 import pages  # noqa: E402
 import policy  # noqa: E402
 from i18n import LANGUAGES, _, pick_lang, set_lang  # noqa: E402
@@ -108,7 +109,7 @@ EXIT_ROUTES = ["0.0.0.0/0", "::/0"]
 # or removes data.
 DEMO_BLOCKED = re.compile(
     rf"{BASE}/(keys|apikeys(/\d+/expire)?|machines/(register|remove-inactive)|machines/\d+/(delete|expire)"
-    rf"|machines/bulk/(expire|remove)|settings/(key-expiry|mfa)|users(/\d+/(rename|delete))?"
+    rf"|machines/bulk/(expire|remove)|settings/(key-expiry|mfa|notify-test)|users(/\d+/(rename|delete))?"
     rf"|invitations(/[0-9a-f-]+/revoke)?|accounts/\d+/recovery|dns"
     rf"|acl/(rules|groups|tags|autoapprove/(routes|exit-node)|ssh))")
 
@@ -503,6 +504,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.save_key_expiry(session, form)
             if path == f"{BASE}/settings/mfa":
                 return self.save_mfa(session, form)
+            if path == f"{BASE}/settings/notify-test":
+                return self.notify_test(session)
             if path == f"{BASE}/users":
                 return self.create_user(session, form)
             m = re.fullmatch(rf"{BASE}/users/(\d+)/(rename|delete)", path)
@@ -544,6 +547,19 @@ class Handler(BaseHTTPRequestHandler):
                  f"{days} days" if days else "never")
         audit.request_event(self, session, "settings.key_expiry", _("Device key expiry"), {"from": before, "to": days})
         return self.redirect(f"{BASE}/settings/general?m=key-expiry-saved")
+
+    def notify_test(self, session: dict):
+        if not session.get("admin"):
+            return self.fail(403, _("No permission"), _("This section is for admins only."))
+        results = notify.send_test()
+        audit.request_event(self, session, "settings.notify_test", _("Webhook notifications"),
+                            {"destinations": [label for label, _ok in results],
+                             "failed": [label for label, ok in results if not ok]})
+        if not results:
+            code = "notify-none"
+        else:
+            code = "notify-test-ok" if all(ok for _label, ok in results) else "notify-test-failed"
+        return self.redirect(f"{BASE}/settings/general?m={code}")
 
     def save_mfa(self, session: dict, form: dict):
         mode = str(form.get("mode", ""))
@@ -1358,6 +1374,7 @@ def main():
     apikey.start()
     audit.start()
     naming.start()
+    notify.start()
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 
