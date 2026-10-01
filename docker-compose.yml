@@ -362,6 +362,7 @@ services:
       DEFAULT_LANG: ${UI_LANG:-en}
       # Rename Apple devices that register as "localhost" to <owner>-<device>
       AUTO_RENAME_LOCALHOST: ${AUTO_RENAME_LOCALHOST:-true}
+      RENAME_INTERVAL: ${RENAME_INTERVAL:-5}
       # Machines page: "Expires soon" window and "inactive" threshold (days)
       EXPIRY_WARNING_DAYS: ${EXPIRY_WARNING_DAYS:-14}
       INACTIVE_DAYS: ${INACTIVE_DAYS:-30}

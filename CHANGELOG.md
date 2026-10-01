@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- Machines that register as `localhost` are now renamed within about 5 seconds
+  (was 30). Each pass is one node-list call; host details are only fetched when
+  something needs renaming. Tune it with `RENAME_INTERVAL` (seconds, minimum 1).
+
 ## [1.4.0] - 2026-09-30
 
 ### Security
