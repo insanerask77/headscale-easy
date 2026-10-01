@@ -723,17 +723,13 @@ PORTAL_ADMIN_EMAILS="${PORTAL_ADMIN_EMAILS:-}"
 # Public demo instance only: banner on every page, access-granting and
 # destructive actions disabled (see SECURITY.md)
 DEMO_MODE=${DEMO_MODE:-false}
-<<<<<<< HEAD
 # Webhook notifications (empty = off): slack:<webhook>, telegram:<token>@<chat id>,
 # ntfy:<topic or URL>, webhook:<URL>; separated by spaces. Events: device.registered,
 # device.key_expired, device.expiring, device.removed
 NOTIFY_URLS="${NOTIFY_URLS:-}"
 NOTIFY_EVENTS="${NOTIFY_EVENTS:-device.registered,device.key_expired,device.expiring,device.removed}"
-# uid/gid the UI runs with (owner of the project files) and the Docker socket gid
-=======
 # uid/gid the UI and hs-helper run with (owner of the project files) and the
 # Docker socket gid (hs-helper only)
->>>>>>> main
 PORTAL_UID=${PORTAL_UID}
 PORTAL_GID=${PORTAL_GID}
 DOCKER_GID=${DOCKER_GID}

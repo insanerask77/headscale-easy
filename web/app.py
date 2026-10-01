@@ -110,11 +110,7 @@ EXIT_ROUTES = ["0.0.0.0/0", "::/0"]
 # or removes data.
 DEMO_BLOCKED = re.compile(
     rf"{BASE}/(keys|apikeys(/\d+/expire)?|machines/(register|remove-inactive)|machines/\d+/(delete|expire)"
-<<<<<<< HEAD
-    rf"|machines/bulk/(expire|remove)|settings/(key-expiry|mfa|notify-test)|users(/\d+/(rename|delete))?"
-=======
-    rf"|machines/bulk/(expire|remove)|settings/(key-expiry|mfa|sessions/revoke(-all)?)|users(/\d+/(rename|delete))?"
->>>>>>> main
+    rf"|machines/bulk/(expire|remove)|settings/(key-expiry|mfa|notify-test|sessions/revoke(-all)?)|users(/\d+/(rename|delete))?"
     rf"|invitations(/[0-9a-f-]+/revoke)?|accounts/\d+/recovery|dns"
     rf"|acl/(rules|groups|tags|autoapprove/(routes|exit-node)|ssh))")
 
