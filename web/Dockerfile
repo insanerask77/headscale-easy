@@ -18,6 +18,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 COPY . /app
 
+# Mount point of the volume shared with hs-helper (its Unix socket). Same
+# mode as in helper/Dockerfile, whichever container creates the volume first.
+RUN mkdir -p /run/hse-helper && chmod 1777 /run/hse-helper
+
 # Runs as an unprivileged user; docker-compose.yml may override the uid/gid
 # so it can write headscale-config.yaml (DNS editing).
 USER 1000:1000

@@ -13,7 +13,7 @@ Tailscale apps ──▶ Caddy /            ──▶ Headscale (official image)
                                            ▲
                                            │ REST API, read-only DB
 Browser ─────────▶ Caddy /admin       ──▶ Headscale Easy UI
-                                           ├─ Docker socket ─▶ configtest / restart Headscale
+                                           ├─ hs-helper ─▶ Docker socket ─▶ configtest / restart Headscale
                                            └─ Authentik API ─▶ users, invitations, 2FA mode
 
 Browser ─────────▶ Caddy /authentik   ──▶ Authentik ──▶ PostgreSQL      (optional)
@@ -28,6 +28,7 @@ backup (optional): daily .tar.gz of databases, keys and configuration ──▶ 
 |---|---|---|---|
 | **Headscale** | `headscale/headscale` (official, unmodified) | The coordination server: node registration, keys, IP addresses, ACL enforcement, MagicDNS, embedded DERP relay | — it is the part that does the real work |
 | **Headscale Easy UI** | `ghcr.io/insanerask77/headscale-easy` | Web console: machines, users, keys, routes, DNS, ACL editor, activity log. Talks to Headscale's REST API | Does not touch WireGuard traffic or replace any Headscale logic; if it stops, the tailnet keeps working |
+| **hs-helper** | `ghcr.io/insanerask77/headscale-easy-helper` | The only container with the Docker socket. Answers three fixed requests from the console on a Unix socket: validate Headscale's config, restart Headscale, report container health and Headscale's version. No network | Takes no parameters: it cannot run other commands or touch other containers |
 | **Caddy** | `caddy` | Single entry point, HTTPS (Let's Encrypt or self-signed), routes paths to each service | — |
 | **Authentik** (optional) | `ghcr.io/goauthentik/server`, `postgres` | Accounts, passwords, two-factor, Google sign-in, invitations; the OIDC provider for both Headscale and the console | Not needed with your own OIDC provider or with API key sign-in only |
 | **backup** (optional) | built locally from `backup/` | Daily consistent copies of Headscale's database and keys, Authentik's database, the configuration and the activity log | — |
@@ -42,8 +43,9 @@ backup (optional): daily .tar.gz of databases, keys and configuration ──▶ 
   version from Headscale's database (read-only; the API does not expose them).
 - **DNS and device key expiry** are Headscale configuration file settings, not
   API calls. The console edits a marked block of `config.yaml`, validates it
-  with `headscale configtest` and restarts Headscale through the Docker socket,
-  rolling back if Headscale refuses the change.
+  with `headscale configtest` and restarts Headscale, rolling back if
+  Headscale refuses the change. Both go through `hs-helper`: the console has
+  no Docker socket.
 - **Sign-in:** Headscale and the console use the same OIDC client, so a person
   is the same user in both. Admins come from a group (`vpn-admins`) or a list
   of emails.

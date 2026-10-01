@@ -22,7 +22,7 @@ jobs:
           python-version: "3.13"
 
       - name: Python syntax
-        run: python -m py_compile web/*.py scripts/check_i18n.py
+        run: python -m py_compile web/*.py helper/*.py scripts/check_i18n.py
 
       - name: Translations
         run: python scripts/check_i18n.py
@@ -43,6 +43,43 @@ jobs:
 
       - name: Build the backup image
         run: docker build -t headscale-easy-backup:ci backup
+
+      - name: Build the helper image
+        run: docker build -t headscale-easy-helper:ci helper
+
+      - name: Helper smoke test
+        # Hardened like in docker-compose.yml, with the Docker socket: /status
+        # answers, anything else is refused, and other uids cannot connect.
+        run: |
+          docker run -d --name hsh --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges:true --user 1000:1000 \
+            --group-add "$(stat -c %g /var/run/docker.sock)" \
+            -v /var/run/docker.sock:/var/run/docker.sock -v hse-ci:/run/hse-helper \
+            headscale-easy-helper:ci
+          probe='
+          import http.client, json, socket, sys
+          class C(http.client.HTTPConnection):
+              def connect(self):
+                  self.sock = socket.socket(socket.AF_UNIX)
+                  self.sock.connect("/run/hse-helper/helper.sock")
+          def get(m, p):
+              c = C("x"); c.request(m, p); r = c.getresponse(); return r.status, json.loads(r.read())
+          s, body = get("GET", "/status")
+          assert s == 200 and body["docker"] is True and body["api"] == 1, body
+          assert get("GET", "/containers/json")[0] == 404
+          assert get("POST", "/status")[0] == 405
+          assert get("POST", "/restart?t=0")[0] == 400
+          print("helper OK")'
+          for i in $(seq 1 20); do
+            docker run --rm --user 1000:1000 -v hse-ci:/run/hse-helper --entrypoint python \
+              headscale-easy-helper:ci -c "$probe" && break
+            [ "$i" = 20 ] && { docker logs hsh; exit 1; }
+            sleep 1
+          done
+          if docker run --rm --user 2000:2000 -v hse-ci:/run/hse-helper --entrypoint python \
+               headscale-easy-helper:ci -c "$probe"; then
+            echo "another uid could use the helper socket"; exit 1
+          fi
 
       - name: Smoke test
         run: |
