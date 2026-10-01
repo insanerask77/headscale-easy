@@ -11,6 +11,11 @@ All notable changes to this project are documented here. The format follows
   (was 30). Each pass is one node-list call; host details are only fetched when
   something needs renaming. Tune it with `RENAME_INTERVAL` (seconds, minimum 1).
 ### Added
+- Server status page (**Settings → Status**, admins and auditors): Headscale
+  and Headscale Easy versions with an update notice (GitHub releases, cached
+  12 h; `STATUS_UPDATE_CHECK=false` turns it off), container health from
+  `hs-helper`, disk use of `/data` and `/headscale`, devices online and basic
+  Headscale metrics. Each source fails independently.
 - Remote backups: set `BACKUP_REMOTE` and every backup is also uploaded to S3,
   B2, SFTP... (any rclone remote) or to a server with rsync over SSH
   (`rsync:user@host:/dir`). Remote retention with `BACKUP_REMOTE_KEEP_DAYS`;
