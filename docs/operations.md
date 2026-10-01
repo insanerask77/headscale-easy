@@ -120,8 +120,9 @@ default) and keeps the last 14 days in `./backups`; the installer makes a first
 one right away and shows the exact restore command. Each backup is one
 `.tar.gz` with:
 
-- Headscale's database (a consistent copy taken while it runs) and its private
-  keys, so devices stay registered after a restore;
+- Headscale's database (a consistent copy taken while it runs: `db.sqlite`, or
+  `headscale.sql` from `pg_dump` on [PostgreSQL](configuration.md#database))
+  and its private keys, so devices stay registered after a restore;
 - Authentik's database, if you use it;
 - the configuration (`.env`, `headscale-config.yaml`, `Caddyfile`...);
 - Caddy's internal CA with `SSL_MODE=selfsigned`.
@@ -147,7 +148,10 @@ make restore file=backups/headscale-easy-20260929-030000.tar.gz
 
 It stops the stack, puts back the configuration (the current files are kept as
 `*.before-restore-*`), Headscale's database and keys, Authentik's database and
-Caddy's CA, and starts the stack again.
+Caddy's CA, and starts the stack again. On PostgreSQL it loads the dump into
+the server named by the restored `.env` (the bundled one is started for it;
+your own must be reachable, with the database created) and re-creates the
+web UI's read-only role.
 
 **On a new server:** install Docker, clone the repository, copy the backup and
 run the same command — no need to run the installer first.

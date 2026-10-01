@@ -40,11 +40,18 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 tar -xzf "$ARCHIVE" -C "$WORK"
 B="$WORK/$(ls "$WORK" | head -1)"
-[[ -f "$B/headscale/db.sqlite" ]] || die "$(t "Not a Headscale Easy backup" "No es una copia de Headscale Easy"): $ARCHIVE"
+# Headscale on SQLite (db.sqlite) or on PostgreSQL (headscale.sql, pg_dump)
+if [[ -f "$B/headscale/db.sqlite" ]]; then
+    hs_db="db.sqlite"
+elif [[ -f "$B/headscale/headscale.sql" ]]; then
+    hs_db="headscale.sql"
+else
+    die "$(t "Not a Headscale Easy backup" "No es una copia de Headscale Easy"): $ARCHIVE"
+fi
 
 echo -e "${BOLD}Headscale Easy — $(t "restore" "restaurar")${NC} $(basename "$ARCHIVE")"
 keys=("$B"/headscale/*.key)
-echo "  headscale: db.sqlite + ${#keys[@]} keys"
+echo "  headscale: ${hs_db} + ${#keys[@]} keys"
 [[ -f "$B/authentik/authentik.sql" ]] && echo "  authentik: authentik.sql"
 [[ -d "$B/caddy/pki" ]] && echo "  caddy: pki"
 config_files=("$B"/config/*)
@@ -62,6 +69,7 @@ if ! docker image inspect "$BACKUP_IMAGE" >/dev/null 2>&1; then
 fi
 if [[ "$USE_COMPOSE" == "1" ]]; then
     info "$(t "Stopping the stack..." "Deteniendo el stack...")"
+    # headscale-postgresql keeps running: the dump is loaded into it
     docker compose --profile authentik --profile backup stop headscale web backup authentik-server authentik-worker 2>/dev/null || true
 fi
 
@@ -89,10 +97,48 @@ if [[ -f "$B/web/audit.db" ]]; then
     ok "$(t "Activity log restored" "Registro de actividad restaurado")"
 fi
 
-# 2. Headscale: database and private keys (same keys = devices stay registered)
+# 2. Headscale: private keys (same keys = devices stay registered) and, on
+#    SQLite, the database file. A stale db.sqlite never stays next to a
+#    PostgreSQL restore.
 docker volume create "$HEADSCALE_VOLUME" >/dev/null
 docker run --rm -v "$HEADSCALE_VOLUME:/d" -v "$B/headscale:/b:ro" --entrypoint sh "$BACKUP_IMAGE" -c \
-    'rm -f /d/db.sqlite /d/db.sqlite-wal /d/db.sqlite-shm && cp /b/* /d/ && chown root:root /d/* && chmod 600 /d/*.key && chmod 644 /d/db.sqlite'
+    'rm -f /d/db.sqlite /d/db.sqlite-wal /d/db.sqlite-shm && cp /b/*.key /d/ && chmod 600 /d/*.key &&
+     if [ -f /b/db.sqlite ]; then cp /b/db.sqlite /d/ && chmod 644 /d/db.sqlite; fi && chown root:root /d/*'
+
+# On PostgreSQL: the web UI's read-only role first (the dump grants it
+# access to "nodes"), then the dump, which drops and recreates every object
+# (pg_dump --clean), then the role again (idempotent). Connection settings
+# come from the restored .env.
+if [[ "$hs_db" == "headscale.sql" ]]; then
+    env_get() { grep -E "^$1=" "$PROJECT_DIR/.env" | tail -1 | cut -d= -f2- | tr -d '"'; }
+    hs_pg_host="${HSE_HS_PG_HOST:-$(env_get HEADSCALE_PG_HOST)}"; hs_pg_host="${hs_pg_host:-headscale-postgresql}"
+    hs_pg_port=$(env_get HEADSCALE_PG_PORT); hs_pg_port="${hs_pg_port:-5432}"
+    hs_pg_name=$(env_get HEADSCALE_PG_NAME); hs_pg_name="${hs_pg_name:-headscale}"
+    hs_pg_user=$(env_get HEADSCALE_PG_USER); hs_pg_user="${hs_pg_user:-headscale}"
+    hs_pg_sslmode=$(env_get HEADSCALE_PG_SSLMODE); hs_pg_sslmode="${hs_pg_sslmode:-disable}"
+    hs_ro_user=$(env_get HEADSCALE_PG_RO_USER); hs_ro_user="${hs_ro_user:-headscale_ro}"
+    network="${HSE_NETWORK:-$(env_get NETWORK_NAME)}"; network="${network:-headscale-net}"
+    if [[ "$USE_COMPOSE" == "1" && "$(env_get HEADSCALE_PG_EXTERNAL)" != "true" ]]; then
+        docker compose --profile postgres up -d headscale-postgresql >/dev/null
+    fi
+    export PGHOST="$hs_pg_host" PGPORT="$hs_pg_port" PGUSER="$hs_pg_user" PGDATABASE="$hs_pg_name" PGSSLMODE="$hs_pg_sslmode"
+    PGPASSWORD=$(env_get HEADSCALE_PG_PASS); HSE_RO_USER="$hs_ro_user"; HSE_RO_PASS=$(env_get HEADSCALE_PG_RO_PASS)
+    export PGPASSWORD HSE_RO_USER HSE_RO_PASS
+    pg_env=(-e PGHOST -e PGPORT -e PGUSER -e PGDATABASE -e PGSSLMODE -e PGPASSWORD -e HSE_RO_USER -e HSE_RO_PASS)
+    for _ in $(seq 1 30); do
+        docker run --rm --network "$network" "${pg_env[@]}" --entrypoint pg_isready "$BACKUP_IMAGE" -q && break
+        sleep 2
+    done
+    ro_sql="$PROJECT_DIR/templates/headscale-pg-readonly.sql"
+    pg_psql() {
+        docker run --rm --network "$network" "${pg_env[@]}" -v "$B/headscale:/b:ro" -v "$ro_sql:/ro.sql:ro" \
+            --entrypoint pg-client.sh "$BACKUP_IMAGE" psql -q -v ON_ERROR_STOP=1 "$@" >/dev/null
+    }
+    pg_psql -f /ro.sql
+    pg_psql -f /b/headscale.sql
+    pg_psql -f /ro.sql
+    unset PGPASSWORD HSE_RO_PASS
+fi
 ok "$(t "Headscale database and keys restored" "Base de datos y claves de Headscale restauradas")"
 
 # 3. Authentik: the dump drops and recreates every object (pg_dump --clean)

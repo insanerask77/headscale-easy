@@ -122,8 +122,10 @@ la hora que elijas (03:00 por defecto) y conserva las de los últimos 14 días e
 `./backups`; el instalador hace la primera al momento y te muestra el comando
 exacto para restaurarla. Cada copia es un `.tar.gz` con:
 
-- la base de datos de Headscale (una copia consistente aunque esté en marcha) y
-  sus claves privadas, para que los dispositivos sigan registrados al restaurar;
+- la base de datos de Headscale (una copia consistente aunque esté en marcha:
+  `db.sqlite`, o `headscale.sql` con `pg_dump` si usa
+  [PostgreSQL](configuration.md#database)) y sus claves privadas, para que los
+  dispositivos sigan registrados al restaurar;
 - la base de datos de Authentik, si lo usas;
 - la configuración (`.env`, `headscale-config.yaml`, `Caddyfile`...);
 - la CA interna de Caddy con `SSL_MODE=selfsigned`.
@@ -151,7 +153,10 @@ make restore file=backups/headscale-easy-20260929-030000.tar.gz
 
 Detiene el stack, restaura la configuración (los ficheros actuales se guardan
 como `*.before-restore-*`), la base de datos y las claves de Headscale, la base
-de datos de Authentik y la CA de Caddy, y vuelve a arrancar el stack.
+de datos de Authentik y la CA de Caddy, y vuelve a arrancar el stack. Con
+PostgreSQL carga el volcado en el servidor que indica el `.env` restaurado (el
+incluido se arranca solo; uno propio debe estar accesible y con la base de
+datos creada) y vuelve a crear el rol de solo lectura del panel.
 
 **En un servidor nuevo:** instala Docker, clona el repositorio, copia la copia de
 seguridad y ejecuta el mismo comando; no hace falta pasar antes el instalador.

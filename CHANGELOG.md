@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- PostgreSQL support for Headscale's database (roadmap item 17). The installer
+  asks: SQLite (default, recommended), PostgreSQL in the stack (new
+  `headscale-postgresql` container, `postgres` Compose profile, volume
+  `headscale-db`) or your own PostgreSQL server (host, port, database, owner,
+  password, TLS mode). New `HEADSCALE_DB_TYPE` and `HEADSCALE_PG_*` settings
+  in `.env`; switching type warns that data is not migrated.
+- `web/pgwire.py`: a minimal read-only PostgreSQL client written with the
+  standard library only (protocol v3, SCRAM-SHA-256 with server signature
+  check, MD5, optional TLS with libpq's `sslmode` values, simple query). The
+  web image still has no third-party dependencies.
+- The web UI reads device Hostinfo (OS, Tailscale version, DERP, endpoints)
+  from PostgreSQL through its own read-only role (`HEADSCALE_PG_RO_USER`,
+  created by `templates/headscale-pg-readonly.sql`): `SELECT` on three
+  columns of `nodes` only, read-only sessions; it never gets Headscale's
+  credentials.
+- Backups and restore support PostgreSQL: `pg_dump` of Headscale's database
+  (`headscale/headscale.sql` in the archive) and `make restore` loads it back
+  and re-creates the read-only role.
+- `tests/test_postgresql.py`: the client against a fake server (recorded
+  protocol messages, a real SCRAM server side, MD5, errors, TLS refusal),
+  RFC 7677 SCRAM and RFC 4013 SASLprep vectors, Hostinfo from PostgreSQL on
+  the machine page.
+
 ## [1.4.0] - 2026-09-30
 
 ### Security

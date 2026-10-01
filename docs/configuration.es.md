@@ -322,6 +322,45 @@ regenerar el fichero, así que tu DNS sobrevive a las reconfiguraciones.
 
 Es la única función que necesita el socket de Docker; ver [Seguridad](security.md).
 
+## Base de datos { #database }
+
+Headscale guarda usuarios, máquinas y claves en **SQLite** por defecto: un
+fichero junto a sus claves privadas, nada más que arrancar. Es lo que recomienda
+el propio Headscale y lo adecuado para casi cualquier tailnet. El instalador
+ofrece también **PostgreSQL**, para tailnets grandes o si ya tienes (y copias)
+un servidor PostgreSQL:
+
+| Opción | Qué se ejecuta | `.env` |
+|---|---|---|
+| SQLite (por defecto) | Nada más | `HEADSCALE_DB_TYPE=sqlite` |
+| PostgreSQL en este stack | Contenedor `headscale-postgresql` (perfil de Compose `postgres`, volumen `headscale-db`), sin publicar | `HEADSCALE_DB_TYPE=postgres`, `HEADSCALE_PG_EXTERNAL=false` |
+| Tu propio PostgreSQL | Nada más; indicas host, puerto, base de datos, usuario propietario y contraseña, y el modo TLS | `HEADSCALE_DB_TYPE=postgres`, `HEADSCALE_PG_EXTERNAL=true` |
+
+- **Cambiar no migra los datos.** Pasar una instalación existente entre SQLite
+  y PostgreSQL arranca Headscale con una base de datos vacía: hay que volver a
+  crear usuarios y registrar las máquinas. El instalador avisa y pregunta antes.
+- **El panel lee con un rol de solo lectura.** Necesita el Hostinfo que
+  reportan los dispositivos (SO, versión de Tailscale, relay DERP,
+  endpoints), que la API de Headscale no expone. El instalador crea
+  `HEADSCALE_PG_RO_USER` (`headscale_ro`) con
+  [`templates/headscale-pg-readonly.sql`](https://github.com/insanerask77/headscale-easy/blob/main/templates/headscale-pg-readonly.sql):
+  solo puede hacer `SELECT` de las columnas `id`, `host_info` y `endpoints`
+  de `nodes` (ni claves ni otras tablas) y sus sesiones son de solo lectura.
+  El panel nunca recibe las credenciales de Headscale. Habla con PostgreSQL
+  con un cliente pequeño incluido (solo biblioteca estándar: SCRAM-SHA-256 o
+  MD5, TLS opcional), así que la imagen sigue sin paquetes de terceros.
+- **Tu propio servidor:** la base de datos debe existir y su propietario debe
+  ser el usuario que indicas (Headscale crea sus tablas con él). Para crear el
+  rol de solo lectura el instalador ejecuta ese SQL como propietario, lo que
+  requiere el privilegio `CREATEROLE`; si no puede, muestra el comando para
+  ejecutarlo como superusuario. `HEADSCALE_PG_SSLMODE` (`disable`, `prefer`,
+  `require`, `verify-ca`, `verify-full`) se aplica a Headscale, al panel y a
+  las copias.
+- Si una actualización de Headscale recrea la tabla `nodes`, las columnas de
+  SO y versión quedan vacías y el panel registra `permission denied`: vuelve a
+  ejecutar `./install.sh` para aplicar de nuevo el permiso.
+- Las copias usan `pg_dump` (ver [Operación → Copias de seguridad](operations.md#backups)).
+
 ## Idioma { #language }
 
 La consola sigue el idioma del navegador (inglés o español) y cada persona puede
