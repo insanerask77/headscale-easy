@@ -174,13 +174,15 @@ path, and devices keep working if it is stopped.
 |-----------|-------|------|
 | `headscale` | `headscale/headscale` | Coordination server (control plane + DERP) |
 | `headscale-easy` | `ghcr.io/insanerask77/headscale-easy` | Web console |
+| `headscale-easy-helper` | `ghcr.io/insanerask77/headscale-easy-helper` | The only container with the Docker socket: validates and restarts Headscale for the console |
 | `caddy` | `caddy` | Reverse proxy, HTTPS |
 | `authentik-*` | `ghcr.io/goauthentik/server`, `postgres` | Accounts and SSO (optional) |
 
 Everything lives on one domain. The console talks to Headscale's REST API with
 an API key the installer creates; it reads each device's OS and client version
 from Headscale's database (read-only) and, for DNS and key expiry changes only,
-uses the Docker socket to validate and restart Headscale.
+asks `hs-helper` to validate and restart Headscale. The console itself has no
+Docker socket.
 
 ### Resource usage
 

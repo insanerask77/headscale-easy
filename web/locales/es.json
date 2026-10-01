@@ -120,7 +120,6 @@
   "Has routes (subnets or exit node)": "Con rutas (subredes o nodo de salida)",
   "Headscale API key": "API key de Headscale",
   "Headscale Easy cannot write config.yaml.": "Headscale Easy no puede escribir en config.yaml.",
-  "Headscale Easy has no access to Docker to restart Headscale.": "Headscale Easy no tiene acceso a Docker para reiniciar Headscale.",
   "Headscale Easy uses that API key: expiring it would cut its access to Headscale.": "Headscale Easy usa esa API key: caducarla le cortaría el acceso a Headscale.",
   "Headscale did not start with the new DNS settings; the previous ones were restored.": "Headscale no arrancó con el nuevo DNS; se ha restaurado el anterior.",
   "Headscale name": "Nombre en Headscale",

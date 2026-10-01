@@ -208,8 +208,8 @@ def node_for(session: dict, node_id: str) -> dict | None:
 
 
 def dns_ctx() -> dict:
-    """Can DNS be edited from here? Needs the Docker socket and the marked DNS
-    block in config.yaml."""
+    """Can DNS be edited from here? Needs the hs-helper service (or, on old
+    installations, the Docker socket) and the marked DNS block in config.yaml."""
     ctx = dict(CTX)
     try:
         with open(hs.HEADSCALE_CONFIG, encoding="utf-8") as fh:
@@ -222,7 +222,9 @@ def dns_ctx() -> dict:
     elif not writable:
         ctx["dns_reason"] = _("Headscale Easy cannot write config.yaml.")
     elif not hs.docker_available():
-        ctx["dns_reason"] = _("Headscale Easy has no access to Docker to restart Headscale.")
+        ctx["dns_reason"] = _("The hs-helper service is not running or cannot reach Docker, so Headscale "
+                              "cannot be validated and restarted from here. Check it with: "
+                              "docker compose ps hs-helper")
     ctx["dns_editable"] = "dns_reason" not in ctx
     return ctx
 
