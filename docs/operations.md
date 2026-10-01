@@ -97,6 +97,17 @@ the result with `headscale configtest` and restarts Headscale; if anything
 fails the previous map is restored. Existing installs need `./install.sh` once
 to add the marked block and the file. Not available in the demo.
 
+## Server status
+
+**Settings → Status** (admins and auditors) shows the health of the server at
+a glance: the Headscale and Headscale Easy versions with an "update available"
+notice (latest releases looked up on GitHub, cached for 12 hours), the state of
+every container of the stack (through `hs-helper`), disk use of the data and
+Headscale volumes, and basic figures from Headscale's metrics (devices online,
+requests served, memory). Each part degrades on its own: with the helper down
+or no Internet access the rest of the page still works. Set
+`STATUS_UPDATE_CHECK=false` in `.env` to never contact GitHub.
+
 ## Everyday commands
 
 `make` lists everything. The most useful:

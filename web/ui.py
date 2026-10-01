@@ -265,11 +265,14 @@ def sidebar(active: str, session: dict, ctx: dict) -> str:
     if sees_all:
         groups.append(f"""
       <a class="nav-top {"active" if active == "logs" else ""}" href="{BASE}/logs">{icon("logs")}<span>{esc(_("Logs"))}</span></a>""")
-    groups.append(_nav_group("settings", _("Settings"), [
+    settings_items = [
         ("general", "settings/general", _("General")),
         ("keys", "settings/keys", _("Keys")),
         ("sessions", "settings/sessions", _("Sessions")),
-    ], active))
+    ]
+    if sees_all:
+        settings_items.append(("status", "settings/status", _("Status")))
+    groups.append(_nav_group("settings", _("Settings"), settings_items, active))
     groups.append(f"""
       <a class="nav-top" href="{docs_url()}" target="_blank" rel="noopener">{icon("book")}<span>{esc(_("Documentation"))}</span>{icon("external", "ext")}</a>
       <a class="nav-top" href="{SPONSOR_URL}" target="_blank" rel="noopener">{icon("coffee")}<span>{esc(_("Support the project"))}</span>{icon("external", "ext")}</a>""")

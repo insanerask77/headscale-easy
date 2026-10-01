@@ -19,8 +19,9 @@ All notable changes to this project are documented here. The format follows
   in `.env`; switching type warns that data is not migrated.
 - `web/pgwire.py`: a minimal read-only PostgreSQL client written with the
   standard library only (protocol v3, SCRAM-SHA-256 with server signature
-  check, cleartext; legacy MD5 refused, optional TLS with libpq's `sslmode` values, simple query). The
-  web image still has no third-party dependencies.
+  check, cleartext password, optional TLS with libpq's `sslmode` values,
+  simple query; the legacy MD5 method is refused). The web image still has no
+  third-party dependencies.
 - The web UI reads device Hostinfo (OS, Tailscale version, DERP, endpoints)
   from PostgreSQL through its own read-only role (`HEADSCALE_PG_RO_USER`,
   created by `templates/headscale-pg-readonly.sql`): `SELECT` on three
@@ -33,6 +34,11 @@ All notable changes to this project are documented here. The format follows
   protocol messages, a real SCRAM server side, MD5 refused, errors, TLS refusal),
   RFC 7677 SCRAM and RFC 4013 SASLprep vectors, Hostinfo from PostgreSQL on
   the machine page.
+- Server status page (**Settings → Status**, admins and auditors): Headscale
+  and Headscale Easy versions with an update notice (GitHub releases, cached
+  12 h; `STATUS_UPDATE_CHECK=false` turns it off), container health from
+  `hs-helper`, disk use of `/data` and `/headscale`, devices online and basic
+  Headscale metrics. Each source fails independently.
 - Remote backups: set `BACKUP_REMOTE` and every backup is also uploaded to S3,
   B2, SFTP... (any rclone remote) or to a server with rsync over SSH
   (`rsync:user@host:/dir`). Remote retention with `BACKUP_REMOTE_KEEP_DAYS`;

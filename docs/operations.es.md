@@ -101,6 +101,18 @@ Headscale; si algo falla se restaura el mapa anterior. Las instalaciones
 existentes necesitan ejecutar `./install.sh` una vez para añadir el bloque
 marcado y el fichero. No disponible en la demo.
 
+## Estado del servidor
+
+**Ajustes → Estado** (administradores y auditores) muestra la salud del
+servidor de un vistazo: las versiones de Headscale y Headscale Easy con aviso
+de "actualización disponible" (las últimas versiones se consultan en GitHub y
+se guardan 12 horas), el estado de cada contenedor del stack (mediante
+`hs-helper`), el uso de disco de los volúmenes de datos y de Headscale, y
+cifras básicas de las métricas de Headscale (dispositivos conectados,
+peticiones atendidas, memoria). Cada parte falla por separado: con el helper
+caído o sin acceso a internet el resto de la página sigue funcionando. Pon
+`STATUS_UPDATE_CHECK=false` en `.env` para no contactar nunca con GitHub.
+
 ## Comandos habituales { #everyday-commands }
 
 `make` lo lista todo. Los más útiles:

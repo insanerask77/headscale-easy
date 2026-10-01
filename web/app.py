@@ -45,6 +45,8 @@ import accounts  # noqa: E402  (after logging is configured)
 import admin_pages  # noqa: E402
 import derp  # noqa: E402
 import derp_pages  # noqa: E402
+import status as server_status  # noqa: E402
+import status_pages  # noqa: E402
 import headscale as hs  # noqa: E402
 import apikey  # noqa: E402
 import expiry  # noqa: E402
@@ -434,6 +436,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not sees_all:
                     return self.fail(403, _("No permission"), _("This section is for admins only."))
                 return self.send(200, self.derp_view(session, flash))
+            if path == f"{BASE}/settings/status":
+                if not sees_all:
+                    return self.fail(403, _("No permission"), _("This section is for admins only."))
+                return self.send(200, status_pages.status_page(session, CTX, server_status.collect()))
             if path == f"{BASE}/logs":
                 return self.send(200, audit.page(session, CTX, params))
             if path == f"{BASE}/logs.csv":
