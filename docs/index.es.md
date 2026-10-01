@@ -72,7 +72,7 @@ En los dispositivos usas las apps oficiales de Tailscale; sólo el servidor es t
     Let's Encrypt, autofirmado, detrás de tu proxy (se genera la configuración)
     o HTTP en una LAN.
 
--   :material-translate: **Inglés y español**
+-   :material-translate: **Inglés, español, francés, alemán y portugués**
 
     En el instalador y en la consola. Se aceptan más idiomas.
 

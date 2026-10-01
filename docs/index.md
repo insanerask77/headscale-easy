@@ -71,9 +71,9 @@ official Tailscale apps on every device; only the server is yours.
     Let's Encrypt, self-signed, behind your existing proxy (config generated),
     or plain HTTP on a LAN.
 
--   :material-translate: **English and Spanish**
+-   :material-translate: **English, Spanish, French, German and Portuguese**
 
-    In the installer and the console. More languages welcome.
+    In the console; the installer speaks English and Spanish. More languages welcome.
 
 -   :material-feather: **Lightweight**
 

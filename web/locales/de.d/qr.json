@@ -1,0 +1,15 @@
+{
+  "QR code: {label}": "QR-Code: {label}",
+  "server URL {url}": "Server-URL {url}",
+  "Scan it with the phone's camera to get the URL on the phone, then copy it into the app. The Tailscale app cannot read QR codes itself.": "Scannen Sie ihn mit der Smartphone-Kamera, um die URL aufs Smartphone zu bekommen, und kopieren Sie sie dann in die App. Die Tailscale-App kann selbst keine QR-Codes lesen.",
+  "In the Tailscale app, tap the profile icon in the top-right corner, then Log in (or your account, if the app is already signed in to another tailnet).": "Tippen Sie in der Tailscale-App oben rechts auf das Profilsymbol, dann auf Log in (oder auf Ihr Konto, falls die App schon bei einem anderen Tailnet angemeldet ist).",
+  "Tap the ⋯ menu in the top-right corner, choose Use a custom coordination server and enter this URL:": "Tippen Sie oben rechts auf das Menü ⋯, wählen Sie Use a custom coordination server und geben Sie diese URL ein:",
+  "Tap the ⋮ menu in the top-right corner, choose Use an alternate server and enter this URL:": "Tippen Sie oben rechts auf das Menü ⋮, wählen Sie Use an alternate server und geben Sie diese URL ein:",
+  "Tap Log in and sign in with your account.": "Tippen Sie auf Log in und melden Sie sich mit Ihrem Konto an.",
+  "To connect without signing in, set the server first and then choose Use an auth key in the same ⋮ menu, with a key from {link}.": "Um sich ohne Anmeldung zu verbinden, legen Sie zuerst den Server fest und wählen Sie dann im selben ⋮-Menü Use an auth key mit einem Schlüssel von {link}.",
+  "Show as QR codes": "Als QR-Codes anzeigen",
+  "auth key": "Auth-Key",
+  "command to connect a Linux device": "Befehl zum Verbinden eines Linux-Geräts",
+  "Linux command": "Linux-Befehl",
+  "Most phone cameras can copy the text of a QR code. On Android, paste the key in the Tailscale app with Use an auth key (⋮ menu, after setting the server).": "Die meisten Smartphone-Kameras können den Text eines QR-Codes kopieren. Fügen Sie den Schlüssel unter Android in der Tailscale-App mit Use an auth key ein (⋮-Menü, nach dem Festlegen des Servers)."
+}

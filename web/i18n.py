@@ -15,7 +15,7 @@ import os
 import threading
 from pathlib import Path
 
-LANGUAGES = {"en": "English", "es": "Español"}
+LANGUAGES = {"en": "English", "es": "Español", "fr": "Français", "de": "Deutsch", "pt": "Português"}
 DEFAULT_LANG = os.environ.get("DEFAULT_LANG", "en") if os.environ.get("DEFAULT_LANG") in LANGUAGES else "en"
 
 # locales/<lang>.json plus locales/<lang>.d/*.json (one file per feature, so

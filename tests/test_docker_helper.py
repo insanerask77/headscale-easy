@@ -55,7 +55,10 @@ def call(path: str, method: str, target: str, body: bytes | None = None,
          headers: dict | None = None) -> tuple[int, dict, dict]:
     conn = UnixHTTP(path)
     try:
-        conn.request(method, target, body=body, headers=headers or {})
+        try:
+            conn.request(method, target, body=body, headers=headers or {})
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # the helper may answer and close before the body is sent
         resp = conn.getresponse()
         raw = resp.read()
         return resp.status, dict(resp.getheaders()), (json.loads(raw) if raw else {})

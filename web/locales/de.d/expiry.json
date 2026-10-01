@@ -1,0 +1,21 @@
+{
+  "Expires soon": "Läuft bald ab",
+  "Expiring soon": "Läuft bald ab",
+  "Last seen {when}": "Zuletzt gesehen {when}",
+  "Nothing was removed: none of the selected machines is inactive any more.": "Nichts wurde entfernt: Keines der ausgewählten Geräte ist noch inaktiv.",
+  "Offline for {days}+ days": "Seit {days}+ Tagen offline",
+  "Remove inactive machines": "Inaktive Geräte entfernen",
+  "Remove inactive machines…": "Inaktive Geräte entfernen…",
+  "Remove selected": "Ausgewählte entfernen",
+  "Show only these": "Nur diese anzeigen",
+  "The key expires {when}. Sign in again on the device (or disable key expiry) to keep it connected.": "Der Schlüssel läuft {when} ab. Melden Sie sich erneut auf dem Gerät an (oder deaktivieren Sie den Schlüsselablauf), damit es verbunden bleibt.",
+  "These machines have been offline for more than {days} days. The selected ones are removed from the tailnet; to use one again it has to be connected again.": "Diese Geräte sind seit mehr als {days} Tagen offline. Die ausgewählten werden aus dem Tailnet entfernt; um eines wieder zu nutzen, muss es erneut verbunden werden.",
+  "{n} inactive machine removed.": "{n} inaktives Gerät entfernt.",
+  "{n} inactive machines removed.": "{n} inaktive Geräte entfernt.",
+  "{n} machine has been offline for more than {days} days.": "{n} Gerät ist seit mehr als {days} Tagen offline.",
+  "{n} machines have been offline for more than {days} days.": "{n} Geräte sind seit mehr als {days} Tagen offline.",
+  "{n} machine expires in the next {days} days.": "{n} Gerät läuft in den nächsten {days} Tagen ab.",
+  "{n} machines expire in the next {days} days.": "{n} Geräte laufen in den nächsten {days} Tagen ab.",
+  "{n} machine has an expired key and cannot connect until it signs in again.": "{n} Gerät hat einen abgelaufenen Schlüssel und kann sich erst nach erneuter Anmeldung verbinden.",
+  "{n} machines have an expired key and cannot connect until they sign in again.": "{n} Geräte haben einen abgelaufenen Schlüssel und können sich erst nach erneuter Anmeldung verbinden."
+}
