@@ -109,7 +109,7 @@ and verifiable comes before new features.
 - [x] **16. DERP relay status**: region and latency per device, editor for an own DERP map · M — *next*
 - [ ] **17. PostgreSQL support** for large tailnets instead of SQLite · M
 - [ ] **18. More languages**: French, German, Portuguese (the structure is ready) · S each
-- [ ] **19. Faster renaming of "localhost" devices**: check every 5 s instead of 30 s · S
+- [x] **19. Faster renaming of "localhost" devices**: check every 5 s instead of 30 s · S (*next*)
 
 ## Suggested order
 

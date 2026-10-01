@@ -80,7 +80,7 @@ devices; the other components barely change with tailnet size.
 
 - The console and Caddy together add about **45 MB of RAM**; the console uses
   almost no CPU: in the background it only asks Headscale for the device list
-  every 30 seconds (activity log and renaming "localhost" devices), and more
+  every 30 seconds (activity log) or 5 seconds (renaming "localhost" devices), and more
   often while someone has a live page open. Most self-hosted Headscale
   setups need a reverse proxy with HTTPS anyway.
 - **Authentik is the heavy part.** It is optional: with your own OIDC provider

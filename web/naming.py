@@ -27,7 +27,17 @@ import headscale as hs
 log = logging.getLogger("headscale-easy")
 
 ENABLED = os.environ.get("AUTO_RENAME_LOCALHOST", "true").lower() not in ("0", "false", "no")
-INTERVAL = 30  # seconds
+
+
+def _interval() -> float:
+    """Seconds between passes (RENAME_INTERVAL, default 5, minimum 1)."""
+    try:
+        return max(1.0, float(os.environ.get("RENAME_INTERVAL", "5")))
+    except ValueError:
+        return 5.0
+
+
+INTERVAL = _interval()
 
 LOCALHOST_RE = re.compile(r"^localhost(-[a-z0-9]+)?$")
 
