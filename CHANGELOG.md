@@ -10,6 +10,55 @@ All notable changes to this project are documented here. The format follows
 - Machines that register as `localhost` are now renamed within about 5 seconds
   (was 30). Each pass is one node-list call; host details are only fetched when
   something needs renaming. Tune it with `RENAME_INTERVAL` (seconds, minimum 1).
+### Added
+- Remote backups: set `BACKUP_REMOTE` and every backup is also uploaded to S3,
+  B2, SFTP... (any rclone remote) or to a server with rsync over SSH
+  (`rsync:user@host:/dir`). Remote retention with `BACKUP_REMOTE_KEEP_DAYS`;
+  credentials in `data/backup-remote/`. The installer asks for it, and
+  `make restore file=s3:bucket/dir/headscale-easy-....tar.gz` downloads the
+  backup first. A failed upload is reported without losing the local backup.
+- `tests/test_backup_remote.py`: tests `backup/remote.sh` against a local
+  destination with fake rclone/rsync.
+- DERP relay status: the machine detail shows the preferred relay with its
+  latency and the latency to every relay the device measured; the Machines
+  list has a Relay column.
+- New **DERP relays** page (Network): which relays the devices use and their
+  median latency, and an editor (admins) for your own DERP map. It writes
+  `headscale-derp.yaml` and points `derp.paths` of `config.yaml` at it (a
+  marked block, like DNS), validates it with `headscale configtest`, restarts
+  Headscale and restores the previous map if anything fails. Run
+  `./install.sh` once on existing installs to add the block and the file.
+- Webhook notifications (roadmap item 14): Slack, Telegram, ntfy and a generic
+  JSON webhook, for new, expired, about-to-expire and removed devices.
+  Configured with `NOTIFY_URLS` / `NOTIFY_EVENTS` (the installer asks,
+  optionally); sending is in the background with a timeout and retries, and
+  never slows down or breaks the web UI. **Settings -> General ->
+  Notifications** lists the destinations and has a "Send a test" button
+  (admins; blocked in the demo).
+### Security
+- Sessions are now revocable: the signed cookie carries a session id that must
+  exist, unrevoked, in `data/web/sessions.db` (`600`). New **Settings →
+  Sessions** page: your sessions (admins and auditors: everybody's) with
+  *Log out*, *Sign out everywhere* and, for admins, *Sign out everyone else*.
+  Deleting a user, or a role change seen at their next sign-in, revokes their
+  older sessions. Cookies issued before this change have no session id: users
+  sign in again once.
+- Sign-in rate limiting per client IP (`SIGNIN_RATE_LIMIT`, default 10, per
+  `SIGNIN_RATE_WINDOW`, default 600 seconds) on the API key sign-in and the
+  OIDC sign-in: `429` with `Retry-After` and an `auth.rate_limited` activity
+  event. New activity events: `auth.session_revoked`,
+  `auth.sessions_revoked_all`.
+- The web UI no longer mounts the Docker socket (equivalent to root on the
+  host) and is no longer in the Docker group. A new `hs-helper` service
+  (`helper/`, image `ghcr.io/insanerask77/headscale-easy-helper`) is the only
+  container with the socket. It has no network and answers the web UI over a
+  `660` Unix socket in the `hse-helper` volume with exactly three fixed
+  operations on the `headscale` container: `POST /configtest`,
+  `POST /restart` and `GET /status` (container health and Headscale's
+  version). It takes no parameters; anything else is refused before Docker is
+  contacted. Installations with an older `docker-compose.yml` that still
+  mounts the socket in `web` keep working, with a warning in the logs.
+  `make validate` fails if any other service mounts the socket.
 
 ## [1.4.0] - 2026-09-30
 

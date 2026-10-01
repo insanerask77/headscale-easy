@@ -4,7 +4,8 @@
 #  https://github.com/insanerask77/headscale-easy
 #
 #  Usage: ./scripts/restore.sh <backups/headscale-easy-YYYYmmdd-HHMMSS.tar.gz> [--yes]
-#         (or: make restore file=...)
+#         (or: make restore file=...). The file may also be on the remote
+#         copy: make restore file=s3:bucket/dir/headscale-easy-....tar.gz
 #
 #  Stops the stack, puts back the configuration (the current files are kept as
 #  <file>.before-restore-<time>), Headscale's database and private keys,
@@ -33,13 +34,27 @@ die()  { echo -e "${RED}✗${NC} $1" >&2; exit 1; }
 
 ARCHIVE="${1:-}"
 ASSUME_YES="${2:-}"
-[[ -n "$ARCHIVE" && -f "$ARCHIVE" ]] || die "Usage: $0 <backup.tar.gz> [--yes]"
-ARCHIVE="$(cd "$(dirname "$ARCHIVE")" && pwd)/$(basename "$ARCHIVE")"
+[[ -n "$ARCHIVE" ]] || die "Usage: $0 <backup.tar.gz | remote:path/backup.tar.gz> [--yes]"
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
-tar -xzf "$ARCHIVE" -C "$WORK"
-B="$WORK/$(ls "$WORK" | head -1)"
+
+# A remote backup (BACKUP_REMOTE: an rclone remote such as s3:bucket/dir/file.tar.gz,
+# or rsync:user@host:/dir/file.tar.gz) is downloaded first through the backup image.
+if [[ ! -e "$ARCHIVE" && "$ARCHIVE" =~ ^[A-Za-z0-9_.:-]*: ]]; then
+    info "$(t "Downloading $ARCHIVE ..." "Descargando $ARCHIVE ...")"
+    mkdir -p "$WORK/dl"
+    (cd "$PROJECT_DIR" && docker compose run --rm --no-deps -v "$WORK/dl:/restore-out" \
+        --entrypoint /usr/local/bin/remote.sh backup fetch "$ARCHIVE" /restore-out) \
+        || die "$(t "Could not download the backup" "No se pudo descargar la copia")"
+    ARCHIVE=$(ls "$WORK"/dl/*.tar.gz 2>/dev/null | head -1 || true)
+fi
+[[ -n "$ARCHIVE" && -f "$ARCHIVE" ]] || die "Usage: $0 <backup.tar.gz | remote:path/backup.tar.gz> [--yes]"
+ARCHIVE="$(cd "$(dirname "$ARCHIVE")" && pwd)/$(basename "$ARCHIVE")"
+
+mkdir -p "$WORK/x"
+tar -xzf "$ARCHIVE" -C "$WORK/x"
+B="$WORK/x/$(ls "$WORK/x" | head -1)"
 [[ -f "$B/headscale/db.sqlite" ]] || die "$(t "Not a Headscale Easy backup" "No es una copia de Headscale Easy"): $ARCHIVE"
 
 echo -e "${BOLD}Headscale Easy — $(t "restore" "restaurar")${NC} $(basename "$ARCHIVE")"

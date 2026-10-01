@@ -85,6 +85,22 @@ Comprueba cada 5 segundos; cámbialo con `RENAME_INTERVAL` (segundos) en `.env`.
 La flecha junto a la versión se pone roja cuando hay un cliente de Tailscale más
 nuevo (pasa el ratón por encima para ver cuál).
 
+## Relays DERP { #derp-relays }
+
+Los relays llevan el tráfico entre dispositivos que no pueden conectarse
+directamente. El detalle del dispositivo muestra el relay que prefiere y su
+latencia a cada relay que midió; la lista de dispositivos tiene una columna
+**Relay**. **Red → Relays DERP** lista los relays en uso, cuántos dispositivos
+prefieren cada uno y su latencia mediana.
+
+Los administradores también pueden añadir ahí relays propios (`derper`): ID de
+región (900 a 998), código, nombre, nombre de host, IPs y puertos opcionales. Al
+guardar se escribe `headscale-derp.yaml`, se apunta `derp.paths` de
+`config.yaml` a él, se valida con `headscale configtest` y se reinicia
+Headscale; si algo falla se restaura el mapa anterior. Las instalaciones
+existentes necesitan ejecutar `./install.sh` una vez para añadir el bloque
+marcado y el fichero. No disponible en la demo.
+
 ## Comandos habituales { #everyday-commands }
 
 `make` lo lista todo. Los más útiles:
@@ -139,15 +155,43 @@ volviendo a ejecutar `./install.sh`. O edita `.env` y ejecuta `docker compose up
 | `BACKUP_DIR` | `./backups` | Cualquier ruta del servidor, por ejemplo un NAS montado |
 | `BACKUP_KEEP_DAYS` | `14` | Las copias más antiguas se borran |
 
+| `BACKUP_REMOTE` | vacío | Sube también cada copia: mira [Copias remotas](#backups-remotos) |
+| `BACKUP_REMOTE_KEEP_DAYS` | `BACKUP_KEEP_DAYS` | Retención en el remoto |
+
 Para hacer una copia en el momento: `make backup` (funciona aunque las copias
 programadas estén desactivadas). Las copias contienen
 secretos (`.env`): solo las puedes leer tú; guarda copias en un lugar seguro y
 fuera de este servidor.
 
+### Copias remotas { #backups-remotos }
+
+Una copia que está en el mismo servidor no sobrevive a perder el servidor.
+Define `BACKUP_REMOTE` (o responde la pregunta del instalador) y cada copia se
+sube también; las antiguas se borran pasados `BACKUP_REMOTE_KEEP_DAYS` días. Hay
+dos tipos de destino:
+
+- **Un remoto de rclone** (`BACKUP_REMOTE=s3:mi-bucket/headscale-easy`): S3, B2,
+  SFTP, Google Drive y [decenas más](https://rclone.org/overview/). Define el
+  remoto en `data/backup-remote/rclone.conf` (lo escribe `rclone config`), o,
+  para S3, sin fichero:
+  `BACKUP_REMOTE=":s3,provider=AWS,env_auth=true,region=eu-west-1:mi-bucket/dir"`
+  con `BACKUP_AWS_ACCESS_KEY_ID` y `BACKUP_AWS_SECRET_ACCESS_KEY` en `.env`.
+- **rsync por SSH** (`BACKUP_REMOTE=rsync:usuario@host:/srv/backups`): pon la
+  clave privada en `data/backup-remote/id_ed25519` (y opcionalmente
+  `known_hosts`; sin él se acepta la primera clave del servidor).
+  `BACKUP_REMOTE_SSH_PORT` cambia el puerto. El directorio debe existir ya en el
+  servidor.
+
+Si puedes, usa una clave o bucket que pueda escribir pero no borrar: así un
+servidor comprometido no puede borrar sus propias copias (pon la retención en
+las reglas de ciclo de vida del bucket). Si la subida falla se conserva la copia
+local y el error aparece en `docker logs headscale-easy-backup`.
+
 ### Restaurar { #restore }
 
 ```bash
 make restore file=backups/headscale-easy-20260929-030000.tar.gz
+make restore file=s3:mi-bucket/headscale-easy/headscale-easy-20260929-030000.tar.gz   # desde el remoto
 ```
 
 Detiene el stack, restaura la configuración (los ficheros actuales se guardan
@@ -206,6 +250,48 @@ los dispositivos sí se registra.
     Headscale no tiene registros de flujos de red (qué dispositivo habló con
     cuál y cuándo): hacen falta datos de los clientes que solo recoge el
     servidor de coordinación de Tailscale.
+
+## Notificaciones { #notifications }
+
+Headscale Easy puede avisarte cuando pasa algo con un dispositivo. Define los
+destinos en `.env` (o responde la pregunta opcional de `./install.sh`) y
+ejecuta `docker compose up -d`:
+
+```bash
+# separados por coma, espacio o salto de línea
+NOTIFY_URLS="slack:https://hooks.slack.com/services/T000/B000/XXXX ntfy:mi-tema"
+NOTIFY_EVENTS="device.registered,device.key_expired,device.expiring,device.removed"
+```
+
+| Destino | Formato |
+| --- | --- |
+| Slack | `slack:<URL del webhook entrante>` (también vale una URL `hooks.slack.com` sin prefijo) |
+| Telegram | `telegram:<token del bot>@<id del chat>`, p. ej. `telegram:123456:ABC-def@-100987` |
+| ntfy | `ntfy:<tema>` (ntfy.sh) o `ntfy:https://tu-ntfy/tema` |
+| Webhook genérico | `webhook:<URL>` (o una URL `https://` sin prefijo): POST con cuerpo JSON `{source, event, target, message, details, timestamp}` |
+
+Eventos (todos por defecto; `NOTIFY_EVENTS` elige algunos): `device.registered`
+(se unió un dispositivo nuevo), `device.key_expired`, `device.expiring` (la
+clave caduca dentro de `EXPIRY_WARNING_DAYS`; se envía una vez por dispositivo
+y fecha de caducidad, comprobado cada 15 minutos) y `device.removed`. Los
+mensajes salen en segundo plano con un tiempo máximo de 10 segundos y 3
+intentos, así que un destino lento o roto nunca ralentiza la interfaz web; los
+fallos solo aparecen en el registro del contenedor web (sin la URL, que
+contiene secretos).
+
+Los admins ven los destinos (solo el host) en **Ajustes → General →
+Notificaciones**, con un botón **Enviar prueba** (bloqueado en la demo y
+registrado en el registro de actividad).
+## Sesiones { #sessions }
+
+**Ajustes → Sesiones** lista dónde has iniciado sesión (IP, navegador, última
+actividad). **Cerrar sesión** termina una, **Cerrar sesión en todas partes**
+termina todas las tuyas, y los admins ven también las sesiones de todos y
+pueden usar **Cerrar la sesión de los demás**. Una sesión revocada deja de
+funcionar en su siguiente petición. Las sesiones están en
+`./data/web/sessions.db` (SQLite). Tras más de `SIGNIN_RATE_LIMIT` (10) inicios
+de sesión fallidos desde una IP en `SIGNIN_RATE_WINDOW` (600 segundos), la
+interfaz web responde `429` hasta que pasa la ventana.
 
 ## Resolución de problemas { #troubleshooting }
 
