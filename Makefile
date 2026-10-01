@@ -65,7 +65,7 @@ update: ## Pull new images and recreate containers
 backup: ## Back up now (also daily; BACKUP_* in .env)
 	@./scripts/utils.sh backup
 
-restore: ## Restore a backup (file=backups/headscale-easy-....tar.gz)
+restore: ## Restore a backup (file=backups/headscale-easy-....tar.gz or remote:path/...)
 	@test -n "$(file)" || { echo "Usage: make restore file=backups/headscale-easy-YYYYmmdd-HHMMSS.tar.gz"; exit 1; }
 	@./scripts/restore.sh $(file)
 

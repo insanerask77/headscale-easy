@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Remote backups: set `BACKUP_REMOTE` and every backup is also uploaded to S3,
+  B2, SFTP... (any rclone remote) or to a server with rsync over SSH
+  (`rsync:user@host:/dir`). Remote retention with `BACKUP_REMOTE_KEEP_DAYS`;
+  credentials in `data/backup-remote/`. The installer asks for it, and
+  `make restore file=s3:bucket/dir/headscale-easy-....tar.gz` downloads the
+  backup first. A failed upload is reported without losing the local backup.
+- `tests/test_backup_remote.py`: tests `backup/remote.sh` against a local
+  destination with fake rclone/rsync.
+
 ## [1.4.0] - 2026-09-30
 
 ### Security

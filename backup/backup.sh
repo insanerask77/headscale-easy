@@ -6,7 +6,8 @@
 #   web/        audit.db, the web UI's activity log
 #   authentik/  authentik.sql (pg_dump), if Authentik is used
 #   caddy/      pki/ (the self-signed CA), if there is one
-# and deletes backups older than BACKUP_KEEP_DAYS.
+# deletes backups older than BACKUP_KEEP_DAYS and, with BACKUP_REMOTE set,
+# also uploads each one (see remote.sh).
 set -eu
 
 KEEP_DAYS="${BACKUP_KEEP_DAYS:-14}"
@@ -59,6 +60,16 @@ mv "$OUT_DIR/.$NAME.tar.gz" "$OUT_DIR/$NAME.tar.gz"
 [ -n "${BACKUP_UID:-}" ] && chown "${BACKUP_UID}:${BACKUP_GID:-$BACKUP_UID}" "$OUT_DIR/$NAME.tar.gz"
 log "wrote $NAME.tar.gz ($(du -h "$OUT_DIR/$NAME.tar.gz" | cut -f1))"
 
+# Remote copy (BACKUP_REMOTE: S3, B2, SFTP... via rclone, or rsync over SSH).
+# A failure is reported at the end, after the local retention has run.
+REMOTE_FAILED=0
+if [ -n "${BACKUP_REMOTE:-}" ]; then
+    if remote.sh push "$OUT_DIR/$NAME.tar.gz" && remote.sh prune; then :; else
+        log "remote copy FAILED (the local backup is fine)"; REMOTE_FAILED=1
+    fi
+fi
+
 # Retention
 find "$OUT_DIR" -maxdepth 1 -name 'headscale-easy-*.tar.gz' -mtime +"$KEEP_DAYS" -print -delete \
     | sed 's|.*/|removed old backup: |'
+[ "$REMOTE_FAILED" = 0 ] || exit 1
