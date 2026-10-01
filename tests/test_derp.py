@@ -26,6 +26,9 @@ import app  # noqa: E402
 import derp  # noqa: E402
 import derp_pages  # noqa: E402
 import headscale as hs  # noqa: E402
+import sessions  # noqa: E402
+
+sessions.configure(":memory:")
 import pages  # noqa: E402
 
 B = app.BASE
@@ -57,6 +60,8 @@ RELAY = {"id": 900, "code": "home", "name": "Home relay", "hostname": "derp.exam
 def request(method, path, session=None, form=None):
     body = urllib.parse.urlencode(form or {}, doseq=True).encode()
     msg = email.message.Message()
+    if session is not None and "sid" not in session:
+        session = dict(session, sid=sessions.create(session))  # a live server-side session
     if session is not None:
         msg["Cookie"] = f"hse_session={app.sign(session)}"
     msg["Content-Length"] = str(len(body))
