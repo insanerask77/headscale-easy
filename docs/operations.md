@@ -82,6 +82,20 @@ turn it off.
 The arrow next to the version turns red when a newer Tailscale client is
 available (hover it to see which).
 
+## DERP relays
+
+Relays carry traffic between devices that cannot connect directly. The machine
+detail shows the relay each device prefers and its latency to every relay it
+measured; the Machines list has a **Relay** column. **Network → DERP relays**
+lists the relays in use, how many devices prefer each and their median latency.
+
+Admins can also add relays they run themselves (`derper`) there: region ID
+(900 to 998), code, name, hostname, optional IPs and ports. Saving writes
+`headscale-derp.yaml`, points `derp.paths` of `config.yaml` at it, validates
+the result with `headscale configtest` and restarts Headscale; if anything
+fails the previous map is restored. Existing installs need `./install.sh` once
+to add the marked block and the file. Not available in the demo.
+
 ## Everyday commands
 
 `make` lists everything. The most useful:
@@ -222,6 +236,46 @@ the API) are not configuration events, but their effect on devices is logged.
     when): that needs data from the clients that only Tailscale's own
     coordination server collects.
 
+## Notifications { #notifications }
+
+Headscale Easy can message you when something happens to a device. Set the
+destinations in `.env` (or answer the optional question in `./install.sh`) and
+run `docker compose up -d`:
+
+```bash
+# comma, space or new line separated
+NOTIFY_URLS="slack:https://hooks.slack.com/services/T000/B000/XXXX ntfy:my-topic"
+NOTIFY_EVENTS="device.registered,device.key_expired,device.expiring,device.removed"
+```
+
+| Destination | Format |
+| --- | --- |
+| Slack | `slack:<incoming webhook URL>` (a bare `hooks.slack.com` URL works too) |
+| Telegram | `telegram:<bot token>@<chat id>`, e.g. `telegram:123456:ABC-def@-100987` |
+| ntfy | `ntfy:<topic>` (ntfy.sh) or `ntfy:https://your-ntfy/topic` |
+| Generic webhook | `webhook:<URL>` (or a bare `https://` URL): POST with a JSON body `{source, event, target, message, details, timestamp}` |
+
+Events (all by default; `NOTIFY_EVENTS` picks some): `device.registered` (a new
+device joined), `device.key_expired`, `device.expiring` (the key expires within
+`EXPIRY_WARNING_DAYS`; sent once per device and expiry date, checked every 15
+minutes) and `device.removed`. Messages go out in the background with a
+10-second timeout and 3 attempts, so a slow or broken destination never slows
+down the web UI; failures only appear in the web container's log (without the
+URL, which holds secrets).
+
+Admins see the destinations (host only) in **Settings → General →
+Notifications**, with a **Send a test** button (blocked in the demo, recorded
+in the activity log).
+## Sessions
+
+**Settings → Sessions** lists where you are signed in (IP, browser, last
+activity). **Log out** ends one session, **Sign out everywhere** ends all of
+yours, and admins also see every user's sessions and can use **Sign out
+everyone else**. A revoked session stops working on its next request. Sessions
+live in `./data/web/sessions.db` (SQLite). After more than `SIGNIN_RATE_LIMIT`
+(10) failed sign-ins from one IP in `SIGNIN_RATE_WINDOW` (600 seconds) the web
+UI answers `429` until the window passes.
+
 ## Troubleshooting
 
 **Headscale never becomes healthy (with OIDC).** It refuses to start until it
@@ -285,8 +339,9 @@ wrong user is invisible to its owner.
 **DNS changes are rejected.** The console runs `headscale configtest` and
 rolls back when Headscale refuses the change; the error shown is Headscale's.
 The tailnet DNS name must differ from the server's domain. If the DNS page is
-read-only, it says why (no Docker socket, or `config.yaml` without the managed
-block — run `./install.sh` once).
+read-only, it says why (`hs-helper` not running — check it with
+`docker compose ps hs-helper` and `docker compose logs hs-helper` — or
+`config.yaml` without the managed block — run `./install.sh` once).
 
 **The ACL policy blocks traffic you expect.** Use **Check** in the policy
 editor before saving, and remember that with `NETWORK_ISOLATION=true` each

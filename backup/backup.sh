@@ -22,7 +22,7 @@ B="$WORK/$NAME"
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') backup: $*"; }
 
 # Configuration (the project directory, mounted read-only)
-for f in .env headscale-config.yaml Caddyfile docker-compose.override.yml data/web/api-key data/web/mfa-required; do
+for f in .env headscale-config.yaml headscale-derp.yaml Caddyfile docker-compose.override.yml data/web/api-key data/web/mfa-required; do
     [ -f "/project/$f" ] && cp -p "/project/$f" "$B/config/$(echo "$f" | tr / _)"
 done
 

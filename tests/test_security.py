@@ -26,6 +26,9 @@ sys.path.insert(0, WEB)
 import app  # noqa: E402
 import audit  # noqa: E402
 import headscale as hs  # noqa: E402
+import sessions  # noqa: E402
+
+sessions.configure(":memory:")
 
 B = app.BASE
 ADMIN = {"kind": "oidc", "sub": "a", "username": "root", "name": "Root", "email": "", "groups": [],
@@ -40,6 +43,8 @@ def request(method: str, path: str, session: dict | None = None, form: dict | No
     """Run one request through app.Handler; (status, headers, body)."""
     body = urllib.parse.urlencode(form or {}, doseq=True).encode()
     msg = email.message.Message()
+    if session is not None and "sid" not in session:
+        session = dict(session, sid=sessions.create(session))  # a live server-side session
     if session is not None:
         msg["Cookie"] = f"hse_session={app.sign(session)}"
     msg["Content-Length"] = str(len(body))

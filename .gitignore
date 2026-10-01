@@ -2,6 +2,7 @@
 .env
 .env.local
 headscale-config.yaml
+headscale-derp.yaml
 Caddyfile
 docker-compose.override.yml
 caddy-root-ca.crt
