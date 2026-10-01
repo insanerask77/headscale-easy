@@ -839,7 +839,25 @@ key_expiry_block() {
     printf '%s\n  expiry: %s\n%s\n' "$begin" "${NODE_KEY_EXPIRY:-180d}" "$end"
 }
 
+# Own DERP map (DERP relays page): derp.paths lives in a marked block the web
+# UI edits, kept when the config is regenerated. headscale-derp.yaml is created
+# empty so the bind mounts in docker-compose.yml find a file, not a directory.
+derp_paths_block() {
+    local begin="  # >>> derp map: managed by Headscale Easy (do not edit between these markers)"
+    local end="  # <<< derp map"
+    local current="$SCRIPT_DIR/headscale-config.yaml"
+    if [[ -f "$current" ]] && grep -qF "$begin" "$current"; then
+        awk -v b="$begin" -v e="$end" '
+            $0 == b { on = 1; print; next }
+            on { print }
+            on && $0 == e { exit }' "$current"
+        return 0
+    fi
+    printf '%s\n  paths: []\n%s\n' "$begin" "$end"
+}
+
 generate_headscale_config() {
+    [[ -e "$SCRIPT_DIR/headscale-derp.yaml" ]] || printf 'regions: {}\n' > "$SCRIPT_DIR/headscale-derp.yaml"
     if [[ "$ENABLE_OIDC" == "true" ]]; then
         local scope_list="" s
         for s in $OIDC_SCOPE; do scope_list+="    - ${s}"$'\n'; done
@@ -885,10 +903,11 @@ EOFC
     fi
     DNS_CONFIG=$(dns_block)
     KEY_EXPIRY_CONFIG=$(key_expiry_block)
+    DERP_PATHS_CONFIG=$(derp_paths_block)
 
     export SERVER_URL HEADSCALE_HTTP_PORT HEADSCALE_METRICS_PORT HEADSCALE_GRPC_PORT \
            IP_PREFIXES_V4 IP_PREFIXES_V6 TAILNET_NAME HEADSCALE_DERP_PORT LOG_LEVEL \
-           OIDC_CONFIG TRUSTED_PROXIES_CONFIG DNS_CONFIG KEY_EXPIRY_CONFIG \
+           OIDC_CONFIG TRUSTED_PROXIES_CONFIG DNS_CONFIG KEY_EXPIRY_CONFIG DERP_PATHS_CONFIG \
            DERP_URLS_CONFIG DERP_AUTO_UPDATE
     envsubst < "$TEMPLATES_DIR/headscale-config.yaml.tmpl" > "$SCRIPT_DIR/headscale-config.yaml"
     print_success "$(t "Written" "Generado"): headscale-config.yaml"

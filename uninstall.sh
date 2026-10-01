@@ -84,7 +84,7 @@ main() {
             docker volume rm "$v" >/dev/null 2>&1 && print_success "$(t "Volume deleted:" "Volumen borrado:") $v"
         done
         docker network rm "${NETWORK_NAME:-headscale-net}" >/dev/null 2>&1 || true
-        rm -f .env headscale-config.yaml Caddyfile docker-compose.override.yml caddy-root-ca.crt
+        rm -f .env headscale-config.yaml headscale-derp.yaml Caddyfile docker-compose.override.yml caddy-root-ca.crt
         rm -rf data reverse-proxy
         print_success "$(t "Configuration and data deleted" "Configuración y datos borrados")"
     fi

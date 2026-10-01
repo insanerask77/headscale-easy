@@ -43,6 +43,8 @@ log = logging.getLogger("headscale-easy")
 
 import accounts  # noqa: E402  (after logging is configured)
 import admin_pages  # noqa: E402
+import derp  # noqa: E402
+import derp_pages  # noqa: E402
 import headscale as hs  # noqa: E402
 import apikey  # noqa: E402
 import expiry  # noqa: E402
@@ -111,7 +113,7 @@ EXIT_ROUTES = ["0.0.0.0/0", "::/0"]
 DEMO_BLOCKED = re.compile(
     rf"{BASE}/(keys|apikeys(/\d+/expire)?|machines/(register|remove-inactive)|machines/\d+/(delete|expire)"
     rf"|machines/bulk/(expire|remove)|settings/(key-expiry|mfa|notify-test|sessions/revoke(-all)?)|users(/\d+/(rename|delete))?"
-    rf"|invitations(/[0-9a-f-]+/revoke)?|accounts/\d+/recovery|dns"
+    rf"|invitations(/[0-9a-f-]+/revoke)?|accounts/\d+/recovery|dns|derp"
     rf"|acl/(rules|groups|tags|autoapprove/(routes|exit-node)|ssh))")
 
 
@@ -428,6 +430,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == f"{BASE}/acl":
                 return self.send(200, admin_pages.acl_page(session, CTX, hs.get_policy(), hs.all_nodes(), hs.all_users(),
                                                            flash, active=params.get("tab") or "rules"))
+            if path == f"{BASE}/derp":
+                if not sees_all:
+                    return self.fail(403, _("No permission"), _("This section is for admins only."))
+                return self.send(200, self.derp_view(session, flash))
             if path == f"{BASE}/logs":
                 return self.send(200, audit.page(session, CTX, params))
             if path == f"{BASE}/logs.csv":
@@ -530,6 +536,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.bulk_machines(session, form, m.group(1))
             if path == f"{BASE}/settings/key-expiry":
                 return self.save_key_expiry(session, form)
+            if path == f"{BASE}/derp":
+                return self.save_derp(session, form)
             if path == f"{BASE}/settings/mfa":
                 return self.save_mfa(session, form)
             if path == f"{BASE}/settings/notify-test":
@@ -556,6 +564,30 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:  # noqa: BLE001
             log.exception("error on POST %s", path)
             self.redirect(f"{BASE}/machines?m=failed")
+
+    def derp_view(self, session: dict, flash: str = "", error: str = "", relays: list[dict] | None = None) -> str:
+        hostinfos = [d.get("hostinfo") or {} for d in hs.host_details([str(n["id"]) for n in hs.all_nodes()]).values()]
+        rows = derp.status(hostinfos, derp.regions())
+        return derp_pages.derp_page(session, CTX, rows, derp.embedded_region(),
+                                    derp.relays() if relays is None else relays, derp.editable(), flash, error)
+
+    def save_derp(self, session: dict, form: dict):
+        relays, error = derp_pages.relays_from_form(form)
+        error = error or derp.validate(relays)
+        if error:
+            return self.send(400, self.derp_view(session, error=error, relays=relays))
+        reason = derp.editable()
+        if reason:
+            return self.send(400, self.derp_view(session, error=reason, relays=relays))
+        before = derp.relays()
+        ok, error = derp.apply(relays)
+        if not ok:
+            log.warning("%s tried to change the DERP map: %s", session["username"], error)
+            return self.send(400, self.derp_view(session, error=error, relays=relays))
+        log.info("%s changed the DERP map (%d relays) and restarted Headscale", session["username"], len(relays))
+        audit.request_event(self, session, "derp.save", _("DERP map"),
+                            {"from": [r["hostname"] for r in before], "to": [r["hostname"] for r in relays]})
+        return self.redirect(f"{BASE}/derp?m=derp-saved")
 
     def save_key_expiry(self, session: dict, form: dict):
         days = _key_expiry_days(form)
