@@ -42,5 +42,6 @@
   "The DERP relay the machine prefers and its latency": "El relay DERP que prefiere el dispositivo y su latencia",
   "DERP latency": "Latencia DERP",
   "In use": "En uso",
-  "DERP map saved. Headscale restarted with the new relays.": "Mapa DERP guardado. Headscale se reinició con los nuevos relays."
+  "DERP map saved. Headscale restarted with the new relays.": "Mapa DERP guardado. Headscale se reinició con los nuevos relays.",
+  "Headscale Easy has no access to Docker to restart Headscale.": "Headscale Easy no tiene acceso a Docker para reiniciar Headscale."
 }
