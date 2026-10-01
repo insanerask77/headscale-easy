@@ -80,7 +80,7 @@ main() {
 
     if $PURGE; then
         local v
-        for v in headscale-data headscale-socket caddy-data caddy-config authentik-db authentik-data authentik-media; do
+        for v in headscale-data headscale-socket hse-helper caddy-data caddy-config authentik-db authentik-data authentik-media; do
             docker volume rm "$v" >/dev/null 2>&1 && print_success "$(t "Volume deleted:" "Volumen borrado:") $v"
         done
         docker network rm "${NETWORK_NAME:-headscale-net}" >/dev/null 2>&1 || true

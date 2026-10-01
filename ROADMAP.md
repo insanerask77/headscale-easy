@@ -44,12 +44,13 @@ and verifiable comes before new features.
 - [ ] **S4. End-to-end tests in CI** · L
   Start the real stack (Headscale + console, with and without Authentik) in CI
   and test auth, OIDC, API, ACL, DNS, devices, backup/restore against it.
-- [ ] **S5. Revocable sessions and sign-in rate limiting** · M
+- [x] **S5. Revocable sessions and sign-in rate limiting** · M — *next*
   Server-side session list (sign out everywhere, role changes take effect at
   once) and per-IP limits on sign-in attempts.
-- [ ] **S6. Narrower Docker access** · M
+- [x] **S6. Narrower Docker access** · M — *next*
   Replace the raw Docker socket with a restricted proxy or a tiny helper that
-  can only validate and restart Headscale.
+  can only validate and restart Headscale. Done: `hs-helper` holds the socket
+  and serves only configtest, restart and status; the web UI has no socket.
 - [x] **S7. Demo mode** · S — *1.4.0*
   `DEMO_MODE=true`: banner on every page, access-granting and destructive
   actions disabled.
@@ -102,7 +103,7 @@ and verifiable comes before new features.
 
 ## 🟢 Low — polish and advanced cases
 
-- [ ] **14. Webhook notifications** (Slack, Telegram, ntfy): new or expired device · M
+- [x] **14. Webhook notifications** (Slack, Telegram, ntfy): new or expired device · M — *next*
 - [ ] **15. Server status page**: Headscale version with update notice, container health, disk use, basic metrics · S/M
 - [x] **16. DERP relay status**: region and latency per device, editor for an own DERP map · M — *next*
 - [ ] **17. PostgreSQL support** for large tailnets instead of SQLite · M

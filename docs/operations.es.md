@@ -222,6 +222,48 @@ los dispositivos sí se registra.
     cuál y cuándo): hacen falta datos de los clientes que solo recoge el
     servidor de coordinación de Tailscale.
 
+## Notificaciones { #notifications }
+
+Headscale Easy puede avisarte cuando pasa algo con un dispositivo. Define los
+destinos en `.env` (o responde la pregunta opcional de `./install.sh`) y
+ejecuta `docker compose up -d`:
+
+```bash
+# separados por coma, espacio o salto de línea
+NOTIFY_URLS="slack:https://hooks.slack.com/services/T000/B000/XXXX ntfy:mi-tema"
+NOTIFY_EVENTS="device.registered,device.key_expired,device.expiring,device.removed"
+```
+
+| Destino | Formato |
+| --- | --- |
+| Slack | `slack:<URL del webhook entrante>` (también vale una URL `hooks.slack.com` sin prefijo) |
+| Telegram | `telegram:<token del bot>@<id del chat>`, p. ej. `telegram:123456:ABC-def@-100987` |
+| ntfy | `ntfy:<tema>` (ntfy.sh) o `ntfy:https://tu-ntfy/tema` |
+| Webhook genérico | `webhook:<URL>` (o una URL `https://` sin prefijo): POST con cuerpo JSON `{source, event, target, message, details, timestamp}` |
+
+Eventos (todos por defecto; `NOTIFY_EVENTS` elige algunos): `device.registered`
+(se unió un dispositivo nuevo), `device.key_expired`, `device.expiring` (la
+clave caduca dentro de `EXPIRY_WARNING_DAYS`; se envía una vez por dispositivo
+y fecha de caducidad, comprobado cada 15 minutos) y `device.removed`. Los
+mensajes salen en segundo plano con un tiempo máximo de 10 segundos y 3
+intentos, así que un destino lento o roto nunca ralentiza la interfaz web; los
+fallos solo aparecen en el registro del contenedor web (sin la URL, que
+contiene secretos).
+
+Los admins ven los destinos (solo el host) en **Ajustes → General →
+Notificaciones**, con un botón **Enviar prueba** (bloqueado en la demo y
+registrado en el registro de actividad).
+## Sesiones { #sessions }
+
+**Ajustes → Sesiones** lista dónde has iniciado sesión (IP, navegador, última
+actividad). **Cerrar sesión** termina una, **Cerrar sesión en todas partes**
+termina todas las tuyas, y los admins ven también las sesiones de todos y
+pueden usar **Cerrar la sesión de los demás**. Una sesión revocada deja de
+funcionar en su siguiente petición. Las sesiones están en
+`./data/web/sessions.db` (SQLite). Tras más de `SIGNIN_RATE_LIMIT` (10) inicios
+de sesión fallidos desde una IP en `SIGNIN_RATE_WINDOW` (600 segundos), la
+interfaz web responde `429` hasta que pasa la ventana.
+
 ## Resolución de problemas { #troubleshooting }
 
 **Headscale nunca llega a estar sano (con OIDC).** No arranca hasta que puede

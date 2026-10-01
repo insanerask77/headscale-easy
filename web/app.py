@@ -51,8 +51,10 @@ import expiry  # noqa: E402
 import audit  # noqa: E402
 import mfa  # noqa: E402
 import naming  # noqa: E402
+import notify  # noqa: E402
 import pages  # noqa: E402
 import policy  # noqa: E402
+import sessions  # noqa: E402
 from i18n import LANGUAGES, _, pick_lang, set_lang  # noqa: E402
 from ui import BASE, DEMO, esc, message_page  # noqa: E402
 from version import VERSION  # noqa: E402
@@ -110,7 +112,7 @@ EXIT_ROUTES = ["0.0.0.0/0", "::/0"]
 # or removes data.
 DEMO_BLOCKED = re.compile(
     rf"{BASE}/(keys|apikeys(/\d+/expire)?|machines/(register|remove-inactive)|machines/\d+/(delete|expire)"
-    rf"|machines/bulk/(expire|remove)|settings/(key-expiry|mfa)|users(/\d+/(rename|delete))?"
+    rf"|machines/bulk/(expire|remove)|settings/(key-expiry|mfa|notify-test|sessions/revoke(-all)?)|users(/\d+/(rename|delete))?"
     rf"|invitations(/[0-9a-f-]+/revoke)?|accounts/\d+/recovery|dns|derp"
     rf"|acl/(rules|groups|tags|autoapprove/(routes|exit-node)|ssh))")
 
@@ -209,8 +211,8 @@ def node_for(session: dict, node_id: str) -> dict | None:
 
 
 def dns_ctx() -> dict:
-    """Can DNS be edited from here? Needs the Docker socket and the marked DNS
-    block in config.yaml."""
+    """Can DNS be edited from here? Needs the hs-helper service (or, on old
+    installations, the Docker socket) and the marked DNS block in config.yaml."""
     ctx = dict(CTX)
     try:
         with open(hs.HEADSCALE_CONFIG, encoding="utf-8") as fh:
@@ -223,7 +225,9 @@ def dns_ctx() -> dict:
     elif not writable:
         ctx["dns_reason"] = _("Headscale Easy cannot write config.yaml.")
     elif not hs.docker_available():
-        ctx["dns_reason"] = _("Headscale Easy has no access to Docker to restart Headscale.")
+        ctx["dns_reason"] = _("The hs-helper service is not running or cannot reach Docker, so Headscale "
+                              "cannot be validated and restarted from here. Check it with: "
+                              "docker compose ps hs-helper")
     ctx["dns_editable"] = "dns_reason" not in ctx
     return ctx
 
@@ -315,7 +319,25 @@ class Handler(BaseHTTPRequestHandler):
         return ("Set-Cookie", "; ".join(attrs))
 
     def session(self) -> dict | None:
-        return unsign(self.cookie("hse_session"))
+        """The signed-in session, or None. The cookie must name a live session
+        in the server-side table (sessions.py): revoked ones, and cookies from
+        before sessions were revocable (no sid), are rejected."""
+        data = unsign(self.cookie("hse_session"))
+        return data if data and sessions.validate(data) else None
+
+    def rate_limited(self, bucket: str) -> int:
+        """Seconds to wait when this client IP has too many sign-in attempts, else 0
+        (and the event is logged)."""
+        ip = audit.client_ip(self)
+        wait = sessions.blocked(f"{bucket}:{ip}")
+        if wait:
+            log.warning("sign-in rate limit reached for %s (%s)", ip, bucket)
+            audit.request_event(self, None, "auth.rate_limited", "", {"method": bucket, "retry_after": wait}, actor="")
+        return wait
+
+    def too_many(self, wait: int, page: str | None = None):
+        body = page or message_page(_("Too many attempts"), _("Too many sign-in attempts. Try again in a few minutes."))
+        self.send(429, body, headers=[("Retry-After", str(wait))])
 
     def form(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
@@ -393,6 +415,9 @@ class Handler(BaseHTTPRequestHandler):
                                                          mfa=mfa_state() if admin else None))
             if path == f"{BASE}/settings/keys":
                 return self.keys_view(session, flash, preselect=params.get("user", ""))
+            if path == f"{BASE}/settings/sessions":
+                return self.send(200, pages.sessions_page(
+                    session, CTX, sessions.list_all() if sees_all else sessions.list_for(session), flash))
 
             # --- admins only (Access controls: also network admins and auditors;
             # Users/Logs: also auditors, view only -- see can_edit_network()/is_auditor()) ---
@@ -460,6 +485,10 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == f"{BASE}/logout":
                 return self.logout(session)
+            if path == f"{BASE}/settings/sessions/revoke":
+                return self.revoke_session(session, form)
+            if path == f"{BASE}/settings/sessions/revoke-all":
+                return self.revoke_all_sessions(session, form)
             if path == f"{BASE}/settings/language":
                 lang = str(form.get("lang", ""))
                 back = self.headers.get("Referer", "")
@@ -511,6 +540,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.save_derp(session, form)
             if path == f"{BASE}/settings/mfa":
                 return self.save_mfa(session, form)
+            if path == f"{BASE}/settings/notify-test":
+                return self.notify_test(session)
             if path == f"{BASE}/users":
                 return self.create_user(session, form)
             m = re.fullmatch(rf"{BASE}/users/(\d+)/(rename|delete)", path)
@@ -577,6 +608,19 @@ class Handler(BaseHTTPRequestHandler):
         audit.request_event(self, session, "settings.key_expiry", _("Device key expiry"), {"from": before, "to": days})
         return self.redirect(f"{BASE}/settings/general?m=key-expiry-saved")
 
+    def notify_test(self, session: dict):
+        if not session.get("admin"):
+            return self.fail(403, _("No permission"), _("This section is for admins only."))
+        results = notify.send_test()
+        audit.request_event(self, session, "settings.notify_test", _("Webhook notifications"),
+                            {"destinations": [label for label, _ok in results],
+                             "failed": [label for label, ok in results if not ok]})
+        if not results:
+            code = "notify-none"
+        else:
+            code = "notify-test-ok" if all(ok for _label, ok in results) else "notify-test-failed"
+        return self.redirect(f"{BASE}/settings/general?m={code}")
+
     def save_mfa(self, session: dict, form: dict):
         mode = str(form.get("mode", ""))
 
@@ -612,6 +656,10 @@ class Handler(BaseHTTPRequestHandler):
 
     # --- sign in ---
     def start_sso(self):
+        wait = self.rate_limited("sso")
+        if wait:
+            return self.too_many(wait)
+        sessions.hit(f"sso:{audit.client_ip(self)}")
         verifier = secrets.token_urlsafe(48)
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
         state = secrets.token_urlsafe(24)
@@ -630,7 +678,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def callback(self, params: dict):
         tx = unsign(self.cookie("hse_oidc"))
+        wait = self.rate_limited("sso")
+        if wait:
+            return self.too_many(wait)
         if not tx or not params.get("code") or not hmac.compare_digest(params.get("state", ""), tx["state"]):
+            sessions.hit(f"sso:{audit.client_ip(self)}")
             audit.request_event(self, None, "auth.signin_failed", "", {"method": "oidc", "reason": params.get("error", "invalid state")[:100]})
             return self.fail(400, _("Could not sign in"), _("The sign-in expired or is not valid. Please try again."))
 
@@ -671,6 +723,10 @@ class Handler(BaseHTTPRequestHandler):
         })
 
     def apikey_login(self, form: dict):
+        wait = self.rate_limited("apikey")
+        if wait:
+            return self.too_many(wait, admin_pages.login_page(
+                SSO, API_KEY_LOGIN, _("Too many sign-in attempts. Try again in a few minutes.")))
         key = str(form.get("api_key", "")).strip()
         valid = False
         if key.startswith("hskey-api-") and len(key) < 200:
@@ -681,10 +737,12 @@ class Handler(BaseHTTPRequestHandler):
             except (urllib.error.URLError, OSError):
                 valid = False
         if not valid:
+            sessions.hit(f"apikey:{audit.client_ip(self)}")
             time.sleep(1)  # slow down guessing
             log.warning("API key sign-in rejected from %s", self.address_string())
             audit.request_event(self, None, "auth.signin_failed", "", {"method": "apikey", "prefix": hs.api_key_prefix(key)}, actor="")
             return self.send(401, admin_pages.login_page(SSO, API_KEY_LOGIN, _("Invalid or expired API key.")))
+        sessions.reset(f"apikey:{audit.client_ip(self)}")
         log.info("sign-in with API key (%s…)", key[:14])
         self.start_session({"kind": "apikey", "sub": "", "username": "", "name": _("Administrator"),
                             "email": "", "groups": [], "admin": True, "role": "admin", "key": hs.api_key_prefix(key)})
@@ -692,6 +750,7 @@ class Handler(BaseHTTPRequestHandler):
     def start_session(self, data: dict):
         data.update(csrf=secrets.token_urlsafe(24), exp=time.time() + SESSION_TTL)
         role = data.get("role") or ("admin" if data["admin"] else "member")
+        data["sid"] = sessions.create(data, audit.client_ip(self), self.headers.get("User-Agent", ""), SESSION_TTL)
         audit.request_event(self, data, "auth.signin", "", {"method": data["kind"], "role": role})
         log.info("sign-in: %s (%s, %s)", data["username"] or data["name"], data["kind"], role)
         self.redirect(f"{BASE}/machines", [
@@ -716,8 +775,39 @@ class Handler(BaseHTTPRequestHandler):
                     "post_logout_redirect_uri": f"{PUBLIC_URL}{BASE}/",
                     "client_id": OIDC_CLIENT_ID,
                 })
+        sessions.revoke(session.get("sid", ""))
         audit.request_event(self, session, "auth.signout")
         self.redirect(target, [self.set_cookie("hse_session", "", 0)])
+
+    def revoke_session(self, session: dict, form: dict):
+        """Sign out one session: your own, or (admins) anyone's."""
+        sid = str(form.get("sid", ""))
+        target = sessions.get(sid)
+        own = sid == session.get("sid")
+        mine = bool(target) and (target["sub"] == session.get("sub") if session.get("sub") else own)
+        if not target or not (mine or session.get("admin")):
+            return self.redirect(f"{BASE}/settings/sessions?m=session-not-found")
+        sessions.revoke(sid)
+        audit.request_event(self, session, "auth.session_revoked", target["name"], {"kind": target["kind"], "ip": target["ip"]})
+        if own:
+            return self.redirect(f"{BASE}/login?m=signed-out", [self.set_cookie("hse_session", "", 0)])
+        return self.redirect(f"{BASE}/settings/sessions?m=session-revoked")
+
+    def revoke_all_sessions(self, session: dict, form: dict):
+        """Sign out everywhere: all of the caller's sessions (including this one),
+        or, for admins with scope=everyone, everybody else's."""
+        if form.get("scope") == "everyone":
+            if not session.get("admin"):
+                return self.fail(403, _("No permission"), _("This action is for admins only."))
+            count = sessions.revoke_everyone(keep=session.get("sid", ""))
+            audit.request_event(self, session, "auth.sessions_revoked_all", "", {"scope": "everyone", "count": count})
+            return self.redirect(f"{BASE}/settings/sessions?m=sessions-revoked")
+        if session.get("sub"):
+            count = sessions.revoke_user(session["sub"])
+        else:
+            count = int(sessions.revoke(session.get("sid", "")))
+        audit.request_event(self, session, "auth.sessions_revoked_all", "", {"scope": "mine", "count": count})
+        return self.redirect(f"{BASE}/login?m=signed-out", [self.set_cookie("hse_session", "", 0)])
 
     # --- machines ---
     def machine_action(self, session: dict, node_id: str, action: str, form: dict):
@@ -963,6 +1053,7 @@ class Handler(BaseHTTPRequestHandler):
             hs.api("DELETE", f"/user/{user_id}")
             log.info("%s deleted user %s", session["username"], user_id)
             audit.request_event(self, session, "user.delete", user.get("name"), ref=f"user:{user_id}")
+            sessions.revoke_named(user.get("name") or "")
             return self.redirect(f"{BASE}/users?m=user-deleted")
         except urllib.error.HTTPError as exc:
             return self.users_error(session, hs.api_error(exc))
@@ -1390,6 +1481,7 @@ def main():
     apikey.start()
     audit.start()
     naming.start()
+    notify.start()
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 

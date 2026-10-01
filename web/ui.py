@@ -188,6 +188,9 @@ def flash_html(code: str) -> str:
         "tags": ("ok", _("Tags updated.")),
         "registered": ("ok", _("Machine registered.")),
         "key-revoked": ("ok", _("Key revoked.")),
+        "session-revoked": ("ok", _("Session signed out.")),
+        "sessions-revoked": ("ok", _("All other sessions signed out.")),
+        "session-not-found": ("error", _("That session no longer exists.")),
         "user-created": ("ok", _("User created.")),
         "user-renamed": ("ok", _("User renamed.")),
         "user-deleted": ("ok", _("User deleted.")),
@@ -203,6 +206,9 @@ def flash_html(code: str) -> str:
         "key-expiry-saved": ("ok", _("Key expiry saved. It applies to devices added from now on.")),
         "apikey-expired": ("ok", _("API key expired.")),
         "mfa-saved": ("ok", _("Two-factor authentication saved. It applies from the next sign-in.")),
+        "notify-test-ok": ("ok", _("Test notification sent to every destination.")),
+        "notify-test-failed": ("error", _("The test notification could not be delivered to at least one destination. Check the logs of the web container.")),
+        "notify-none": ("error", _("No notification destination is configured: set NOTIFY_URLS in .env.")),
         "bad-name": ("error", _("Invalid name: lowercase letters, digits and dashes only (max. 63).")),
         "bad-user": ("error", _("Invalid user name: lowercase letters, digits, dots, dashes and @.")),
         "not-found": ("error", _("That item does not exist or is not yours.")),
@@ -262,6 +268,7 @@ def sidebar(active: str, session: dict, ctx: dict) -> str:
     groups.append(_nav_group("settings", _("Settings"), [
         ("general", "settings/general", _("General")),
         ("keys", "settings/keys", _("Keys")),
+        ("sessions", "settings/sessions", _("Sessions")),
     ], active))
     groups.append(f"""
       <a class="nav-top" href="{docs_url()}" target="_blank" rel="noopener">{icon("book")}<span>{esc(_("Documentation"))}</span>{icon("external", "ext")}</a>
