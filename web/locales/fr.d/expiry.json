@@ -1,0 +1,21 @@
+{
+  "Expires soon": "Expire bientôt",
+  "Expiring soon": "Expiration proche",
+  "Last seen {when}": "Dernière connexion {when}",
+  "Nothing was removed: none of the selected machines is inactive any more.": "Rien n'a été supprimé : aucune des machines sélectionnées n'est plus inactive.",
+  "Offline for {days}+ days": "Hors ligne depuis {days}+ jours",
+  "Remove inactive machines": "Supprimer les machines inactives",
+  "Remove inactive machines…": "Supprimer les machines inactives…",
+  "Remove selected": "Supprimer la sélection",
+  "Show only these": "Afficher uniquement celles-ci",
+  "The key expires {when}. Sign in again on the device (or disable key expiry) to keep it connected.": "La clé expire {when}. Reconnectez-vous sur l'appareil (ou désactivez l'expiration de la clé) pour le garder connecté.",
+  "These machines have been offline for more than {days} days. The selected ones are removed from the tailnet; to use one again it has to be connected again.": "Ces machines sont hors ligne depuis plus de {days} jours. Celles qui sont sélectionnées sont retirées du tailnet ; pour en réutiliser une, il faut la reconnecter.",
+  "{n} inactive machine removed.": "{n} machine inactive supprimée.",
+  "{n} inactive machines removed.": "{n} machines inactives supprimées.",
+  "{n} machine has been offline for more than {days} days.": "{n} machine est hors ligne depuis plus de {days} jours.",
+  "{n} machines have been offline for more than {days} days.": "{n} machines sont hors ligne depuis plus de {days} jours.",
+  "{n} machine expires in the next {days} days.": "{n} machine expire dans les {days} prochains jours.",
+  "{n} machines expire in the next {days} days.": "{n} machines expirent dans les {days} prochains jours.",
+  "{n} machine has an expired key and cannot connect until it signs in again.": "{n} machine a une clé expirée et ne peut pas se connecter tant qu'elle ne se reconnecte pas.",
+  "{n} machines have an expired key and cannot connect until they sign in again.": "{n} machines ont une clé expirée et ne peuvent pas se connecter tant qu'elles ne se reconnectent pas."
+}

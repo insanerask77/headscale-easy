@@ -324,8 +324,8 @@ Es la única función que necesita el socket de Docker; ver [Seguridad](security
 
 ## Idioma { #language }
 
-La consola sigue el idioma del navegador (inglés o español) y cada persona puede
-cambiarlo en **Ajustes → General**. `UI_LANG` fija el idioma por defecto cuando
+La consola sigue el idioma del navegador (inglés, español, francés, alemán o portugués) y cada persona puede
+cambiarlo en **Ajustes → General**. `UI_LANG` (`en`, `es`, `fr`, `de` o `pt`) fija el idioma por defecto cuando
 el navegador pide uno que la consola no tiene.
 
 ## Ficheros generados { #generated-files }

@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- The console is now available in French, German and Portuguese (Brazilian),
+  next to English and Spanish: full catalogs in `web/locales/{fr,de,pt}.json`
+  and `{fr,de,pt}.d/`, offered in the language selector in Settings. `UI_LANG`
+  accepts `fr`, `de` and `pt`; the installer lets you choose them and keeps its
+  own messages in English for those languages.
+
 ## [1.4.0] - 2026-09-30
 
 ### Security

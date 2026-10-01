@@ -194,15 +194,23 @@ choose_language() {
     local current="$UI_LANG"
     [[ -f "$ENV_FILE" ]] && current=$(grep -E '^UI_LANG=' "$ENV_FILE" | cut -d= -f2 | tr -d '"' || true)
     current="${current:-en}"
-    local default_idx=1
-    [[ "$current" == "es" ]] && default_idx=2
+    # The installer's own messages exist in English and Spanish only (any other
+    # language falls back to English); the choice is the web console's language.
+    local langs=(en es fr de pt) default_idx=1 i
+    for i in "${!langs[@]}"; do
+        [[ "${langs[$i]}" == "$current" ]] && default_idx=$((i + 1))
+    done
     echo -e "${BOLD}Language / Idioma${NC}"
     echo -e "  ${BOLD}1${NC}) English"
     echo -e "  ${BOLD}2${NC}) Español"
+    echo -e "  ${BOLD}3${NC}) Français"
+    echo -e "  ${BOLD}4${NC}) Deutsch"
+    echo -e "  ${BOLD}5${NC}) Português"
     local choice
-    read -r -p "$(echo -e "${CYAN}?${NC} [1-2] [${default_idx}]: ")" choice
+    read -r -p "$(echo -e "${CYAN}?${NC} [1-5] [${default_idx}]: ")" choice
     choice="${choice:-$default_idx}"
-    UI_LANG=$([[ "$choice" == "2" ]] && echo "es" || echo "en")
+    [[ "$choice" =~ ^[1-5]$ ]] || choice=$default_idx
+    UI_LANG="${langs[$((choice - 1))]}"
 }
 
 # ONE deployment shape: Caddy in front of Headscale and the web UI, routing

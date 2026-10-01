@@ -109,8 +109,9 @@ To add a language:
 2. Add the code and its name to `LANGUAGES` in `web/i18n.py`.
 3. Run `python3 scripts/check_i18n.py`: it lists missing and unused strings.
 
-The installer's messages use `t "English" "Español"`; supporting a third
-language there is welcome too.
+`es.d/`-style per-feature files are supported for every language
+(`web/locales/<code>.d/*.json`). The installer's messages use
+`t "English" "Español"`; supporting more languages there is welcome too.
 
 ## Pull requests
 

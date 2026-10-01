@@ -314,8 +314,8 @@ This is the only feature that needs the Docker socket; see [Security](security.m
 
 ## Language
 
-The console follows the browser's language (English or Spanish) and each person
-can switch it in **Settings → General**. `UI_LANG` sets the default when the
+The console follows the browser's language (English, Spanish, French, German or Portuguese) and each person
+can switch it in **Settings → General**. `UI_LANG` (`en`, `es`, `fr`, `de` or `pt`) sets the default when the
 browser asks for a language the console does not have.
 
 ## Generated files

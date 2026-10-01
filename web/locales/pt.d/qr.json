@@ -1,0 +1,15 @@
+{
+  "QR code: {label}": "Código QR: {label}",
+  "server URL {url}": "URL do servidor {url}",
+  "Scan it with the phone's camera to get the URL on the phone, then copy it into the app. The Tailscale app cannot read QR codes itself.": "Escaneie com a câmera do celular para levar a URL ao celular e depois copie-a no aplicativo. O aplicativo Tailscale não consegue ler códigos QR por conta própria.",
+  "In the Tailscale app, tap the profile icon in the top-right corner, then Log in (or your account, if the app is already signed in to another tailnet).": "No aplicativo Tailscale, toque no ícone de perfil no canto superior direito e depois em Log in (ou na sua conta, se o aplicativo já estiver conectado a outro tailnet).",
+  "Tap the ⋯ menu in the top-right corner, choose Use a custom coordination server and enter this URL:": "Toque no menu ⋯ no canto superior direito, escolha Use a custom coordination server e informe esta URL:",
+  "Tap the ⋮ menu in the top-right corner, choose Use an alternate server and enter this URL:": "Toque no menu ⋮ no canto superior direito, escolha Use an alternate server e informe esta URL:",
+  "Tap Log in and sign in with your account.": "Toque em Log in e faça login com sua conta.",
+  "To connect without signing in, set the server first and then choose Use an auth key in the same ⋮ menu, with a key from {link}.": "Para conectar sem fazer login, defina primeiro o servidor e depois escolha Use an auth key no mesmo menu ⋮, com uma chave de {link}.",
+  "Show as QR codes": "Mostrar como códigos QR",
+  "auth key": "chave de autenticação",
+  "command to connect a Linux device": "comando para conectar um dispositivo Linux",
+  "Linux command": "Comando Linux",
+  "Most phone cameras can copy the text of a QR code. On Android, paste the key in the Tailscale app with Use an auth key (⋮ menu, after setting the server).": "A maioria das câmeras de celular consegue copiar o texto de um código QR. No Android, cole a chave no aplicativo Tailscale com Use an auth key (menu ⋮, depois de definir o servidor)."
+}
