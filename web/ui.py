@@ -188,6 +188,9 @@ def flash_html(code: str) -> str:
         "tags": ("ok", _("Tags updated.")),
         "registered": ("ok", _("Machine registered.")),
         "key-revoked": ("ok", _("Key revoked.")),
+        "session-revoked": ("ok", _("Session signed out.")),
+        "sessions-revoked": ("ok", _("All other sessions signed out.")),
+        "session-not-found": ("error", _("That session no longer exists.")),
         "user-created": ("ok", _("User created.")),
         "user-renamed": ("ok", _("User renamed.")),
         "user-deleted": ("ok", _("User deleted.")),
@@ -256,6 +259,7 @@ def sidebar(active: str, session: dict, ctx: dict) -> str:
     groups.append(_nav_group("settings", _("Settings"), [
         ("general", "settings/general", _("General")),
         ("keys", "settings/keys", _("Keys")),
+        ("sessions", "settings/sessions", _("Sessions")),
     ], active))
     groups.append(f"""
       <a class="nav-top" href="{docs_url()}" target="_blank" rel="noopener">{icon("book")}<span>{esc(_("Documentation"))}</span>{icon("external", "ext")}</a>

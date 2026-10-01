@@ -7,6 +7,18 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Security
+- Sessions are now revocable: the signed cookie carries a session id that must
+  exist, unrevoked, in `data/web/sessions.db` (`600`). New **Settings →
+  Sessions** page: your sessions (admins and auditors: everybody's) with
+  *Log out*, *Sign out everywhere* and, for admins, *Sign out everyone else*.
+  Deleting a user, or a role change seen at their next sign-in, revokes their
+  older sessions. Cookies issued before this change have no session id: users
+  sign in again once.
+- Sign-in rate limiting per client IP (`SIGNIN_RATE_LIMIT`, default 10, per
+  `SIGNIN_RATE_WINDOW`, default 600 seconds) on the API key sign-in and the
+  OIDC sign-in: `429` with `Retry-After` and an `auth.rate_limited` activity
+  event. New activity events: `auth.session_revoked`,
+  `auth.sessions_revoked_all`.
 - The web UI no longer mounts the Docker socket (equivalent to root on the
   host) and is no longer in the Docker group. A new `hs-helper` service
   (`helper/`, image `ghcr.io/insanerask77/headscale-easy-helper`) is the only

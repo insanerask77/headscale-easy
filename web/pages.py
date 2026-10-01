@@ -981,3 +981,42 @@ def keys_page(session: dict, ctx: dict, keys: list[dict] | None, flash: str, new
     {dialog("new", _("Generate auth key"), "", f"{BASE}/keys", session, fields=fields, submit=_("Generate key"))}
     {apikeys_section(session, apikeys or [], own_prefix, new_apikey) if admin else ""}"""
     return layout(_("Keys"), "keys", body, session, ctx)
+
+
+def sessions_page(session: dict, ctx: dict, rows: list[dict], flash: str = "") -> str:
+    """Settings -> Sessions: your sessions; admins and auditors see everybody's."""
+    admin = bool(session.get("admin"))
+    sees_all = admin or session.get("role") == "auditor"
+    body_rows = []
+    for r in rows:
+        current = r["sid"] == session.get("sid")
+        who = f"<td>{esc(r['name'] or '—')}</td>" if sees_all else ""
+        kind = _("API key") if r["kind"] == "apikey" else "OIDC"
+        btn = f"""<form method="post" action="{BASE}/settings/sessions/revoke">{csrf_input(session)}
+          <input type="hidden" name="sid" value="{esc(r['sid'])}">
+          <button class="btn small" type="submit">{esc(_("Log out"))}</button></form>""" \
+            if (admin or current or (session.get("sub") and r["sub"] == session.get("sub"))) else ""
+        created = datetime.fromtimestamp(r["created"], timezone.utc).isoformat()
+        seen = datetime.fromtimestamp(r["last_seen"], timezone.utc).isoformat()
+        body_rows.append(f"""<tr>{who}<td>{esc(kind)}</td><td>{esc(r['role'])}</td><td><code>{esc(r['ip'] or '—')}</code></td>
+          <td class="muted small">{esc((r['ua'] or '—')[:80])}</td><td>{time_tag(created)}</td><td>{time_tag(seen)}</td>
+          <td>{badge(_("This session"), "blue") if current else ""}</td><td class="actions">{btn}</td></tr>""")
+    if body_rows:
+        table = f"""<div class="table-wrap"><table class="simple"><thead><tr>{f"<th>{esc(_('User'))}</th>" if sees_all else ""}
+          <th>{esc(_("Type"))}</th><th>{esc(_("Role"))}</th><th>{esc(_("IP address"))}</th><th>{esc(_("Browser"))}</th>
+          <th>{esc(_("Created"))}</th><th>{esc(_("Last activity"))}</th><th></th><th></th></tr></thead>
+          <tbody>{"".join(body_rows)}</tbody></table></div>"""
+    else:
+        table = f'<p class="muted">{esc(_("No active sessions."))}</p>'
+    everyone = f"""
+      <form method="post" action="{BASE}/settings/sessions/revoke-all" class="inline">{csrf_input(session)}
+        <input type="hidden" name="scope" value="everyone">
+        <button class="btn" type="submit">{esc(_("Sign out everyone else"))}</button></form>""" if admin else ""
+    body = page_head(_("Sessions"), esc(_("Where you are signed in. Signing a session out takes effect at once."))) + flash_html(flash) + f"""
+    <section class="card">
+      <div class="card-title"><h2>{esc(_("Active sessions"))}</h2>
+        <form method="post" action="{BASE}/settings/sessions/revoke-all" class="inline">{csrf_input(session)}
+          <button class="btn" type="submit">{esc(_("Sign out everywhere"))}</button></form>{everyone}</div>
+      {table}
+    </section>"""
+    return layout(_("Sessions"), "sessions", body, session, ctx)

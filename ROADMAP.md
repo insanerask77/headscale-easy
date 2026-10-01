@@ -44,7 +44,7 @@ and verifiable comes before new features.
 - [ ] **S4. End-to-end tests in CI** · L
   Start the real stack (Headscale + console, with and without Authentik) in CI
   and test auth, OIDC, API, ACL, DNS, devices, backup/restore against it.
-- [ ] **S5. Revocable sessions and sign-in rate limiting** · M
+- [x] **S5. Revocable sessions and sign-in rate limiting** · M — *next*
   Server-side session list (sign out everywhere, role changes take effect at
   once) and per-IP limits on sign-in attempts.
 - [x] **S6. Narrower Docker access** · M — *next*
