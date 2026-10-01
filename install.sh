@@ -7,10 +7,15 @@
 #  Made by Rafa Madolell (@insanerask77) · https://ko-fi.com/rafaelmadolell
 #  MIT License
 #
-#  Usage: ./install.sh
+#  Usage: ./install.sh [--non-interactive]
 #
 #  Interactive, idempotent (run it again to reconfigure; data is kept) and
 #  bilingual (English / Español).
+#
+#  --non-interactive (or HSE_NONINTERACTIVE=true): ask nothing. Every answer
+#  is its default: the existing .env if there is one, else the environment
+#  (DOMAIN, SSL_MODE, AUTH_PROVIDER, HTTP_PORT...). An invalid value stops
+#  the installer instead of asking again. Used by the end-to-end tests.
 # =============================================================================
 
 set -euo pipefail
@@ -34,6 +39,7 @@ NC='\033[0m'
 BOLD='\033[1m'
 
 UI_LANG="${UI_LANG:-en}"
+NONINTERACTIVE="${HSE_NONINTERACTIVE:-false}"
 
 # -----------------------------------------------------------------------------
 # Output and prompts
@@ -58,6 +64,11 @@ print_header() {
 ask_yes_no() {
     local prompt="$1" default="${2:-n}" response hint
     hint=$([[ "$default" == "y" ]] && t "[Y/n]" "[S/n]" || t "[y/N]" "[s/N]")
+    if [[ "$NONINTERACTIVE" == "true" ]]; then
+        echo -e "${CYAN}?${NC} ${prompt} ${hint}: ${default}" >&2
+        [[ "$default" == "y" ]]
+        return
+    fi
     while true; do
         read -r -p "$(echo -e "${CYAN}?${NC} ${prompt} ${hint}: ")" response
         response=$(echo "${response:-$default}" | tr '[:upper:]' '[:lower:]')
@@ -73,6 +84,15 @@ ask_yes_no() {
 ask_input() {
     local prompt="$1" default="$2" validate="${3:-}" value
     [[ -n "$default" ]] && prompt="$prompt [${default}]"
+    if [[ "$NONINTERACTIVE" == "true" ]]; then
+        echo -e "${CYAN}?${NC} ${prompt}: ${default}" >&2
+        if { [[ -n "$validate" ]] && ! "$validate" "$default"; } || [[ -z "$validate" && -z "$default" ]]; then
+            print_error "$(t "Invalid value for" "Valor no válido para") \"${1}\": ${default:-<empty>}"
+            exit 1
+        fi
+        echo "$default"
+        return 0
+    fi
     while true; do
         read -r -p "$(echo -e "${CYAN}?${NC} ${prompt}: ")" value
         value="${value:-$default}"
@@ -90,11 +110,21 @@ ask_input() {
 # The menu goes to stderr so $(...) only captures the answer.
 ask_choice() {
     local prompt="$1" current="$2"; shift 2
-    local options=("$@") n=$# default_idx=1 i key title desc choice
+    local options=("$@") n=$# default_idx=1 i key title desc choice found=""
     for i in "${!options[@]}"; do
         IFS='|' read -r key title desc <<< "${options[$i]}"
-        [[ "$key" == "$current" ]] && default_idx=$((i + 1))
+        [[ "$key" == "$current" ]] && { default_idx=$((i + 1)); found="$key"; }
     done
+    if [[ "$NONINTERACTIVE" == "true" ]]; then
+        # No silent fallback to the first option: a typo must stop the install
+        if [[ -z "$found" ]]; then
+            print_error "$(t "Invalid value for" "Valor no válido para") \"${prompt}\": ${current:-<empty>}"
+            exit 1
+        fi
+        echo -e "${CYAN}?${NC} ${prompt}: ${found}" >&2
+        echo "$found"
+        return 0
+    fi
     {
         echo ""
         echo -e "${CYAN}${BOLD}${prompt}${NC}"
@@ -195,6 +225,10 @@ choose_language() {
     local current="$UI_LANG"
     [[ -f "$ENV_FILE" ]] && current=$(grep -E '^UI_LANG=' "$ENV_FILE" | cut -d= -f2 | tr -d '"' || true)
     current="${current:-en}"
+    if [[ "$NONINTERACTIVE" == "true" ]]; then
+        UI_LANG=$([[ "$current" == "es" ]] && echo "es" || echo "en")
+        return 0
+    fi
     local default_idx=1
     [[ "$current" == "es" ]] && default_idx=2
     echo -e "${BOLD}Language / Idioma${NC}"
@@ -525,7 +559,13 @@ configure_email() {
     SMTP_USERNAME=$(ask_input "$(t "SMTP user (empty = no sign-in)" "Usuario SMTP (vacío = sin autenticación)")" "${SMTP_USERNAME:-}" validate_env_text)
     if [[ -n "$SMTP_USERNAME" ]]; then
         local pass
-        while true; do
+        while [[ "$NONINTERACTIVE" == "true" ]]; do
+            pass="${SMTP_PASSWORD:-}"
+            if [[ -n "$pass" ]] && validate_env_text "$pass"; then break; fi
+            print_error "$(t "SMTP_PASSWORD is empty or has quotes, \$, \\ or backquotes" "SMTP_PASSWORD está vacía o tiene comillas, \$, \\ o comillas invertidas")"
+            exit 1
+        done
+        while [[ "$NONINTERACTIVE" != "true" ]]; do
             read -r -s -p "$(echo -e "${CYAN}?${NC} $(t "SMTP password" "Contraseña SMTP")$([[ -n "${SMTP_PASSWORD:-}" ]] && t " [Enter = keep the current one]" " [Enter = mantener la actual]"): ")" pass
             echo "" >&2
             pass="${pass:-${SMTP_PASSWORD:-}}"
@@ -1263,7 +1303,7 @@ start_authentik_first() {
                            "Headscale valida los inicios de sesión contra ${HEADSCALE_PUBLIC_URL}/authentik/ a través del proxy de delante,")"
         print_warning "$(t "so that proxy must be ready now: reverse-proxy/ has its configuration." \
                            "así que ese proxy tiene que estar listo ya: reverse-proxy/ tiene su configuración.")"
-        read -r -p "$(echo -e "${CYAN}?${NC} $(t "Press Enter once the proxy forwards ${DOMAIN} to ${BACKEND_HOST}:${HTTP_PORT}" "Pulsa Enter cuando el proxy reenvíe ${DOMAIN} a ${BACKEND_HOST}:${HTTP_PORT}"): ")" _
+        [[ "$NONINTERACTIVE" == "true" ]] || read -r -p "$(echo -e "${CYAN}?${NC} $(t "Press Enter once the proxy forwards ${DOMAIN} to ${BACKEND_HOST}:${HTTP_PORT}" "Pulsa Enter cuando el proxy reenvíe ${DOMAIN} a ${BACKEND_HOST}:${HTTP_PORT}"): ")" _
     fi
 
     print_info "$(t "Waiting for Authentik to publish the OIDC provider (1-3 min the first time)..." \
@@ -1648,7 +1688,13 @@ EOF
 }
 
 main() {
-    clear 2>/dev/null || true
+    case "${1:-}" in
+        --non-interactive|-y) NONINTERACTIVE="true" ;;
+        "") ;;
+        -h|--help) sed -n '10,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,2\}//'; exit 0 ;;
+        *) print_error "Unknown option: $1 (use --non-interactive)"; exit 1 ;;
+    esac
+    [[ "$NONINTERACTIVE" == "true" ]] || clear 2>/dev/null || true
     banner
     choose_language
 

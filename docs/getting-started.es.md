@@ -32,6 +32,14 @@ muestra las URLs y las primeras credenciales:
     Vuelve a ejecutar `./install.sh` cuando quieras. Tus respuestas anteriores
     son los valores por defecto y no se pierde ningún dato.
 
+!!! note "Instalación desatendida"
+    `./install.sh --non-interactive` no pregunta nada: cada respuesta es su
+    valor por defecto, tomado del `.env` existente o, si no hay, de variables de
+    entorno con los mismos nombres que en `.env`, por ejemplo
+    `DOMAIN=vpn.example.com SSL_MODE=letsencrypt AUTH_PROVIDER=authentik ./install.sh --non-interactive`.
+    Un valor no válido lo detiene en lugar de volver a preguntar. Los tests de
+    extremo a extremo instalan el stack así.
+
 Todas las opciones están en [Configuración](configuration.md).
 
 ## Puertos

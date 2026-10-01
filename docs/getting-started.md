@@ -50,6 +50,14 @@ your URLs and first credentials:
     Run `./install.sh` again at any time. Your previous answers become the
     defaults and no data is lost.
 
+!!! note "Unattended install"
+    `./install.sh --non-interactive` asks nothing: every answer is its default,
+    taken from an existing `.env` or else from environment variables with the
+    same names as in `.env`, for example
+    `DOMAIN=vpn.example.com SSL_MODE=letsencrypt AUTH_PROVIDER=authentik ./install.sh --non-interactive`.
+    An invalid value stops it instead of asking again. The end-to-end tests
+    install the stack this way.
+
 See [Configuration](configuration.md) for every option.
 
 ## Ports

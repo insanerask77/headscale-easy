@@ -44,7 +44,7 @@ for f in "${required_files[@]}"; do
 done
 [[ $errors -eq 0 ]] && ok "All ${#required_files[@]} required files present"
 
-for f in install.sh uninstall.sh scripts/utils.sh scripts/validate.sh scripts/restore.sh; do
+for f in install.sh uninstall.sh scripts/utils.sh scripts/validate.sh scripts/restore.sh tests/e2e/run.sh; do
     [[ -x "$f" ]] || fail "Not executable: $f"
     bash -n "$f" 2>/dev/null && ok "Shell syntax: $f" || fail "Shell syntax error: $f"
 done

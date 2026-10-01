@@ -42,9 +42,11 @@ and verifiable comes before new features.
 - [ ] **S3. Independent security review** · L
   Ask for a third-party review of sign-in, sessions, the Docker socket and the
   installer; publish the findings and fixes.
-- [ ] **S4. End-to-end tests in CI** · L
+- [x] **S4. End-to-end tests in CI** · L — *next*
   Start the real stack (Headscale + console, with and without Authentik) in CI
   and test auth, OIDC, API, ACL, DNS, devices, backup/restore against it.
+  `tests/e2e/` + the `e2e` CI job (matrix: no OIDC / built-in Authentik),
+  installed with the new `./install.sh --non-interactive`; `make e2e`.
 - [x] **S5. Revocable sessions and sign-in rate limiting** · M — *next*
   Server-side session list (sign out everywhere, role changes take effect at
   once) and per-IP limits on sign-in attempts.

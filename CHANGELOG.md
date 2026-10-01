@@ -11,6 +11,19 @@ All notable changes to this project are documented here. The format follows
   (was 30). Each pass is one node-list call; host details are only fetched when
   something needs renaming. Tune it with `RENAME_INTERVAL` (seconds, minimum 1).
 ### Added
+- End-to-end tests in CI (roadmap item S4): a new `e2e` job installs the real
+  stack with `./install.sh --non-interactive` (Headscale, web UI, hs-helper,
+  backups; a second leg adds the built-in Authentik) and drives it over HTTP
+  with `tests/e2e/` (standard library `urllib`): API key and OIDC sign-in,
+  Headscale's API, users, API and auth keys, a real Tailscale client
+  registering with an auth key, ACL check/save, DNS through `headscale
+  configtest` and a restart by hs-helper, revoking one session, everyone
+  else's and all of your own, and backup + restore. Run them with `make e2e`
+  (not part of `make test`; see CONTRIBUTING.md).
+- `./install.sh --non-interactive` (or `HSE_NONINTERACTIVE=true`): unattended
+  install or reconfigure. Every answer is its default, from the existing
+  `.env` or environment variables of the same name; an invalid value stops
+  the installer instead of asking again.
 - PostgreSQL support for Headscale's database (roadmap item 17). The installer
   asks: SQLite (default, recommended), PostgreSQL in the stack (new
   `headscale-postgresql` container, `postgres` Compose profile, volume

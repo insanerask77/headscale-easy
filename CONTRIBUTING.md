@@ -66,8 +66,30 @@ Before opening a pull request:
 
 ```bash
 make lint        # shellcheck, Python syntax, translation coverage
+make test        # unit tests (standard library only, no Docker)
 make validate    # project structure and Compose file
 ```
+
+### End-to-end tests
+
+`tests/e2e/` drives a real stack over HTTP with the standard library
+(`urllib`): API key and Authentik (OIDC) sign-in, Headscale's API, users, an
+auth key used by a real `tailscale/tailscale` container, the ACL policy, DNS
+(validated with `headscale configtest` and applied by restarting Headscale
+through hs-helper), session revocation, and backup + restore. They are not
+part of `make test`. The `e2e` job in CI runs them on every pull request, once
+with `AUTH_PROVIDER=none` and once with the built-in Authentik.
+
+```bash
+make e2e                      # AUTH_PROVIDER=none
+E2E_AUTH=authentik make e2e   # with the built-in Authentik
+```
+
+`make e2e` (`tests/e2e/run.sh`) installs a throwaway stack in your checkout
+with `./install.sh --non-interactive`, runs the tests and **deletes the stack
+and its volumes** afterwards (`E2E_KEEP=true` keeps it). The stack uses fixed
+container and volume names, so the script refuses to run where a Headscale
+Easy stack already exists: use a VM or let CI run it.
 
 To test the installer's output without deploying, answer **No** to "Deploy the
 stack now?": it writes `.env`, `headscale-config.yaml`, `Caddyfile` and
