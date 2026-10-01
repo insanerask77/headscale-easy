@@ -18,13 +18,13 @@ translation and pull request makes it better.
 ```
 install.sh              Interactive installer (bash, English + Spanish)
 uninstall.sh            Uninstaller
-docker-compose.yml      The stack: headscale, caddy, web, authentik (profile)
+docker-compose.yml      The stack: headscale, caddy, web, hs-helper, authentik (profile)
 templates/              Files the installer renders with envsubst
 authentik/blueprints/   Authentik configuration (OIDC clients, groups, add-user flow)
 authentik/branding/     Authentik theme (CSS, logos)
 web/                    The web console (ghcr.io/insanerask77/headscale-easy)
   app.py                HTTP server, routing, sessions, OIDC
-  headscale.py          Headscale REST API client, DNS config, Docker socket
+  headscale.py          Headscale REST API client, DNS config, hs-helper client
   pages.py              Machines, device, DNS, keys, settings pages
   admin_pages.py        Users, access controls (raw HuJSON tab), sign-in page
   acl_pages.py          Access controls: Rules, Groups & tags, Test access tabs
@@ -32,6 +32,7 @@ web/                    The web console (ghcr.io/insanerask77/headscale-easy)
   ui.py                 Layout, sidebar, icons, shared helpers
   i18n.py, locales/     Translations
   static/               CSS, JS, font, favicon
+helper/                 hs-helper: the only container with the Docker socket (helper.py)
 scripts/                utils.sh (make targets), validate.sh, check_i18n.py
 docs/, mkdocs.yml       Documentation site (GitHub Pages), screenshots
 ```

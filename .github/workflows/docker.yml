@@ -1,6 +1,7 @@
 name: Docker image
 
-# Publishes ghcr.io/insanerask77/headscale-easy:
+# Publishes ghcr.io/insanerask77/headscale-easy (web UI) and
+# ghcr.io/insanerask77/headscale-easy-helper (hs-helper):
 #   main        -> :edge
 #   tag v1.2.3  -> :1.2.3, :1.2, :1, :latest
 on:
@@ -16,6 +17,13 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - image: headscale-easy
+            context: ${{ matrix.context }}
+          - image: headscale-easy-helper
+            context: helper
     steps:
       - uses: actions/checkout@v4
 
@@ -31,7 +39,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/headscale-easy
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
           tags: |
             type=edge,branch=main
             type=semver,pattern={{version}}
@@ -45,5 +53,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}

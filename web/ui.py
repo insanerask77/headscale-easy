@@ -188,6 +188,9 @@ def flash_html(code: str) -> str:
         "tags": ("ok", _("Tags updated.")),
         "registered": ("ok", _("Machine registered.")),
         "key-revoked": ("ok", _("Key revoked.")),
+        "session-revoked": ("ok", _("Session signed out.")),
+        "sessions-revoked": ("ok", _("All other sessions signed out.")),
+        "session-not-found": ("error", _("That session no longer exists.")),
         "user-created": ("ok", _("User created.")),
         "user-renamed": ("ok", _("User renamed.")),
         "user-deleted": ("ok", _("User deleted.")),
@@ -199,9 +202,13 @@ def flash_html(code: str) -> str:
         "acl-unreachable": ("error", _("Could not read the current policy from Headscale. Try again.")),
         "acl-unreadable": ("error", _("The saved policy could not be read as HuJSON. Fix it in Advanced first.")),
         "dns-saved": ("ok", _("DNS saved. Headscale restarted with the new settings.")),
+        "derp-saved": ("ok", _("DERP map saved. Headscale restarted with the new relays.")),
         "key-expiry-saved": ("ok", _("Key expiry saved. It applies to devices added from now on.")),
         "apikey-expired": ("ok", _("API key expired.")),
         "mfa-saved": ("ok", _("Two-factor authentication saved. It applies from the next sign-in.")),
+        "notify-test-ok": ("ok", _("Test notification sent to every destination.")),
+        "notify-test-failed": ("error", _("The test notification could not be delivered to at least one destination. Check the logs of the web container.")),
+        "notify-none": ("error", _("No notification destination is configured: set NOTIFY_URLS in .env.")),
         "bad-name": ("error", _("Invalid name: lowercase letters, digits and dashes only (max. 63).")),
         "bad-user": ("error", _("Invalid user name: lowercase letters, digits, dots, dashes and @.")),
         "not-found": ("error", _("That item does not exist or is not yours.")),
@@ -244,6 +251,11 @@ def sidebar(active: str, session: dict, ctx: dict) -> str:
         ("dns", "dns", _("DNS")),
     ], active)]
     if sees_all:
+        groups[0] = _nav_group("network", _("Network"), [
+            ("machines", "machines", _("Machines")),
+            ("dns", "dns", _("DNS")),
+            ("derp", "derp", _("DERP relays")),
+        ], active)
         groups.append(f"""
       <a class="nav-top {"active" if active == "users" else ""}" href="{BASE}/users">{icon("users")}<span>{esc(_("Users"))}</span></a>""")
     if sees_all or edits_network:
@@ -253,10 +265,14 @@ def sidebar(active: str, session: dict, ctx: dict) -> str:
     if sees_all:
         groups.append(f"""
       <a class="nav-top {"active" if active == "logs" else ""}" href="{BASE}/logs">{icon("logs")}<span>{esc(_("Logs"))}</span></a>""")
-    groups.append(_nav_group("settings", _("Settings"), [
+    settings_items = [
         ("general", "settings/general", _("General")),
         ("keys", "settings/keys", _("Keys")),
-    ], active))
+        ("sessions", "settings/sessions", _("Sessions")),
+    ]
+    if sees_all:
+        settings_items.append(("status", "settings/status", _("Status")))
+    groups.append(_nav_group("settings", _("Settings"), settings_items, active))
     groups.append(f"""
       <a class="nav-top" href="{docs_url()}" target="_blank" rel="noopener">{icon("book")}<span>{esc(_("Documentation"))}</span>{icon("external", "ext")}</a>
       <a class="nav-top" href="{SPONSOR_URL}" target="_blank" rel="noopener">{icon("coffee")}<span>{esc(_("Support the project"))}</span>{icon("external", "ext")}</a>""")
