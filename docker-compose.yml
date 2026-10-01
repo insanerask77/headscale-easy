@@ -19,6 +19,9 @@ volumes:
     name: caddy-data
   caddy-config:
     name: caddy-config
+  # hs-helper's Unix socket, shared with the web UI
+  hse-helper:
+    name: hse-helper
   # Only used with AUTH_PROVIDER=authentik
   authentik-db:
     name: authentik-db
@@ -86,6 +89,7 @@ services:
     volumes:
       # Configuration
       - ./headscale-config.yaml:/etc/headscale/config.yaml:ro
+      - ./headscale-derp.yaml:/etc/headscale/derp.yaml:ro
 
       # Persistent data
       - headscale-data:/var/lib/headscale
@@ -311,8 +315,16 @@ services:
       PGDATABASE: authentik
       PGPASSWORD: ${AUTHENTIK_PG_PASS:-}
       TZ: ${TZ:-UTC}
+      # Optional remote copy: an rclone remote (s3:bucket/dir) or rsync:user@host:/dir
+      BACKUP_REMOTE: ${BACKUP_REMOTE:-}
+      BACKUP_REMOTE_KEEP_DAYS: ${BACKUP_REMOTE_KEEP_DAYS:-${BACKUP_KEEP_DAYS:-14}}
+      BACKUP_REMOTE_SSH_PORT: ${BACKUP_REMOTE_SSH_PORT:-22}
+      AWS_ACCESS_KEY_ID: ${BACKUP_AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${BACKUP_AWS_SECRET_ACCESS_KEY:-}
 
     volumes:
+      # rclone.conf, id_ed25519 and known_hosts for the remote copy
+      - ${BACKUP_REMOTE_CONFIG:-./data/backup-remote}:/remote-config:ro
       # Read-only: what gets backed up
       - headscale-data:/headscale:ro
       - caddy-data:/caddy:ro
@@ -338,6 +350,42 @@ services:
       - no-new-privileges:true
 
   # ---------------------------------------------------------------------------
+  # HS-HELPER - the only container with the Docker socket
+  # ---------------------------------------------------------------------------
+  # Docker socket access is equivalent to root on the host, so the web UI does
+  # not get it. This helper does, and answers exactly three fixed requests on
+  # a Unix socket in the hse-helper volume: validate Headscale's config
+  # ('headscale configtest'), restart Headscale, and report the stack's
+  # container health and Headscale's version. No parameters, no other
+  # container, no other command (see helper/helper.py). It has no network.
+  hs-helper:
+    image: ghcr.io/insanerask77/headscale-easy-helper:${HSE_VERSION:-latest}
+    build: ./helper
+    container_name: headscale-easy-helper
+    restart: unless-stopped
+
+    network_mode: none
+
+    environment:
+      HEADSCALE_CONTAINER: headscale
+      TZ: ${TZ:-UTC}
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - hse-helper:/run/hse-helper
+
+    # Same uid/gid as the web UI (so it can use the 660 socket) plus the
+    # Docker socket's group; never as root.
+    user: "${PORTAL_UID:-1000}:${PORTAL_GID:-1000}"
+    group_add:
+      - "${DOCKER_GID:-999}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  # ---------------------------------------------------------------------------
   # HEADSCALE EASY - Web UI
   # ---------------------------------------------------------------------------
   # Members see and manage their own machines; admins manage everything
@@ -355,6 +403,8 @@ services:
     depends_on:
       headscale:
         condition: service_healthy
+      hs-helper:
+        condition: service_started
 
     environment:
       PUBLIC_URL: ${HEADSCALE_PUBLIC_URL:-}
@@ -362,9 +412,13 @@ services:
       DEFAULT_LANG: ${UI_LANG:-en}
       # Rename Apple devices that register as "localhost" to <owner>-<device>
       AUTO_RENAME_LOCALHOST: ${AUTO_RENAME_LOCALHOST:-true}
+      RENAME_INTERVAL: ${RENAME_INTERVAL:-5}
       # Machines page: "Expires soon" window and "inactive" threshold (days)
       EXPIRY_WARNING_DAYS: ${EXPIRY_WARNING_DAYS:-14}
       INACTIVE_DAYS: ${INACTIVE_DAYS:-30}
+      # Webhook notifications (empty NOTIFY_URLS = off), see docs/operations.md
+      NOTIFY_URLS: ${NOTIFY_URLS:-}
+      NOTIFY_EVENTS: ${NOTIFY_EVENTS:-}
       # Activity log (Logs page, ./data/web/audit.db): days to keep events, 0 = forever
       AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-90}
       SESSION_SECRET: ${PORTAL_SESSION_SECRET:-}
@@ -379,6 +433,9 @@ services:
       PORTAL_NETWORK_ADMIN_GROUPS: ${PORTAL_NETWORK_ADMIN_GROUPS:-}
       PORTAL_AUDITOR_GROUPS: ${PORTAL_AUDITOR_GROUPS:-}
       DEMO_MODE: ${DEMO_MODE:-false}
+      # Failed sign-ins allowed per client IP in the window (seconds) before a 429
+      SIGNIN_RATE_LIMIT: ${SIGNIN_RATE_LIMIT:-10}
+      SIGNIN_RATE_WINDOW: ${SIGNIN_RATE_WINDOW:-600}
       # To find a member's Headscale user: its providerId is <issuer>/<sub>
       HEADSCALE_OIDC_ISSUER: ${OIDC_ISSUER_URL:-}
       HEADSCALE_URL: http://headscale:${HEADSCALE_HTTP_PORT:-8080}
@@ -407,23 +464,22 @@ services:
       - headscale-data:/headscale:ro
       # Writable: admins edit DNS (only the marked block).
       - ./headscale-config.yaml:/etc/headscale/config.yaml
+      # Writable: the own DERP map edited on the DERP relays page
+      - ./headscale-derp.yaml:/etc/headscale/derp.yaml
       # Writable: the renewed Headscale API key (see web/apikey.py), the
       # last two-factor mode set from the UI (web/mfa.py) and the activity
       # log (web/audit.py)
       - ./data/web:/data
-      # To validate ('headscale configtest') and restart Headscale after a DNS
-      # change. Docker socket access is equivalent to root on the host: the UI
-      # only uses it for those two operations on the headscale container.
-      - /var/run/docker.sock:/var/run/docker.sock
+      # hs-helper's socket: validate ('headscale configtest') and restart
+      # Headscale after a DNS or key expiry change. No Docker socket here.
+      - hse-helper:/run/hse-helper
 
     networks:
       - headscale-net
 
-    # Runs as the owner of the project files (to write headscale-config.yaml)
-    # plus the Docker socket group; never as root.
+    # Runs as the owner of the project files (to write headscale-config.yaml);
+    # never as root, and not in the Docker group.
     user: "${PORTAL_UID:-1000}:${PORTAL_GID:-1000}"
-    group_add:
-      - "${DOCKER_GID:-999}"
     read_only: true
     cap_drop:
       - ALL

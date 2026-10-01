@@ -10,7 +10,9 @@ import ipaddress
 import re
 from datetime import datetime, timezone
 
+import derp as derp_info
 import expiry
+import notify
 from i18n import LANGUAGES, _, get_lang, ngettext
 from qr import qr_figure
 from ui import (BASE, LOGO, badge, copy_btn, csrf_input, docs_url, esc, flash_html, icon, initials, layout, notice,
@@ -65,8 +67,12 @@ class Machine:
         self.latest = latest
         self.update_available = bool(self.version and latest and version_tuple(self.version) < version_tuple(latest))
 
-        derp = (hi.get("NetInfo") or {}).get("PreferredDERP")
+        derp, latency = derp_info.net_info(hi)
         self.derp = regions.get(derp, _("Region {n}", n=derp)) if derp else ""
+        # [(region name, ms, is the preferred one)], fastest first
+        self.derp_latency = sorted(((regions.get(r, _("Region {n}", n=r)), ms, r == derp)
+                                    for r, ms in latency.items()), key=lambda x: x[1])
+        self.derp_ms = latency.get(derp) if derp else None
 
         available = set(node.get("availableRoutes") or [])
         self.approved = set(node.get("approvedRoutes") or [])
@@ -185,6 +191,14 @@ def status_html(m: Machine) -> str:
     return f'<span class="status off"><i></i>{time_tag(m.last_seen_raw, _("Never"), "short")}</span>'
 
 
+def relay_html(m: Machine) -> str:
+    """Preferred DERP region and its latency, for the Machines table."""
+    if not m.derp:
+        return '<span class="muted">—</span>'
+    ms = f' <span class="muted">{esc(_("{ms} ms", ms=round(m.derp_ms)))}</span>' if m.derp_ms is not None else ""
+    return f"{esc(m.derp)}{ms}"
+
+
 def addresses_dropdown(m: Machine) -> str:
     rows = [("IPv4", m.ipv4), ("IPv6", m.ipv6), ("MagicDNS", m.fqdn)]
     items = "".join(f'<div class="addr-row"><span class="muted small">{k}</span><code>{esc(v)}</code>{copy_btn(v)}</div>'
@@ -293,6 +307,7 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
             <div class="badges">{m.badges()}</div></td>
           <td>{addresses_dropdown(m)}</td>
           <td class="hide-sm">{version_html(m)}</td>
+          <td class="hide-sm">{relay_html(m)}</td>
           <td>{status_html(m)}</td>
           <td class="actions">{machine_menu(m, session)}</td>
         </tr>""")
@@ -303,7 +318,9 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
       <table class="machines">
         <thead><tr>{bulk_col}<th>{esc(_("Machine"))}</th>
           <th><span title="{esc(_("The machine's Tailscale IP addresses and MagicDNS name"))}">{esc(_("Addresses"))} {icon("info", "i-xs")}</span></th>
-          <th class="hide-sm">{esc(_("Version"))}</th><th>{esc(_("Last seen"))}</th><th></th></tr></thead>
+          <th class="hide-sm">{esc(_("Version"))}</th>
+          <th class="hide-sm"><span title="{esc(_("The DERP relay the machine prefers and its latency"))}">{esc(_("Relay"))} {icon("info", "i-xs")}</span></th>
+          <th>{esc(_("Last seen"))}</th><th></th></tr></thead>
         <tbody data-live="rows">{"".join(rows)}
         </tbody>
       </table>
@@ -452,8 +469,13 @@ def machine_page(session: dict, ctx: dict, m: Machine, flash: str, error: str = 
         kv(_("Full domain"), f"<code>{esc(m.fqdn)}</code>", m.fqdn) if m.fqdn else "",
     ])
     endpoints = "".join(f"<li><code>{esc(e)}</code></li>" for e in sorted(m.endpoints, key=_endpoint_key))
+    latency = "".join(
+        f"<li>{esc(name)}: {esc(_('{ms} ms', ms=round(ms)))}{' ' + badge(_('In use'), 'blue') if used else ''}</li>"
+        for name, ms, used in m.derp_latency)
     connection = "".join([
-        kv(_("Preferred DERP relay"), esc(m.derp) or "—"),
+        kv(_("Preferred DERP relay"), esc(m.derp) + (f' <span class="muted">{esc(_("{ms} ms", ms=round(m.derp_ms)))}</span>'
+                                                      if m.derp_ms is not None else "") if m.derp else "—"),
+        kv(_("DERP latency"), f'<ul class="plain">{latency}</ul>') if latency else "",
         kv(_("Endpoints"), f'<ul class="plain">{endpoints}</ul>' if endpoints else "—"),
     ])
 
@@ -791,6 +813,29 @@ def mfa_section(session: dict, mfa: dict) -> str:
     </section>"""
 
 
+def notify_section(session: dict) -> str:
+    """Settings > General (admins): where notifications go, and "Send a test"."""
+    dests = notify.destinations()
+    if not dests:
+        body = (f'<p class="muted">{esc(_("Get a message in Slack, Telegram, ntfy or any webhook when a device joins, is removed or its key expires."))}</p>'
+                f'<p class="muted small">{esc(_("Set NOTIFY_URLS in .env (or run ./install.sh) and restart the web container."))}</p>')
+    else:
+        labels = {"device.registered": _("New device"), "device.key_expired": _("Key expired"),
+                  "device.expiring": _("Key expiring soon"), "device.removed": _("Device removed")}
+        chosen = notify.events()
+        items = "".join(f"<li>{esc(d['label'])}</li>" for d in dests)
+        evs = ", ".join(labels[e] for e in notify.ALL_EVENTS if e in chosen)
+        body = (f'<ul>{items}</ul>'
+                f'<p class="muted small">{esc(_("Events: {events}", events=evs))}</p>'
+                f'<form method="post" action="{BASE}/settings/notify-test" data-busy>{csrf_input(session)}'
+                f'<button class="btn" type="submit">{esc(_("Send a test"))}</button></form>')
+    return f"""
+    <section class="card">
+      <h2>{esc(_("Notifications"))}</h2>
+      {body}
+    </section>"""
+
+
 def general_page(session: dict, ctx: dict, flash: str = "", key_expiry: int | None = None,
                  error: str = "", mfa: dict | None = None) -> str:
     role = _("Admin") if session.get("admin") else _("Member")
@@ -818,6 +863,7 @@ def general_page(session: dict, ctx: dict, flash: str = "", key_expiry: int | No
         <div><button class="btn primary" type="submit">{esc(_("Save"))}</button></div>
       </form>
     </section>"""
+    notifications = notify_section(session) if session.get("admin") else ""
     body = page_head(_("General"), esc(_("Your account and how Headscale Easy looks for you."))) + flash_html(flash) + (notice("error", error) if error else "") + f"""
     <section class="card">
       <h2>{esc(_("Account"))}</h2>
@@ -831,6 +877,7 @@ def general_page(session: dict, ctx: dict, flash: str = "", key_expiry: int | No
       {manage}
     </section>
     {devices}
+    {notifications}
     {mfa_section(session, mfa) if session.get("admin") and mfa is not None else ""}
     <section class="card">
       <h2>{esc(_("Appearance"))}</h2>
@@ -981,3 +1028,42 @@ def keys_page(session: dict, ctx: dict, keys: list[dict] | None, flash: str, new
     {dialog("new", _("Generate auth key"), "", f"{BASE}/keys", session, fields=fields, submit=_("Generate key"))}
     {apikeys_section(session, apikeys or [], own_prefix, new_apikey) if admin else ""}"""
     return layout(_("Keys"), "keys", body, session, ctx)
+
+
+def sessions_page(session: dict, ctx: dict, rows: list[dict], flash: str = "") -> str:
+    """Settings -> Sessions: your sessions; admins and auditors see everybody's."""
+    admin = bool(session.get("admin"))
+    sees_all = admin or session.get("role") == "auditor"
+    body_rows = []
+    for r in rows:
+        current = r["sid"] == session.get("sid")
+        who = f"<td>{esc(r['name'] or '—')}</td>" if sees_all else ""
+        kind = _("API key") if r["kind"] == "apikey" else "OIDC"
+        btn = f"""<form method="post" action="{BASE}/settings/sessions/revoke">{csrf_input(session)}
+          <input type="hidden" name="sid" value="{esc(r['sid'])}">
+          <button class="btn small" type="submit">{esc(_("Log out"))}</button></form>""" \
+            if (admin or current or (session.get("sub") and r["sub"] == session.get("sub"))) else ""
+        created = datetime.fromtimestamp(r["created"], timezone.utc).isoformat()
+        seen = datetime.fromtimestamp(r["last_seen"], timezone.utc).isoformat()
+        body_rows.append(f"""<tr>{who}<td>{esc(kind)}</td><td>{esc(r['role'])}</td><td><code>{esc(r['ip'] or '—')}</code></td>
+          <td class="muted small">{esc((r['ua'] or '—')[:80])}</td><td>{time_tag(created)}</td><td>{time_tag(seen)}</td>
+          <td>{badge(_("This session"), "blue") if current else ""}</td><td class="actions">{btn}</td></tr>""")
+    if body_rows:
+        table = f"""<div class="table-wrap"><table class="simple"><thead><tr>{f"<th>{esc(_('User'))}</th>" if sees_all else ""}
+          <th>{esc(_("Type"))}</th><th>{esc(_("Role"))}</th><th>{esc(_("IP address"))}</th><th>{esc(_("Browser"))}</th>
+          <th>{esc(_("Created"))}</th><th>{esc(_("Last activity"))}</th><th></th><th></th></tr></thead>
+          <tbody>{"".join(body_rows)}</tbody></table></div>"""
+    else:
+        table = f'<p class="muted">{esc(_("No active sessions."))}</p>'
+    everyone = f"""
+      <form method="post" action="{BASE}/settings/sessions/revoke-all" class="inline">{csrf_input(session)}
+        <input type="hidden" name="scope" value="everyone">
+        <button class="btn" type="submit">{esc(_("Sign out everyone else"))}</button></form>""" if admin else ""
+    body = page_head(_("Sessions"), esc(_("Where you are signed in. Signing a session out takes effect at once."))) + flash_html(flash) + f"""
+    <section class="card">
+      <div class="card-title"><h2>{esc(_("Active sessions"))}</h2>
+        <form method="post" action="{BASE}/settings/sessions/revoke-all" class="inline">{csrf_input(session)}
+          <button class="btn" type="submit">{esc(_("Sign out everywhere"))}</button></form>{everyone}</div>
+      {table}
+    </section>"""
+    return layout(_("Sessions"), "sessions", body, session, ctx)
