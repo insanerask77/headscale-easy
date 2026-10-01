@@ -150,13 +150,40 @@ Turn them on or off, or change the time, folder and retention, by running
 | `BACKUP_DIR` | `./backups` | Any path on the host, e.g. a NAS mount |
 | `BACKUP_KEEP_DAYS` | `14` | Older backups are deleted |
 
+| `BACKUP_REMOTE` | empty | Also upload each backup: see [Remote backups](#remote-backups) |
+| `BACKUP_REMOTE_KEEP_DAYS` | `BACKUP_KEEP_DAYS` | Retention on the remote |
+
 Back up right now with `make backup` (works with scheduled backups off too). Backups contain secrets (`.env`): they
 are readable only by you, keep copies somewhere safe and off this server.
+
+### Remote backups { #remote-backups }
+
+A backup that sits on the same server does not survive losing the server. Set
+`BACKUP_REMOTE` (or answer the installer's question) and each backup is also
+uploaded, and old ones are deleted after `BACKUP_REMOTE_KEEP_DAYS`. Two kinds of
+destination:
+
+- **An rclone remote** (`BACKUP_REMOTE=s3:my-bucket/headscale-easy`): S3, B2,
+  SFTP, Google Drive and [dozens more](https://rclone.org/overview/). Define the
+  remote in `data/backup-remote/rclone.conf` (`rclone config` writes it), or for
+  S3 skip the file and set
+  `BACKUP_REMOTE=":s3,provider=AWS,env_auth=true,region=eu-west-1:my-bucket/dir"`
+  with `BACKUP_AWS_ACCESS_KEY_ID` and `BACKUP_AWS_SECRET_ACCESS_KEY` in `.env`.
+- **rsync over SSH** (`BACKUP_REMOTE=rsync:user@host:/srv/backups`): put the
+  private key in `data/backup-remote/id_ed25519` (and optionally `known_hosts`;
+  without it the first host key is accepted). `BACKUP_REMOTE_SSH_PORT` changes
+  the port. The directory must already exist on the server.
+
+Use a key or bucket that can write but not delete if you can: then a compromised
+server cannot erase its own backups (set remote retention in the bucket's
+lifecycle rules instead). If the upload fails the local backup is kept and the
+job reports the error in `docker logs headscale-easy-backup`.
 
 ### Restore
 
 ```bash
 make restore file=backups/headscale-easy-20260929-030000.tar.gz
+make restore file=s3:my-bucket/headscale-easy/headscale-easy-20260929-030000.tar.gz   # from the remote
 ```
 
 It stops the stack, puts back the configuration (the current files are kept as

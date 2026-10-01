@@ -128,6 +128,7 @@ validate_email()        { [[ "$1" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]
 validate_alphanumeric() { [[ "$1" =~ ^[a-zA-Z0-9_-]+$ ]]; }
 validate_url()          { [[ "$1" =~ ^https?:// ]]; }
 validate_time()         { [[ "$1" =~ ^([01]?[0-9]|2[0-3]):[0-5][0-9]$ ]]; }
+validate_remote()       { [[ "$1" =~ ^[A-Za-z0-9_.:,=@/+-]+$ && "$1" == *:* ]]; }
 validate_days()         { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 3650 )); }
 validate_optional_ip()  { [[ -z "$1" || "$1" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; }
 
@@ -539,6 +540,25 @@ configure_email() {
     print_info "$(t "After deploying, test it with:" "Tras desplegar, pruébalo con:") docker exec authentik-worker ak test_email <$(t "your-email" "tu-email")>"
 }
 
+# Optional second copy off this server (S3, B2, SFTP... through rclone, or rsync
+# over SSH). The credentials live in data/backup-remote/ (rclone.conf, SSH key).
+configure_remote_backups() {
+    if ask_yes_no "$(t "Also upload each backup to a remote destination (S3, SFTP, rsync...)?" \
+                       "¿Subir también cada copia a un destino remoto (S3, SFTP, rsync...)?")" \
+                  "$([[ -n "${BACKUP_REMOTE:-}" ]] && echo y || echo n)"; then
+        print_info "$(t "Use an rclone remote (e.g. s3:my-bucket/headscale-easy) or rsync:user@host:/path." \
+                        "Usa un remoto de rclone (p. ej. s3:mi-bucket/headscale-easy) o rsync:usuario@host:/ruta.")"
+        print_info "$(t "Put the credentials in ./data/backup-remote/ (rclone.conf, or id_ed25519 for rsync): see docs/operations.md#remote-backups" \
+                        "Pon las credenciales en ./data/backup-remote/ (rclone.conf, o id_ed25519 para rsync): mira docs/operations.es.md#backups-remotos")"
+        BACKUP_REMOTE=$(ask_input "$(t "Remote destination" "Destino remoto")" "${BACKUP_REMOTE:-}" validate_remote)
+        BACKUP_REMOTE_KEEP_DAYS=$(ask_input "$(t "Days to keep on the remote" "Días que se conservan en el remoto")" \
+                                            "${BACKUP_REMOTE_KEEP_DAYS:-${BACKUP_KEEP_DAYS:-14}}" validate_days)
+        mkdir -p "$SCRIPT_DIR/data/backup-remote"
+    else
+        BACKUP_REMOTE=""
+    fi
+}
+
 # Optional webhook notifications (Slack, Telegram, ntfy, generic JSON): a message
 # when a device joins, is removed or its key expires. NOTIFY_URLS may hold several
 # destinations, see docs/operations.md.
@@ -585,6 +605,7 @@ configure_backups() {
                         "Guárdalas también en otro sitio: lo ideal es un NAS o un disco montado en esta máquina.")"
         BACKUP_DIR=$(ask_input "$(t "Folder for the backups" "Carpeta de las copias")" "${BACKUP_DIR:-./backups}")
         BACKUP_KEEP_DAYS=$(ask_input "$(t "Days to keep" "Días que se conservan")" "${BACKUP_KEEP_DAYS:-14}" validate_days)
+        configure_remote_backups
     else
         BACKUP_ENABLED="false"
         print_info "$(t "No scheduled backups. You can still make one at any time with: make backup" \
@@ -768,6 +789,12 @@ BACKUP_ENABLED=${BACKUP_ENABLED:-false}
 BACKUP_SCHEDULE="${BACKUP_SCHEDULE:-0 3 * * *}"
 BACKUP_DIR=${BACKUP_DIR:-./backups}
 BACKUP_KEEP_DAYS=${BACKUP_KEEP_DAYS:-14}
+# Optional copy off this server: an rclone remote (s3:bucket/dir) or rsync:user@host:/dir.
+# Credentials go in ./data/backup-remote/ (rclone.conf, id_ed25519, known_hosts)
+BACKUP_REMOTE="${BACKUP_REMOTE:-}"
+BACKUP_REMOTE_KEEP_DAYS=${BACKUP_REMOTE_KEEP_DAYS:-${BACKUP_KEEP_DAYS:-14}}
+BACKUP_AWS_ACCESS_KEY_ID="${BACKUP_AWS_ACCESS_KEY_ID:-}"
+BACKUP_AWS_SECRET_ACCESS_KEY="${BACKUP_AWS_SECRET_ACCESS_KEY:-}"
 
 # --- Advanced ----------------------------------------------------------------------
 TZ=${TZ:-UTC}

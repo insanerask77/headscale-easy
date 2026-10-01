@@ -18,8 +18,9 @@ Effort: **S** = hours · **M** = one or two days · **L** = several days.
   retention), local or remote target (S3, rsync) and a tested `make restore`.
   Losing Headscale's database means re-registering every device.
   Done: optional daily backups chosen in the installer, retention, one-off
-  `make backup`, tested `make restore` (also on a new server). Pending: remote
-  targets (S3, rsync) — until then, point `BACKUP_DIR` at a mounted NAS.
+  `make backup`, tested `make restore` (also on a new server). Remote
+  copies (S3, B2, SFTP via rclone, or rsync over SSH) with remote retention and
+  `make restore file=remote:...` — *next*.
 - [x] **3. Two-factor authentication (MFA) in Authentik** · S — *1.0.5*
   The web UI controls the whole network behind a password. Authentik already
   has TOTP and passkeys: enable them in the blueprint, optional for members and

@@ -154,15 +154,43 @@ volviendo a ejecutar `./install.sh`. O edita `.env` y ejecuta `docker compose up
 | `BACKUP_DIR` | `./backups` | Cualquier ruta del servidor, por ejemplo un NAS montado |
 | `BACKUP_KEEP_DAYS` | `14` | Las copias más antiguas se borran |
 
+| `BACKUP_REMOTE` | vacío | Sube también cada copia: mira [Copias remotas](#backups-remotos) |
+| `BACKUP_REMOTE_KEEP_DAYS` | `BACKUP_KEEP_DAYS` | Retención en el remoto |
+
 Para hacer una copia en el momento: `make backup` (funciona aunque las copias
 programadas estén desactivadas). Las copias contienen
 secretos (`.env`): solo las puedes leer tú; guarda copias en un lugar seguro y
 fuera de este servidor.
 
+### Copias remotas { #backups-remotos }
+
+Una copia que está en el mismo servidor no sobrevive a perder el servidor.
+Define `BACKUP_REMOTE` (o responde la pregunta del instalador) y cada copia se
+sube también; las antiguas se borran pasados `BACKUP_REMOTE_KEEP_DAYS` días. Hay
+dos tipos de destino:
+
+- **Un remoto de rclone** (`BACKUP_REMOTE=s3:mi-bucket/headscale-easy`): S3, B2,
+  SFTP, Google Drive y [decenas más](https://rclone.org/overview/). Define el
+  remoto en `data/backup-remote/rclone.conf` (lo escribe `rclone config`), o,
+  para S3, sin fichero:
+  `BACKUP_REMOTE=":s3,provider=AWS,env_auth=true,region=eu-west-1:mi-bucket/dir"`
+  con `BACKUP_AWS_ACCESS_KEY_ID` y `BACKUP_AWS_SECRET_ACCESS_KEY` en `.env`.
+- **rsync por SSH** (`BACKUP_REMOTE=rsync:usuario@host:/srv/backups`): pon la
+  clave privada en `data/backup-remote/id_ed25519` (y opcionalmente
+  `known_hosts`; sin él se acepta la primera clave del servidor).
+  `BACKUP_REMOTE_SSH_PORT` cambia el puerto. El directorio debe existir ya en el
+  servidor.
+
+Si puedes, usa una clave o bucket que pueda escribir pero no borrar: así un
+servidor comprometido no puede borrar sus propias copias (pon la retención en
+las reglas de ciclo de vida del bucket). Si la subida falla se conserva la copia
+local y el error aparece en `docker logs headscale-easy-backup`.
+
 ### Restaurar { #restore }
 
 ```bash
 make restore file=backups/headscale-easy-20260929-030000.tar.gz
+make restore file=s3:mi-bucket/headscale-easy/headscale-easy-20260929-030000.tar.gz   # desde el remoto
 ```
 
 Detiene el stack, restaura la configuración (los ficheros actuales se guardan

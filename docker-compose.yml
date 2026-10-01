@@ -315,8 +315,16 @@ services:
       PGDATABASE: authentik
       PGPASSWORD: ${AUTHENTIK_PG_PASS:-}
       TZ: ${TZ:-UTC}
+      # Optional remote copy: an rclone remote (s3:bucket/dir) or rsync:user@host:/dir
+      BACKUP_REMOTE: ${BACKUP_REMOTE:-}
+      BACKUP_REMOTE_KEEP_DAYS: ${BACKUP_REMOTE_KEEP_DAYS:-${BACKUP_KEEP_DAYS:-14}}
+      BACKUP_REMOTE_SSH_PORT: ${BACKUP_REMOTE_SSH_PORT:-22}
+      AWS_ACCESS_KEY_ID: ${BACKUP_AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${BACKUP_AWS_SECRET_ACCESS_KEY:-}
 
     volumes:
+      # rclone.conf, id_ed25519 and known_hosts for the remote copy
+      - ${BACKUP_REMOTE_CONFIG:-./data/backup-remote}:/remote-config:ro
       # Read-only: what gets backed up
       - headscale-data:/headscale:ro
       - caddy-data:/caddy:ro
