@@ -195,6 +195,16 @@ the API) are not configuration events, but their effect on devices is logged.
     when): that needs data from the clients that only Tailscale's own
     coordination server collects.
 
+## Sessions
+
+**Settings → Sessions** lists where you are signed in (IP, browser, last
+activity). **Log out** ends one session, **Sign out everywhere** ends all of
+yours, and admins also see every user's sessions and can use **Sign out
+everyone else**. A revoked session stops working on its next request. Sessions
+live in `./data/web/sessions.db` (SQLite). After more than `SIGNIN_RATE_LIMIT`
+(10) failed sign-ins from one IP in `SIGNIN_RATE_WINDOW` (600 seconds) the web
+UI answers `429` until the window passes.
+
 ## Troubleshooting
 
 **Headscale never becomes healthy (with OIDC).** It refuses to start until it

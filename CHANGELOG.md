@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Security
+- Sessions are now revocable: the signed cookie carries a session id that must
+  exist, unrevoked, in `data/web/sessions.db` (`600`). New **Settings →
+  Sessions** page: your sessions (admins and auditors: everybody's) with
+  *Log out*, *Sign out everywhere* and, for admins, *Sign out everyone else*.
+  Deleting a user, or a role change seen at their next sign-in, revokes their
+  older sessions. Cookies issued before this change have no session id: users
+  sign in again once.
+- Sign-in rate limiting per client IP (`SIGNIN_RATE_LIMIT`, default 10, per
+  `SIGNIN_RATE_WINDOW`, default 600 seconds) on the API key sign-in and the
+  OIDC sign-in: `429` with `Retry-After` and an `auth.rate_limited` activity
+  event. New activity events: `auth.session_revoked`,
+  `auth.sessions_revoked_all`.
+
 ## [1.4.0] - 2026-09-30
 
 ### Security

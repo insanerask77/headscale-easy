@@ -76,9 +76,19 @@ sudo ufw enable
   use `PORTAL_ADMIN_EMAILS` (an email it marks as not verified never grants
   admin), and prefer groups (`PORTAL_ADMIN_GROUPS`) if it can send a `groups`
   claim. Enforce two-factor there.
-- Sessions last 8 hours and cannot be revoked one by one. To sign everybody
-  out (a lost laptop, a removed admin), change `PORTAL_SESSION_SECRET` in
-  `.env` and run `docker compose up -d`.
+- Sessions last 8 hours and are kept server-side (`data/web/sessions.db`,
+  `600`), so they can be revoked at once: **Settings → Sessions** lists them
+  (yours; admins and auditors see everybody's) with **Log out** per session,
+  **Sign out everywhere** and, for admins, **Sign out everyone else**. Deleting
+  a user, or a change of someone's role at their next sign-in, revokes their
+  older sessions. Cookies from before this feature have no session id and ask
+  for a new sign-in. Changing `PORTAL_SESSION_SECRET` still invalidates every
+  cookie, if you ever need to.
+- Sign-in attempts are rate limited per client IP: after `SIGNIN_RATE_LIMIT`
+  (10) failed API key sign-ins, or sign-in starts and failed OIDC callbacks,
+  within `SIGNIN_RATE_WINDOW` (600) seconds, the web UI answers `429 Too Many
+  Requests` with a `Retry-After` header and logs an `auth.rate_limited` event.
+  Set both in `.env` to tune them.
 
 ## Restrict the web UI
 
@@ -178,7 +188,7 @@ fixes. To control when upgrades happen, pin versions in `.env`
 
 - **Caddy access log** (`data/caddy-logs/`): every request with client IPs.
 - **Activity log** (Logs page, `data/web/audit.db`, `600`): who changed what,
-  sign-ins and failed sign-ins with IPs, kept `AUDIT_RETENTION_DAYS` (90) days.
+  sign-ins, failed sign-ins, rate-limit blocks and revoked sessions with IPs, kept `AUDIT_RETENTION_DAYS` (90) days.
   Secrets are never written to it: keys are reduced to a prefix and invitation
   or reset links are not stored.
 - **Container logs** (`make logs`): no secrets by design, but they do contain
