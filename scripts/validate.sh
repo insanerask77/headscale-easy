@@ -27,11 +27,11 @@ fail() { echo -e "${RED}✗${NC} $1"; errors=$((errors + 1)); }
 required_files=(
     install.sh uninstall.sh docker-compose.yml .env.example .gitignore
     README.md LICENSE
-    templates/headscale-config.yaml.tmpl templates/Caddyfile.tmpl
+    templates/headscale-config.yaml.tmpl templates/Caddyfile.tmpl templates/headscale-pg-readonly.sql
     templates/front-caddy.tmpl templates/front-nginx.conf.tmpl
     templates/front-npm.md.tmpl templates/front-traefik.yml.tmpl
     authentik/blueprints/headscale.yaml authentik/branding/custom.css
-    web/Dockerfile web/app.py web/headscale.py web/pages.py web/admin_pages.py
+    web/Dockerfile web/app.py web/headscale.py web/pgwire.py web/pages.py web/admin_pages.py
     web/ui.py web/i18n.py web/version.py web/mfa.py web/locales/es.json
     web/static/style.css web/static/app.js web/static/theme.js
     scripts/utils.sh scripts/check_i18n.py scripts/restore.sh

@@ -2,7 +2,8 @@
 # Headscale Easy backup: one .tar.gz in /backups with
 #   config/     .env, headscale-config.yaml, Caddyfile, compose override,
 #               the web UI's renewed API key
-#   headscale/  db.sqlite (consistent online copy) and the private keys
+#   headscale/  db.sqlite (consistent online copy) or, on PostgreSQL,
+#               headscale.sql (pg_dump), and the private keys
 #   web/        audit.db, the web UI's activity log
 #   authentik/  authentik.sql (pg_dump), if Authentik is used
 #   caddy/      pki/ (the self-signed CA), if there is one
@@ -26,11 +27,21 @@ for f in .env headscale-config.yaml headscale-derp.yaml Caddyfile docker-compose
     [ -f "/project/$f" ] && cp -p "/project/$f" "$B/config/$(echo "$f" | tr / _)"
 done
 
-# Headscale: SQLite's online backup is consistent while Headscale writes
-# (copying db.sqlite + -wal by hand is not). The private keys keep every
-# device's registration valid after a restore.
-sqlite3 "file:/headscale/db.sqlite?mode=ro" ".backup '$B/headscale/db.sqlite'"
-[ "$(sqlite3 "$B/headscale/db.sqlite" 'PRAGMA integrity_check;')" = "ok" ] || { log "integrity check failed"; exit 1; }
+# Headscale on SQLite: the online backup is consistent while Headscale writes
+# (copying db.sqlite + -wal by hand is not). On PostgreSQL: a plain SQL dump
+# as the database owner (pg_dump is consistent too), restorable into any
+# PostgreSQL of the same major. The private keys keep every device's
+# registration valid after a restore.
+if [ "${HEADSCALE_DB_TYPE:-sqlite}" = "postgres" ]; then
+    PGHOST="${HEADSCALE_PG_HOST:-headscale-postgresql}" PGPORT="${HEADSCALE_PG_PORT:-5432}" \
+    PGUSER="${HEADSCALE_PG_USER:-headscale}" PGPASSWORD="${HEADSCALE_PG_PASS:-}" \
+    PGDATABASE="${HEADSCALE_PG_NAME:-headscale}" PGSSLMODE="${HEADSCALE_PG_SSLMODE:-disable}" \
+        pg-client.sh pg_dump --no-owner --clean --if-exists > "$B/headscale/headscale.sql"
+    grep -q 'CREATE TABLE public.nodes' "$B/headscale/headscale.sql" || { log "Headscale dump has no nodes table"; exit 1; }
+else
+    sqlite3 "file:/headscale/db.sqlite?mode=ro" ".backup '$B/headscale/db.sqlite'"
+    [ "$(sqlite3 "$B/headscale/db.sqlite" 'PRAGMA integrity_check;')" = "ok" ] || { log "integrity check failed"; exit 1; }
+fi
 for f in /headscale/*.key; do [ -f "$f" ] && cp -p "$f" "$B/headscale/"; done
 
 # The web UI's activity log (Logs page), same consistent online copy

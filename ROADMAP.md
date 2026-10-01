@@ -107,7 +107,9 @@ and verifiable comes before new features.
 - [x] **14. Webhook notifications** (Slack, Telegram, ntfy): new or expired device · M — *next*
 - [x] **15. Server status page**: Headscale version with update notice, container health, disk use, basic metrics · S/M — *next*
 - [x] **16. DERP relay status**: region and latency per device, editor for an own DERP map · M — *next*
-- [ ] **17. PostgreSQL support** for large tailnets instead of SQLite · M
+- [x] **17. PostgreSQL support** for large tailnets instead of SQLite · M — *next*
+  Bundled or external PostgreSQL chosen in the installer; the web UI reads it
+  with a read-only role through a small stdlib client; backups use `pg_dump`.
 - [ ] **18. More languages**: French, German, Portuguese (the structure is ready) · S each
 - [x] **19. Faster renaming of "localhost" devices**: check every 5 s instead of 30 s · S (*next*)
 
