@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- DERP relay status: the machine detail shows the preferred relay with its
+  latency and the latency to every relay the device measured; the Machines
+  list has a Relay column.
+- New **DERP relays** page (Network): which relays the devices use and their
+  median latency, and an editor (admins) for your own DERP map. It writes
+  `headscale-derp.yaml` and points `derp.paths` of `config.yaml` at it (a
+  marked block, like DNS), validates it with `headscale configtest`, restarts
+  Headscale and restores the previous map if anything fails. Run
+  `./install.sh` once on existing installs to add the block and the file.
+
 ## [1.4.0] - 2026-09-30
 
 ### Security

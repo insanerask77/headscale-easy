@@ -82,6 +82,20 @@ turn it off.
 The arrow next to the version turns red when a newer Tailscale client is
 available (hover it to see which).
 
+## DERP relays
+
+Relays carry traffic between devices that cannot connect directly. The machine
+detail shows the relay each device prefers and its latency to every relay it
+measured; the Machines list has a **Relay** column. **Network → DERP relays**
+lists the relays in use, how many devices prefer each and their median latency.
+
+Admins can also add relays they run themselves (`derper`) there: region ID
+(900 to 998), code, name, hostname, optional IPs and ports. Saving writes
+`headscale-derp.yaml`, points `derp.paths` of `config.yaml` at it, validates
+the result with `headscale configtest` and restarts Headscale; if anything
+fails the previous map is restored. Existing installs need `./install.sh` once
+to add the marked block and the file. Not available in the demo.
+
 ## Everyday commands
 
 `make` lists everything. The most useful:

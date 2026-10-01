@@ -10,6 +10,7 @@ import ipaddress
 import re
 from datetime import datetime, timezone
 
+import derp as derp_info
 import expiry
 from i18n import LANGUAGES, _, get_lang, ngettext
 from qr import qr_figure
@@ -65,8 +66,12 @@ class Machine:
         self.latest = latest
         self.update_available = bool(self.version and latest and version_tuple(self.version) < version_tuple(latest))
 
-        derp = (hi.get("NetInfo") or {}).get("PreferredDERP")
+        derp, latency = derp_info.net_info(hi)
         self.derp = regions.get(derp, _("Region {n}", n=derp)) if derp else ""
+        # [(region name, ms, is the preferred one)], fastest first
+        self.derp_latency = sorted(((regions.get(r, _("Region {n}", n=r)), ms, r == derp)
+                                    for r, ms in latency.items()), key=lambda x: x[1])
+        self.derp_ms = latency.get(derp) if derp else None
 
         available = set(node.get("availableRoutes") or [])
         self.approved = set(node.get("approvedRoutes") or [])
@@ -185,6 +190,14 @@ def status_html(m: Machine) -> str:
     return f'<span class="status off"><i></i>{time_tag(m.last_seen_raw, _("Never"), "short")}</span>'
 
 
+def relay_html(m: Machine) -> str:
+    """Preferred DERP region and its latency, for the Machines table."""
+    if not m.derp:
+        return '<span class="muted">—</span>'
+    ms = f' <span class="muted">{esc(_("{ms} ms", ms=round(m.derp_ms)))}</span>' if m.derp_ms is not None else ""
+    return f"{esc(m.derp)}{ms}"
+
+
 def addresses_dropdown(m: Machine) -> str:
     rows = [("IPv4", m.ipv4), ("IPv6", m.ipv6), ("MagicDNS", m.fqdn)]
     items = "".join(f'<div class="addr-row"><span class="muted small">{k}</span><code>{esc(v)}</code>{copy_btn(v)}</div>'
@@ -293,6 +306,7 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
             <div class="badges">{m.badges()}</div></td>
           <td>{addresses_dropdown(m)}</td>
           <td class="hide-sm">{version_html(m)}</td>
+          <td class="hide-sm">{relay_html(m)}</td>
           <td>{status_html(m)}</td>
           <td class="actions">{machine_menu(m, session)}</td>
         </tr>""")
@@ -303,7 +317,9 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
       <table class="machines">
         <thead><tr>{bulk_col}<th>{esc(_("Machine"))}</th>
           <th><span title="{esc(_("The machine's Tailscale IP addresses and MagicDNS name"))}">{esc(_("Addresses"))} {icon("info", "i-xs")}</span></th>
-          <th class="hide-sm">{esc(_("Version"))}</th><th>{esc(_("Last seen"))}</th><th></th></tr></thead>
+          <th class="hide-sm">{esc(_("Version"))}</th>
+          <th class="hide-sm"><span title="{esc(_("The DERP relay the machine prefers and its latency"))}">{esc(_("Relay"))} {icon("info", "i-xs")}</span></th>
+          <th>{esc(_("Last seen"))}</th><th></th></tr></thead>
         <tbody data-live="rows">{"".join(rows)}
         </tbody>
       </table>
@@ -452,8 +468,13 @@ def machine_page(session: dict, ctx: dict, m: Machine, flash: str, error: str = 
         kv(_("Full domain"), f"<code>{esc(m.fqdn)}</code>", m.fqdn) if m.fqdn else "",
     ])
     endpoints = "".join(f"<li><code>{esc(e)}</code></li>" for e in sorted(m.endpoints, key=_endpoint_key))
+    latency = "".join(
+        f"<li>{esc(name)}: {esc(_('{ms} ms', ms=round(ms)))}{' ' + badge(_('In use'), 'blue') if used else ''}</li>"
+        for name, ms, used in m.derp_latency)
     connection = "".join([
-        kv(_("Preferred DERP relay"), esc(m.derp) or "—"),
+        kv(_("Preferred DERP relay"), esc(m.derp) + (f' <span class="muted">{esc(_("{ms} ms", ms=round(m.derp_ms)))}</span>'
+                                                      if m.derp_ms is not None else "") if m.derp else "—"),
+        kv(_("DERP latency"), f'<ul class="plain">{latency}</ul>') if latency else "",
         kv(_("Endpoints"), f'<ul class="plain">{endpoints}</ul>' if endpoints else "—"),
     ])
 

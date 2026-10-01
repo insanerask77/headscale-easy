@@ -84,6 +84,22 @@ cambiar. Pon `AUTO_RENAME_LOCALHOST=false` en `.env` para desactivarlo.
 La flecha junto a la versión se pone roja cuando hay un cliente de Tailscale más
 nuevo (pasa el ratón por encima para ver cuál).
 
+## Relays DERP { #derp-relays }
+
+Los relays llevan el tráfico entre dispositivos que no pueden conectarse
+directamente. El detalle del dispositivo muestra el relay que prefiere y su
+latencia a cada relay que midió; la lista de dispositivos tiene una columna
+**Relay**. **Red → Relays DERP** lista los relays en uso, cuántos dispositivos
+prefieren cada uno y su latencia mediana.
+
+Los administradores también pueden añadir ahí relays propios (`derper`): ID de
+región (900 a 998), código, nombre, nombre de host, IPs y puertos opcionales. Al
+guardar se escribe `headscale-derp.yaml`, se apunta `derp.paths` de
+`config.yaml` a él, se valida con `headscale configtest` y se reinicia
+Headscale; si algo falla se restaura el mapa anterior. Las instalaciones
+existentes necesitan ejecutar `./install.sh` una vez para añadir el bloque
+marcado y el fichero. No disponible en la demo.
+
 ## Comandos habituales { #everyday-commands }
 
 `make` lo lista todo. Los más útiles:

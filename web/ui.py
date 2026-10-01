@@ -199,6 +199,7 @@ def flash_html(code: str) -> str:
         "acl-unreachable": ("error", _("Could not read the current policy from Headscale. Try again.")),
         "acl-unreadable": ("error", _("The saved policy could not be read as HuJSON. Fix it in Advanced first.")),
         "dns-saved": ("ok", _("DNS saved. Headscale restarted with the new settings.")),
+        "derp-saved": ("ok", _("DERP map saved. Headscale restarted with the new relays.")),
         "key-expiry-saved": ("ok", _("Key expiry saved. It applies to devices added from now on.")),
         "apikey-expired": ("ok", _("API key expired.")),
         "mfa-saved": ("ok", _("Two-factor authentication saved. It applies from the next sign-in.")),
@@ -244,6 +245,11 @@ def sidebar(active: str, session: dict, ctx: dict) -> str:
         ("dns", "dns", _("DNS")),
     ], active)]
     if sees_all:
+        groups[0] = _nav_group("network", _("Network"), [
+            ("machines", "machines", _("Machines")),
+            ("dns", "dns", _("DNS")),
+            ("derp", "derp", _("DERP relays")),
+        ], active)
         groups.append(f"""
       <a class="nav-top {"active" if active == "users" else ""}" href="{BASE}/users">{icon("users")}<span>{esc(_("Users"))}</span></a>""")
     if sees_all or edits_network:
