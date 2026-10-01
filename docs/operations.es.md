@@ -237,6 +237,16 @@ contiene secretos).
 Los admins ven los destinos (solo el host) en **Ajustes → General →
 Notificaciones**, con un botón **Enviar prueba** (bloqueado en la demo y
 registrado en el registro de actividad).
+## Sesiones { #sessions }
+
+**Ajustes → Sesiones** lista dónde has iniciado sesión (IP, navegador, última
+actividad). **Cerrar sesión** termina una, **Cerrar sesión en todas partes**
+termina todas las tuyas, y los admins ven también las sesiones de todos y
+pueden usar **Cerrar la sesión de los demás**. Una sesión revocada deja de
+funcionar en su siguiente petición. Las sesiones están en
+`./data/web/sessions.db` (SQLite). Tras más de `SIGNIN_RATE_LIMIT` (10) inicios
+de sesión fallidos desde una IP en `SIGNIN_RATE_WINDOW` (600 segundos), la
+interfaz web responde `429` hasta que pasa la ventana.
 
 ## Resolución de problemas { #troubleshooting }
 

@@ -44,12 +44,13 @@ and verifiable comes before new features.
 - [ ] **S4. End-to-end tests in CI** · L
   Start the real stack (Headscale + console, with and without Authentik) in CI
   and test auth, OIDC, API, ACL, DNS, devices, backup/restore against it.
-- [ ] **S5. Revocable sessions and sign-in rate limiting** · M
+- [x] **S5. Revocable sessions and sign-in rate limiting** · M — *next*
   Server-side session list (sign out everywhere, role changes take effect at
   once) and per-IP limits on sign-in attempts.
-- [ ] **S6. Narrower Docker access** · M
+- [x] **S6. Narrower Docker access** · M — *next*
   Replace the raw Docker socket with a restricted proxy or a tiny helper that
-  can only validate and restart Headscale.
+  can only validate and restart Headscale. Done: `hs-helper` holds the socket
+  and serves only configtest, restart and status; the web UI has no socket.
 - [x] **S7. Demo mode** · S — *1.4.0*
   `DEMO_MODE=true`: banner on every page, access-granting and destructive
   actions disabled.

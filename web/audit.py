@@ -88,6 +88,9 @@ def action_labels() -> dict[str, str]:
         "auth.signin": _("Signed in to the console"),
         "auth.signin_failed": _("Failed sign-in"),
         "auth.signout": _("Signed out of the console"),
+        "auth.rate_limited": _("Sign-in blocked: too many attempts"),
+        "auth.session_revoked": _("Revoked a session"),
+        "auth.sessions_revoked_all": _("Signed out everywhere"),
         # machines
         "machine.rename": _("Renamed machine"),
         "machine.delete": _("Removed machine"),

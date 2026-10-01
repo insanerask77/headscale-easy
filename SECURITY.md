@@ -85,14 +85,18 @@ LAN or tailnet in Caddy or your front proxy — see the
   and expires (90 days by default). The console renews it 15 days before it
   expires, keeps the new one in `data/web/api-key` (`chmod 600`) and expires
   the old one.
-- **The Docker socket.** The console mounts `/var/run/docker.sock` to validate
-  (`headscale configtest`) and restart Headscale after a DNS or key-expiry
-  change. **Access to the socket is equivalent to root on the host.** The
-  console only calls those operations on the `headscale` container, runs as an
-  unprivileged user with a read-only filesystem, no capabilities and
-  `no-new-privileges`, and only admins can reach those forms. If you do not
-  need DNS editing from the console, remove the socket volume from the `web`
-  service: everything else keeps working and DNS changes then show an error.
+- **The Docker socket.** Access to it is **equivalent to root on the host**,
+  so the console does not mount it. Only `hs-helper` does: a small standard
+  library service with no network that answers the console, over a `660` Unix
+  socket, with exactly three fixed operations on the `headscale` container —
+  validate the config (`headscale configtest`), restart it, and report
+  container health and Headscale's version. It accepts no parameters (no query
+  strings, no bodies, no container names), so a compromised console cannot
+  use it to reach other containers or run commands. Only admins can reach the
+  forms that use it. If you do not need DNS or key-expiry editing from the
+  console, stop `hs-helper` (`docker compose stop hs-helper`): everything else
+  keeps working. See
+  [Hardening](https://insanerask77.github.io/headscale-easy/hardening/#the-docker-socket).
 - **Headscale's database** is mounted read-only in the console (it reads each
   device's OS and client version, which the API does not expose).
 - **The activity log** never stores secrets: auth keys and API keys are
@@ -120,9 +124,9 @@ These are deliberate trade-offs today; they are documented so you can decide.
   delay after a wrong API key. Authentik has its own protections; put the
   console behind your proxy's rate limiting or restrict it to your LAN if it is
   public.
-- **The Docker socket** (see above) is the most powerful thing the console
-  holds. A vulnerability in the console could be escalated to the host through
-  it.
+- **The Docker socket** (see above) is held by `hs-helper`, not the console. A
+  vulnerability in the console can only validate and restart Headscale through
+  it; a vulnerability in `hs-helper` itself would still reach the host.
 - **Headscale's REST API** is published on the same domain (Headscale serves it
   there). It needs an API key, but you can block `/api/` in your proxy if
   nothing outside the server uses it — the console talks to Headscale inside

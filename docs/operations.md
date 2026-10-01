@@ -225,6 +225,15 @@ URL, which holds secrets).
 Admins see the destinations (host only) in **Settings → General →
 Notifications**, with a **Send a test** button (blocked in the demo, recorded
 in the activity log).
+## Sessions
+
+**Settings → Sessions** lists where you are signed in (IP, browser, last
+activity). **Log out** ends one session, **Sign out everywhere** ends all of
+yours, and admins also see every user's sessions and can use **Sign out
+everyone else**. A revoked session stops working on its next request. Sessions
+live in `./data/web/sessions.db` (SQLite). After more than `SIGNIN_RATE_LIMIT`
+(10) failed sign-ins from one IP in `SIGNIN_RATE_WINDOW` (600 seconds) the web
+UI answers `429` until the window passes.
 
 ## Troubleshooting
 
@@ -289,8 +298,9 @@ wrong user is invisible to its owner.
 **DNS changes are rejected.** The console runs `headscale configtest` and
 rolls back when Headscale refuses the change; the error shown is Headscale's.
 The tailnet DNS name must differ from the server's domain. If the DNS page is
-read-only, it says why (no Docker socket, or `config.yaml` without the managed
-block — run `./install.sh` once).
+read-only, it says why (`hs-helper` not running — check it with
+`docker compose ps hs-helper` and `docker compose logs hs-helper` — or
+`config.yaml` without the managed block — run `./install.sh` once).
 
 **The ACL policy blocks traffic you expect.** Use **Check** in the policy
 editor before saving, and remember that with `NETWORK_ISOLATION=true` each
