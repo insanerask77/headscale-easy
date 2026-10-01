@@ -6,9 +6,11 @@ there is no psycopg.
 
   - Startup with optional TLS (sslmode disable | prefer | require | verify-ca
     | verify-full, like libpq).
-  - Authentication: trust, cleartext password, MD5 and SCRAM-SHA-256 (RFC 5802
-    / 7677, without channel binding). The server's SCRAM signature is always
+  - Authentication: trust, cleartext password and SCRAM-SHA-256 (RFC 5802 /
+    7677, without channel binding). The server's SCRAM signature is always
     verified, so a server that does not know the password cannot pretend to.
+    The legacy MD5 method (deprecated in PostgreSQL 18) is refused with a
+    clear error: MD5 of a password is not something to keep around.
   - Simple query protocol only, results in text format (str or None). Every
     session is read-only: default_transaction_read_only=on is sent in the
     startup packet, on top of the read-only database role the installer
@@ -157,17 +159,6 @@ class ScramSHA256:
             raise PgError("SCRAM: malformed server-final-message") from exc
         if self._server_signature is None or not hmac.compare_digest(got, self._server_signature):
             raise PgError("SCRAM: the server signature does not match (wrong server?)")
-
-
-def md5_password(user: str, password: str, salt: bytes) -> str:
-    """Response to AuthenticationMD5Password.
-
-    MD5 is what the protocol mandates for this (legacy) method; nothing is
-    stored. Servers configured for SCRAM-SHA-256 (the default since
-    PostgreSQL 14) never ask for it.
-    """
-    inner = hashlib.md5((password + user).encode(), usedforsecurity=False).hexdigest()
-    return "md5" + hashlib.md5(inner.encode() + salt, usedforsecurity=False).hexdigest()
 
 
 # -----------------------------------------------------------------------------
@@ -328,8 +319,10 @@ class Connection:
                 return
             if code == 3:                                     # cleartext
                 self._send(b"p", _cstr(self.password))
-            elif code == 5:                                   # MD5
-                self._send(b"p", _cstr(md5_password(self.user, self.password, body[4:8])))
+            elif code == 5:                                   # MD5: refused
+                raise PgError("the server asks for MD5 password authentication, which is not supported: "
+                              "use scram-sha-256 (password_encryption and pg_hba.conf, the default "
+                              "since PostgreSQL 14)")
             elif code == 10:                                  # SASL
                 mechanisms = [m.decode() for m in body[4:].split(b"\0") if m]
                 if "SCRAM-SHA-256" not in mechanisms:

@@ -200,7 +200,7 @@ def scram_server(password: str, *, tamper_signature: bool = False, skip_final: b
 
 
 # -----------------------------------------------------------------------------
-# SCRAM, SASLprep, MD5
+# SCRAM and SASLprep
 # -----------------------------------------------------------------------------
 
 class Scram(unittest.TestCase):
@@ -258,12 +258,6 @@ class Scram(unittest.TestCase):
         # Like PostgreSQL: a password SASLprep rejects is used as it is
         self.assertEqual(pgwire.ScramSHA256("a\u0007b").password, "a\u0007b".encode())
 
-    def test_md5_password(self):
-        inner = hashlib.md5((SECRET + "headscale_ro").encode()).hexdigest()
-        expected = "md5" + hashlib.md5(inner.encode() + b"\x01\x02\x03\x04").hexdigest()
-        self.assertEqual(pgwire.md5_password("headscale_ro", SECRET, b"\x01\x02\x03\x04"), expected)
-        self.assertEqual(len(expected), 35)
-
 
 # -----------------------------------------------------------------------------
 # The client against the fake server
@@ -319,13 +313,23 @@ class Client(unittest.TestCase):
             pgwire.query(QUERY_SQL, **server.kwargs())
         server.stop()
 
-    def test_md5(self):
+    def test_md5_is_refused(self):
         def script(peer, server):
             peer.startup()
             peer.send(auth(5, b"\x01\x02\x03\x04"))
+
+        server = self.serve(script)
+        with self.assertRaisesRegex(pgwire.PgError, "scram-sha-256"):
+            pgwire.query(QUERY_SQL, **server.kwargs())
+        server.stop()
+
+    def test_cleartext_password(self):
+        def script(peer, server):
+            peer.startup()
+            peer.send(auth(3))
             kind, body = peer.read()
             assert kind == b"p"
-            assert body == pgwire.md5_password("headscale_ro", SECRET, b"\x01\x02\x03\x04").encode() + b"\0"
+            assert body == SECRET.encode() + b"\0"
             peer.ready()
             answer_query(peer, server)
             expect_terminate(peer)

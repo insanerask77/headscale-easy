@@ -348,9 +348,11 @@ un servidor PostgreSQL:
   solo puede hacer `SELECT` de las columnas `id`, `host_info` y `endpoints`
   de `nodes` (ni claves ni otras tablas) y sus sesiones son de solo lectura.
   El panel nunca recibe las credenciales de Headscale. Habla con PostgreSQL
-  con un cliente pequeño incluido (solo biblioteca estándar: SCRAM-SHA-256 o
-  MD5, TLS opcional), así que la imagen sigue sin paquetes de terceros.
-- **Tu propio servidor:** la base de datos debe existir y su propietario debe
+  con un cliente pequeño incluido (solo biblioteca estándar: SCRAM-SHA-256,
+  TLS opcional), así que la imagen sigue sin paquetes de terceros.
+- **Tu propio servidor:** debe autenticar con `scram-sha-256` (lo habitual en
+  PostgreSQL desde la 14; el método antiguo `md5` se rechaza). La base de
+  datos debe existir y su propietario debe
   ser el usuario que indicas (Headscale crea sus tablas con él). Para crear el
   rol de solo lectura el instalador ejecuta ese SQL como propietario, lo que
   requiere el privilegio `CREATEROLE`; si no puede, muestra el comando para

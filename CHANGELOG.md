@@ -19,7 +19,7 @@ All notable changes to this project are documented here. The format follows
   in `.env`; switching type warns that data is not migrated.
 - `web/pgwire.py`: a minimal read-only PostgreSQL client written with the
   standard library only (protocol v3, SCRAM-SHA-256 with server signature
-  check, MD5, optional TLS with libpq's `sslmode` values, simple query). The
+  check, cleartext; legacy MD5 refused, optional TLS with libpq's `sslmode` values, simple query). The
   web image still has no third-party dependencies.
 - The web UI reads device Hostinfo (OS, Tailscale version, DERP, endpoints)
   from PostgreSQL through its own read-only role (`HEADSCALE_PG_RO_USER`,
@@ -30,7 +30,7 @@ All notable changes to this project are documented here. The format follows
   (`headscale/headscale.sql` in the archive) and `make restore` loads it back
   and re-creates the read-only role.
 - `tests/test_postgresql.py`: the client against a fake server (recorded
-  protocol messages, a real SCRAM server side, MD5, errors, TLS refusal),
+  protocol messages, a real SCRAM server side, MD5 refused, errors, TLS refusal),
   RFC 7677 SCRAM and RFC 4013 SASLprep vectors, Hostinfo from PostgreSQL on
   the machine page.
 - Remote backups: set `BACKUP_REMOTE` and every backup is also uploaded to S3,

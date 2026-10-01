@@ -339,9 +339,11 @@ up) a PostgreSQL server:
   it may only `SELECT` the `id`, `host_info` and `endpoints` columns of
   `nodes` (no keys, no other tables) and its sessions are read-only. The UI
   never gets Headscale's own credentials. It talks to PostgreSQL with a small
-  built-in client (standard library only: SCRAM-SHA-256 or MD5, optional
+  built-in client (standard library only: SCRAM-SHA-256, optional
   TLS), so the image still has no third-party packages.
-- **Your own server:** the database must exist and its owner must be the user
+- **Your own server:** it must authenticate with `scram-sha-256` (PostgreSQL's
+  default since 14; the legacy `md5` method is refused). The database must
+  exist and its owner must be the user
   you give (Headscale creates its tables with it). To create the read-only
   role the installer runs that SQL as the owner, which needs the `CREATEROLE`
   privilege; if it cannot, it prints the command to run as a superuser.
