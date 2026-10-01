@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Security
+- The web UI no longer mounts the Docker socket (equivalent to root on the
+  host) and is no longer in the Docker group. A new `hs-helper` service
+  (`helper/`, image `ghcr.io/insanerask77/headscale-easy-helper`) is the only
+  container with the socket. It has no network and answers the web UI over a
+  `660` Unix socket in the `hse-helper` volume with exactly three fixed
+  operations on the `headscale` container: `POST /configtest`,
+  `POST /restart` and `GET /status` (container health and Headscale's
+  version). It takes no parameters; anything else is refused before Docker is
+  contacted. Installations with an older `docker-compose.yml` that still
+  mounts the socket in `web` keep working, with a warning in the logs.
+  `make validate` fails if any other service mounts the socket.
+
 ## [1.4.0] - 2026-09-30
 
 ### Security

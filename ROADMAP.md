@@ -47,9 +47,10 @@ and verifiable comes before new features.
 - [ ] **S5. Revocable sessions and sign-in rate limiting** · M
   Server-side session list (sign out everywhere, role changes take effect at
   once) and per-IP limits on sign-in attempts.
-- [ ] **S6. Narrower Docker access** · M
+- [x] **S6. Narrower Docker access** · M — *next*
   Replace the raw Docker socket with a restricted proxy or a tiny helper that
-  can only validate and restart Headscale.
+  can only validate and restart Headscale. Done: `hs-helper` holds the socket
+  and serves only configtest, restart and status; the web UI has no socket.
 - [x] **S7. Demo mode** · S — *1.4.0*
   `DEMO_MODE=true`: banner on every page, access-granting and destructive
   actions disabled.
