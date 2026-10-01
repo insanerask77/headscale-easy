@@ -35,6 +35,7 @@ required_files=(
     web/ui.py web/i18n.py web/version.py web/mfa.py web/locales/es.json
     web/static/style.css web/static/app.js web/static/theme.js
     scripts/utils.sh scripts/check_i18n.py scripts/restore.sh
+    helper/Dockerfile helper/helper.py
     backup/Dockerfile backup/backup.sh backup/entrypoint.sh backup/pg-client.sh
     mkdocs.yml docs/requirements.txt docs/index.md docs/index.es.md
 )
@@ -49,7 +50,7 @@ for f in install.sh uninstall.sh scripts/utils.sh scripts/validate.sh scripts/re
 done
 
 if command -v python3 &>/dev/null; then
-    if python3 -m py_compile web/*.py 2>/dev/null; then ok "Python syntax: web/*.py"; else fail "Python syntax error in web/"; fi
+    if python3 -m py_compile web/*.py helper/*.py 2>/dev/null; then ok "Python syntax: web/*.py helper/*.py"; else fail "Python syntax error in web/ or helper/"; fi
     if python3 scripts/check_i18n.py >/dev/null; then ok "Translations complete"; else fail "Missing translations: python3 scripts/check_i18n.py"; fi
 else
     warn "python3 not found: Python checks skipped"
@@ -59,6 +60,13 @@ if command -v docker &>/dev/null && docker compose version &>/dev/null; then
     if docker compose -f docker-compose.yml config -q 2>/dev/null; then ok "docker-compose.yml is valid"; else fail "docker-compose.yml is invalid"; fi
 else
     warn "Docker Compose not found: Compose check skipped"
+fi
+
+# Only hs-helper may mount the Docker socket (see SECURITY.md)
+if awk '/^  [a-z]/ { svc = $1 } !/^[[:space:]]*#/ && /docker\.sock/ && svc != "hs-helper:" { found = 1 } END { exit !found }' docker-compose.yml; then
+    fail "docker-compose.yml: only the hs-helper service may mount the Docker socket"
+else
+    ok "Docker socket mounted by hs-helper only"
 fi
 
 for var in DOMAIN SSL_MODE SERVER_URL TAILNET_NAME AUTH_PROVIDER PORTAL_SESSION_SECRET UI_LANG; do

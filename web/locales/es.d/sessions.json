@@ -1,0 +1,20 @@
+{
+  "Too many attempts": "Demasiados intentos",
+  "Too many sign-in attempts. Try again in a few minutes.": "Demasiados intentos de inicio de sesión. Inténtalo de nuevo en unos minutos.",
+  "Sign-in blocked: too many attempts": "Inicio de sesión bloqueado: demasiados intentos",
+  "Revoked a session": "Revocó una sesión",
+  "Signed out everywhere": "Cerró sesión en todas partes",
+  "Sessions": "Sesiones",
+  "IP address": "Dirección IP",
+  "Browser": "Navegador",
+  "Last activity": "Última actividad",
+  "No active sessions.": "No hay sesiones activas.",
+  "Sign out everyone else": "Cerrar la sesión de los demás",
+  "Where you are signed in. Signing a session out takes effect at once.": "Dónde has iniciado sesión. Cerrar una sesión surte efecto al instante.",
+  "Active sessions": "Sesiones activas",
+  "Sign out everywhere": "Cerrar sesión en todas partes",
+  "This session": "Esta sesión",
+  "Session signed out.": "Sesión cerrada.",
+  "All other sessions signed out.": "Se cerraron todas las demás sesiones.",
+  "That session no longer exists.": "Esa sesión ya no existe."
+}

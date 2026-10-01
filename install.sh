@@ -128,6 +128,7 @@ validate_email()        { [[ "$1" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]
 validate_alphanumeric() { [[ "$1" =~ ^[a-zA-Z0-9_-]+$ ]]; }
 validate_url()          { [[ "$1" =~ ^https?:// ]]; }
 validate_time()         { [[ "$1" =~ ^([01]?[0-9]|2[0-3]):[0-5][0-9]$ ]]; }
+validate_remote()       { [[ "$1" =~ ^[A-Za-z0-9_.:,=@/+-]+$ && "$1" == *:* ]]; }
 validate_days()         { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 3650 )); }
 validate_optional_ip()  { [[ -z "$1" || "$1" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; }
 
@@ -539,6 +540,44 @@ configure_email() {
     print_info "$(t "After deploying, test it with:" "Tras desplegar, pruébalo con:") docker exec authentik-worker ak test_email <$(t "your-email" "tu-email")>"
 }
 
+# Optional second copy off this server (S3, B2, SFTP... through rclone, or rsync
+# over SSH). The credentials live in data/backup-remote/ (rclone.conf, SSH key).
+configure_remote_backups() {
+    if ask_yes_no "$(t "Also upload each backup to a remote destination (S3, SFTP, rsync...)?" \
+                       "¿Subir también cada copia a un destino remoto (S3, SFTP, rsync...)?")" \
+                  "$([[ -n "${BACKUP_REMOTE:-}" ]] && echo y || echo n)"; then
+        print_info "$(t "Use an rclone remote (e.g. s3:my-bucket/headscale-easy) or rsync:user@host:/path." \
+                        "Usa un remoto de rclone (p. ej. s3:mi-bucket/headscale-easy) o rsync:usuario@host:/ruta.")"
+        print_info "$(t "Put the credentials in ./data/backup-remote/ (rclone.conf, or id_ed25519 for rsync): see docs/operations.md#remote-backups" \
+                        "Pon las credenciales en ./data/backup-remote/ (rclone.conf, o id_ed25519 para rsync): mira docs/operations.es.md#backups-remotos")"
+        BACKUP_REMOTE=$(ask_input "$(t "Remote destination" "Destino remoto")" "${BACKUP_REMOTE:-}" validate_remote)
+        BACKUP_REMOTE_KEEP_DAYS=$(ask_input "$(t "Days to keep on the remote" "Días que se conservan en el remoto")" \
+                                            "${BACKUP_REMOTE_KEEP_DAYS:-${BACKUP_KEEP_DAYS:-14}}" validate_days)
+        mkdir -p "$SCRIPT_DIR/data/backup-remote"
+    else
+        BACKUP_REMOTE=""
+    fi
+}
+
+# Optional webhook notifications (Slack, Telegram, ntfy, generic JSON): a message
+# when a device joins, is removed or its key expires. NOTIFY_URLS may hold several
+# destinations, see docs/operations.md.
+configure_notifications() {
+    echo ""
+    print_info "$(t "Notifications are optional: a message in Slack, Telegram, ntfy or a webhook when a device joins, is removed or expires." \
+                    "Las notificaciones son opcionales: un mensaje en Slack, Telegram, ntfy o un webhook cuando un dispositivo se une, se elimina o caduca.")"
+    if ! ask_yes_no "$(t "Set up notifications?" "¿Configurar notificaciones?")" \
+                    "$([[ -n "${NOTIFY_URLS:-}" ]] && echo y || echo n)"; then
+        NOTIFY_URLS=""
+        return 0
+    fi
+    print_info "$(t "Format: slack:<webhook URL>, telegram:<bot token>@<chat id>, ntfy:<topic>, webhook:<URL>; several separated by spaces" \
+                    "Formato: slack:<URL del webhook>, telegram:<token del bot>@<id del chat>, ntfy:<tema>, webhook:<URL>; varios separados por espacios")"
+    NOTIFY_URLS=$(ask_input "$(t "Destinations" "Destinos")" "${NOTIFY_URLS:-}" validate_env_text)
+    print_info "$(t "After deploying, send a test from Settings > General > Notifications." \
+                    "Tras desplegar, envía una prueba desde Ajustes > General > Notificaciones.")"
+}
+
 # Daily backups are optional (they add a small container and disk use), off by
 # default but recommended. They are enabled through the 'backup' Compose
 # profile.
@@ -566,6 +605,7 @@ configure_backups() {
                         "Guárdalas también en otro sitio: lo ideal es un NAS o un disco montado en esta máquina.")"
         BACKUP_DIR=$(ask_input "$(t "Folder for the backups" "Carpeta de las copias")" "${BACKUP_DIR:-./backups}")
         BACKUP_KEEP_DAYS=$(ask_input "$(t "Days to keep" "Días que se conservan")" "${BACKUP_KEEP_DAYS:-14}" validate_days)
+        configure_remote_backups
     else
         BACKUP_ENABLED="false"
         print_info "$(t "No scheduled backups. You can still make one at any time with: make backup" \
@@ -683,9 +723,9 @@ portal_settings() {
         *)
             PORTAL_OIDC_ISSUER=""; PORTAL_OIDC_CLIENT_ID=""; PORTAL_OIDC_CLIENT_SECRET="" ;;
     esac
-    # The UI writes headscale-config.yaml (DNS) and talks to the Docker socket
-    # (validate and restart Headscale): it runs as the owner of the project
-    # files plus the socket's group, never as root.
+    # The UI writes headscale-config.yaml (DNS): it runs as the owner of the
+    # project files, never as root. Only hs-helper (validate and restart
+    # Headscale) gets the Docker socket, through the socket's group.
     PORTAL_UID=$(stat -c %u "$SCRIPT_DIR")
     PORTAL_GID=$(stat -c %g "$SCRIPT_DIR")
     DOCKER_GID=$(stat -c %g /var/run/docker.sock 2>/dev/null || echo 999)
@@ -800,7 +840,13 @@ PORTAL_ADMIN_EMAILS="${PORTAL_ADMIN_EMAILS:-}"
 # Public demo instance only: banner on every page, access-granting and
 # destructive actions disabled (see SECURITY.md)
 DEMO_MODE=${DEMO_MODE:-false}
-# uid/gid the UI runs with (owner of the project files) and the Docker socket gid
+# Webhook notifications (empty = off): slack:<webhook>, telegram:<token>@<chat id>,
+# ntfy:<topic or URL>, webhook:<URL>; separated by spaces. Events: device.registered,
+# device.key_expired, device.expiring, device.removed
+NOTIFY_URLS="${NOTIFY_URLS:-}"
+NOTIFY_EVENTS="${NOTIFY_EVENTS:-device.registered,device.key_expired,device.expiring,device.removed}"
+# uid/gid the UI and hs-helper run with (owner of the project files) and the
+# Docker socket gid (hs-helper only)
 PORTAL_UID=${PORTAL_UID}
 PORTAL_GID=${PORTAL_GID}
 DOCKER_GID=${DOCKER_GID}
@@ -839,6 +885,12 @@ BACKUP_ENABLED=${BACKUP_ENABLED:-false}
 BACKUP_SCHEDULE="${BACKUP_SCHEDULE:-0 3 * * *}"
 BACKUP_DIR=${BACKUP_DIR:-./backups}
 BACKUP_KEEP_DAYS=${BACKUP_KEEP_DAYS:-14}
+# Optional copy off this server: an rclone remote (s3:bucket/dir) or rsync:user@host:/dir.
+# Credentials go in ./data/backup-remote/ (rclone.conf, id_ed25519, known_hosts)
+BACKUP_REMOTE="${BACKUP_REMOTE:-}"
+BACKUP_REMOTE_KEEP_DAYS=${BACKUP_REMOTE_KEEP_DAYS:-${BACKUP_KEEP_DAYS:-14}}
+BACKUP_AWS_ACCESS_KEY_ID="${BACKUP_AWS_ACCESS_KEY_ID:-}"
+BACKUP_AWS_SECRET_ACCESS_KEY="${BACKUP_AWS_SECRET_ACCESS_KEY:-}"
 
 # --- Advanced ----------------------------------------------------------------------
 TZ=${TZ:-UTC}
@@ -946,7 +998,25 @@ database:
 EOFDB
 }
 
+# Own DERP map (DERP relays page): derp.paths lives in a marked block the web
+# UI edits, kept when the config is regenerated. headscale-derp.yaml is created
+# empty so the bind mounts in docker-compose.yml find a file, not a directory.
+derp_paths_block() {
+    local begin="  # >>> derp map: managed by Headscale Easy (do not edit between these markers)"
+    local end="  # <<< derp map"
+    local current="$SCRIPT_DIR/headscale-config.yaml"
+    if [[ -f "$current" ]] && grep -qF "$begin" "$current"; then
+        awk -v b="$begin" -v e="$end" '
+            $0 == b { on = 1; print; next }
+            on { print }
+            on && $0 == e { exit }' "$current"
+        return 0
+    fi
+    printf '%s\n  paths: []\n%s\n' "$begin" "$end"
+}
+
 generate_headscale_config() {
+    [[ -e "$SCRIPT_DIR/headscale-derp.yaml" ]] || printf 'regions: {}\n' > "$SCRIPT_DIR/headscale-derp.yaml"
     if [[ "$ENABLE_OIDC" == "true" ]]; then
         local scope_list="" s
         for s in $OIDC_SCOPE; do scope_list+="    - ${s}"$'\n'; done
@@ -992,11 +1062,12 @@ EOFC
     fi
     DNS_CONFIG=$(dns_block)
     KEY_EXPIRY_CONFIG=$(key_expiry_block)
+    DERP_PATHS_CONFIG=$(derp_paths_block)
     DATABASE_CONFIG=$(database_block)
 
     export SERVER_URL HEADSCALE_HTTP_PORT HEADSCALE_METRICS_PORT HEADSCALE_GRPC_PORT \
            IP_PREFIXES_V4 IP_PREFIXES_V6 TAILNET_NAME HEADSCALE_DERP_PORT LOG_LEVEL \
-           OIDC_CONFIG TRUSTED_PROXIES_CONFIG DNS_CONFIG KEY_EXPIRY_CONFIG \
+           OIDC_CONFIG TRUSTED_PROXIES_CONFIG DNS_CONFIG KEY_EXPIRY_CONFIG DERP_PATHS_CONFIG \
            DERP_URLS_CONFIG DERP_AUTO_UPDATE DATABASE_CONFIG
     envsubst < "$TEMPLATES_DIR/headscale-config.yaml.tmpl" > "$SCRIPT_DIR/headscale-config.yaml"
     print_success "$(t "Written" "Generado"): headscale-config.yaml"
@@ -1162,10 +1233,10 @@ generate_files() {
 # -----------------------------------------------------------------------------
 
 pull_images() {
-    print_info "$(t "Pulling images (the web UI is built locally if its image is not published yet)..." \
-                    "Descargando imágenes (el panel se construye en local si su imagen aún no está publicada)...")"
+    print_info "$(t "Pulling images (the web UI and hs-helper are built locally if their images are not published yet)..." \
+                    "Descargando imágenes (el panel y hs-helper se construyen en local si sus imágenes aún no están publicadas)...")"
     docker compose pull --ignore-pull-failures --quiet 2>/dev/null || true
-    docker compose build --quiet web
+    docker compose build --quiet web hs-helper
     if [[ "${BACKUP_ENABLED:-false}" == "true" ]]; then docker compose build --quiet backup; fi
 }
 
@@ -1601,6 +1672,7 @@ main() {
     configure_tailnet
     configure_auth
     configure_database
+    configure_notifications
     configure_backups
     generate_files
 

@@ -310,7 +310,8 @@ then runs `headscale configtest` and restarts Headscale — restoring the previo
 block if the check fails. The installer keeps that block when it regenerates the
 file, so your DNS settings survive reconfiguration.
 
-This is the only feature that needs the Docker socket; see [Security](security.md).
+Validating and restarting go through the `hs-helper` container, the only one
+with the Docker socket; see [Security](security.md).
 
 ## Database
 

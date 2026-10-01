@@ -28,7 +28,7 @@ validate: ## Check the project structure and configuration
 
 lint: ## shellcheck + Python syntax + i18n coverage
 	@shellcheck -S warning install.sh uninstall.sh scripts/*.sh backup/*.sh
-	@python3 -m py_compile web/*.py
+	@python3 -m py_compile web/*.py helper/*.py
 	@python3 scripts/check_i18n.py
 
 test: ## Unit tests (Python standard library only)
@@ -65,7 +65,7 @@ update: ## Pull new images and recreate containers
 backup: ## Back up now (also daily; BACKUP_* in .env)
 	@./scripts/utils.sh backup
 
-restore: ## Restore a backup (file=backups/headscale-easy-....tar.gz)
+restore: ## Restore a backup (file=backups/headscale-easy-....tar.gz or remote:path/...)
 	@test -n "$(file)" || { echo "Usage: make restore file=backups/headscale-easy-YYYYmmdd-HHMMSS.tar.gz"; exit 1; }
 	@./scripts/restore.sh $(file)
 

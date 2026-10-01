@@ -320,7 +320,8 @@ después ejecuta `headscale configtest` y reinicia Headscale, restaurando el
 bloque anterior si la comprobación falla. El instalador conserva ese bloque al
 regenerar el fichero, así que tu DNS sobrevive a las reconfiguraciones.
 
-Es la única función que necesita el socket de Docker; ver [Seguridad](security.md).
+La validación y el reinicio pasan por el contenedor `hs-helper`, el único con
+el socket de Docker; ver [Seguridad](security.md).
 
 ## Base de datos { #database }
 

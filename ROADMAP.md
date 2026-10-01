@@ -18,8 +18,9 @@ Effort: **S** = hours · **M** = one or two days · **L** = several days.
   retention), local or remote target (S3, rsync) and a tested `make restore`.
   Losing Headscale's database means re-registering every device.
   Done: optional daily backups chosen in the installer, retention, one-off
-  `make backup`, tested `make restore` (also on a new server). Pending: remote
-  targets (S3, rsync) — until then, point `BACKUP_DIR` at a mounted NAS.
+  `make backup`, tested `make restore` (also on a new server). Remote
+  copies (S3, B2, SFTP via rclone, or rsync over SSH) with remote retention and
+  `make restore file=remote:...` — *next*.
 - [x] **3. Two-factor authentication (MFA) in Authentik** · S — *1.0.5*
   The web UI controls the whole network behind a password. Authentik already
   has TOTP and passkeys: enable them in the blueprint, optional for members and
@@ -44,12 +45,13 @@ and verifiable comes before new features.
 - [ ] **S4. End-to-end tests in CI** · L
   Start the real stack (Headscale + console, with and without Authentik) in CI
   and test auth, OIDC, API, ACL, DNS, devices, backup/restore against it.
-- [ ] **S5. Revocable sessions and sign-in rate limiting** · M
+- [x] **S5. Revocable sessions and sign-in rate limiting** · M — *next*
   Server-side session list (sign out everywhere, role changes take effect at
   once) and per-IP limits on sign-in attempts.
-- [ ] **S6. Narrower Docker access** · M
+- [x] **S6. Narrower Docker access** · M — *next*
   Replace the raw Docker socket with a restricted proxy or a tiny helper that
-  can only validate and restart Headscale.
+  can only validate and restart Headscale. Done: `hs-helper` holds the socket
+  and serves only configtest, restart and status; the web UI has no socket.
 - [x] **S7. Demo mode** · S — *1.4.0*
   `DEMO_MODE=true`: banner on every page, access-granting and destructive
   actions disabled.
@@ -102,14 +104,14 @@ and verifiable comes before new features.
 
 ## 🟢 Low — polish and advanced cases
 
-- [ ] **14. Webhook notifications** (Slack, Telegram, ntfy): new or expired device · M
+- [x] **14. Webhook notifications** (Slack, Telegram, ntfy): new or expired device · M — *next*
 - [ ] **15. Server status page**: Headscale version with update notice, container health, disk use, basic metrics · S/M
-- [ ] **16. DERP relay status**: region and latency per device, editor for an own DERP map · M
+- [x] **16. DERP relay status**: region and latency per device, editor for an own DERP map · M — *next*
 - [x] **17. PostgreSQL support** for large tailnets instead of SQLite · M — *next*
   Bundled or external PostgreSQL chosen in the installer; the web UI reads it
   with a read-only role through a small stdlib client; backups use `pg_dump`.
 - [ ] **18. More languages**: French, German, Portuguese (the structure is ready) · S each
-- [ ] **19. Faster renaming of "localhost" devices**: check every 5 s instead of 30 s · S
+- [x] **19. Faster renaming of "localhost" devices**: check every 5 s instead of 30 s · S (*next*)
 
 ## Suggested order
 
