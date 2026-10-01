@@ -12,6 +12,7 @@ import base64
 import hashlib
 import hmac
 import json
+import secrets
 import os
 import socket
 import struct
@@ -25,6 +26,9 @@ from test_security import MEMBER, B, BOB, BOB_NODE, Base, request  # noqa: E402 
 
 import headscale as hs  # noqa: E402
 import pgwire  # noqa: E402
+
+# A random password per run for the fake servers (not a real credential)
+SECRET = secrets.token_hex(12)
 
 # -----------------------------------------------------------------------------
 # Recorded backend messages (bytes as a PostgreSQL 17 server sends them)
@@ -133,7 +137,7 @@ class FakeServer:
             raise self.errors[0]
 
     def kwargs(self, **extra) -> dict:
-        settings = dict(host="127.0.0.1", port=self.port, user="headscale_ro", password="pencil",
+        settings = dict(host="127.0.0.1", port=self.port, user="headscale_ro", password=SECRET,
                         database="headscale", sslmode="disable", timeout=5)
         return {**settings, **extra}
 
@@ -255,9 +259,9 @@ class Scram(unittest.TestCase):
         self.assertEqual(pgwire.ScramSHA256("a\u0007b").password, "a\u0007b".encode())
 
     def test_md5_password(self):
-        inner = hashlib.md5(b"pencilheadscale_ro").hexdigest()
+        inner = hashlib.md5((SECRET + "headscale_ro").encode()).hexdigest()
         expected = "md5" + hashlib.md5(inner.encode() + b"\x01\x02\x03\x04").hexdigest()
-        self.assertEqual(pgwire.md5_password("headscale_ro", "pencil", b"\x01\x02\x03\x04"), expected)
+        self.assertEqual(pgwire.md5_password("headscale_ro", SECRET, b"\x01\x02\x03\x04"), expected)
         self.assertEqual(len(expected), 35)
 
 
@@ -291,7 +295,7 @@ class Client(unittest.TestCase):
         self.assertEqual(server.startup["default_transaction_read_only"], "on")
 
     def test_scram_sha_256(self):
-        server = self.serve(scram_server("pencil"))
+        server = self.serve(scram_server(SECRET))
         self.assertEqual(pgwire.query(QUERY_SQL, **server.kwargs()), [("1", '{"OS":"linux"}', None)])
         server.stop()
 
@@ -304,13 +308,13 @@ class Client(unittest.TestCase):
         self.assertIn("password authentication failed", str(cm.exception))
 
     def test_server_that_does_not_know_the_password_is_detected(self):
-        server = self.serve(scram_server("pencil", tamper_signature=True))
+        server = self.serve(scram_server(SECRET, tamper_signature=True))
         with self.assertRaisesRegex(pgwire.PgError, "signature"):
             pgwire.query(QUERY_SQL, **server.kwargs())
         server.stop()
 
     def test_server_skipping_the_scram_final_message_is_rejected(self):
-        server = self.serve(scram_server("pencil", skip_final=True))
+        server = self.serve(scram_server(SECRET, skip_final=True))
         with self.assertRaisesRegex(pgwire.PgError, "skipped"):
             pgwire.query(QUERY_SQL, **server.kwargs())
         server.stop()
@@ -321,7 +325,7 @@ class Client(unittest.TestCase):
             peer.send(auth(5, b"\x01\x02\x03\x04"))
             kind, body = peer.read()
             assert kind == b"p"
-            assert body == pgwire.md5_password("headscale_ro", "pencil", b"\x01\x02\x03\x04").encode() + b"\0"
+            assert body == pgwire.md5_password("headscale_ro", SECRET, b"\x01\x02\x03\x04").encode() + b"\0"
             peer.ready()
             answer_query(peer, server)
             expect_terminate(peer)

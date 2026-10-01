@@ -160,9 +160,14 @@ class ScramSHA256:
 
 
 def md5_password(user: str, password: str, salt: bytes) -> str:
-    """Response to AuthenticationMD5Password."""
-    inner = hashlib.md5((password + user).encode()).hexdigest()
-    return "md5" + hashlib.md5(inner.encode() + salt).hexdigest()
+    """Response to AuthenticationMD5Password.
+
+    MD5 is what the protocol mandates for this (legacy) method; nothing is
+    stored. Servers configured for SCRAM-SHA-256 (the default since
+    PostgreSQL 14) never ask for it.
+    """
+    inner = hashlib.md5((password + user).encode(), usedforsecurity=False).hexdigest()
+    return "md5" + hashlib.md5(inner.encode() + salt, usedforsecurity=False).hexdigest()
 
 
 # -----------------------------------------------------------------------------
@@ -177,10 +182,12 @@ def _tls_context(sslmode: str, sslrootcert: str | None) -> ssl.SSLContext:
     if sslmode in ("prefer", "require"):
         # libpq semantics: encrypted, but the certificate is not checked
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         return ctx
     ctx = ssl.create_default_context(cafile=sslrootcert or None)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.check_hostname = sslmode == "verify-full"
     return ctx
 
