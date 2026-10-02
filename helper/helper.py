@@ -204,6 +204,10 @@ def status() -> tuple[int, dict]:
 
 class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "hs-helper"
+    # name -> callable returning (HTTP status, payload). None = the Docker
+    # backends of this module; the all-in-one supervisor (aio/supervisor.py)
+    # serves the same contract with its own.
+    backends: dict | None = None
     sys_version = ""
     protocol_version = "HTTP/1.0"
 
@@ -237,7 +241,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             allowed = ", ".join(m for m, p in ROUTES if p == path)
             return self._send(405, {"ok": False, "error": "method not allowed"}, {"Allow": allowed})
         try:
-            code, payload = {"configtest": configtest, "restart": restart, "status": status}[name]()
+            backends = self.backends or {"configtest": configtest, "restart": restart, "status": status}
+            code, payload = backends[name]()
         except OSError as exc:
             log.error("%s: Docker unreachable: %s", name, exc)
             return self._send(503, {"ok": False, "error": "Docker is not reachable"})
@@ -262,15 +267,21 @@ class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         return conn, ("unix", 0)
 
 
-def serve(path: str = HELPER_SOCKET) -> Server:
-    """Bind the Unix socket (replacing a stale one) readable by owner+group."""
+def serve(path: str = HELPER_SOCKET, backends: dict | None = None) -> Server:
+    """Bind the Unix socket (replacing a stale one) readable by owner+group.
+
+    ``backends`` maps "configtest" / "restart" / "status" to callables returning
+    (HTTP status, payload); the default is the Docker implementation above."""
+    handler = Handler
+    if backends is not None:
+        handler = type("BackendHandler", (Handler,), {"backends": dict(backends)})
     try:
         os.unlink(path)
     except FileNotFoundError:
         pass
     old = os.umask(0o117)
     try:
-        server = Server(path, Handler)
+        server = Server(path, handler)
     finally:
         os.umask(old)
     os.chmod(path, 0o660)
