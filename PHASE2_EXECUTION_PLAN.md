@@ -206,20 +206,25 @@ globally. Setup runs over plain HTTP on :80: say so in the docs (Block 6).
 
 ---
 
-## Block 5: CI and publishing (S/M, ~3-4h)
+## Block 5: CI and publishing (S/M, ~3-4h) ✅ DONE (optional E2E left)
 
 **Files:** `.github/workflows/{ci,docker,docker-dev}.yml`
 
-- [ ] `ci.yml`: add `aio/*.py` to `py_compile`; new `aio` job building `aio/Dockerfile`.
-- [ ] Headless smoke test (`HSE_PUBLIC_URL=http://localhost HSE_TLS=off HSE_ADMIN_EMAIL=… HSE_ADMIN_PASSWORD=…`):
+- [x] `ci.yml`: `aio/*.py` in `py_compile` (already there); new `aio` job building `aio/Dockerfile`.
+- [x] Headless smoke test (`HSE_PUBLIC_URL=http://localhost HSE_TLS=off HSE_ADMIN_EMAIL=… HSE_ADMIN_PASSWORD=…`):
       healthy, `/healthz`, `/admin/healthz`, create a pre-auth key.
-- [ ] Wizard smoke test (no env): token in the logs, `/admin/setup` answers.
-- [ ] `docker stats --no-stream` after 60 s and `docker image inspect`:
+- [x] Wizard smoke test (no env): token in the logs, `/admin/setup` answers.
+- [x] `docker stats --no-stream` after 60 s and `docker image inspect`:
       **fail above 100 MB RAM or 250 MB image**.
-- [ ] `docker.yml` / `docker-dev.yml`: publish `ghcr.io/insanerask77/headscale-easy-aio`
+- [x] `docker.yml` / `docker-dev.yml`: publish `ghcr.io/insanerask77/headscale-easy-aio`
       (context `.`, file `aio/Dockerfile`).
 - [ ] Optional: E2E of the Phase 0 device flow with a Tailscale client container
       against the AIO image.
+
+---
+
+The smoke tests, size and RAM gates live in `scripts/aio-smoke.sh` (run it locally with
+`./scripts/aio-smoke.sh hse-aio:ci`); measured: 54 MB image, ~64 MB idle RAM.
 
 ---
 

@@ -92,3 +92,16 @@ jobs:
           done
           docker logs hse
           exit 1
+
+  aio:
+    # The all-in-one image: build, then headless and setup-mode smoke tests,
+    # and fail above the size / idle-RAM targets (scripts/aio-smoke.sh).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the all-in-one image
+        run: docker build -f aio/Dockerfile -t hse-aio:ci .
+
+      - name: Smoke tests, image size and idle RAM
+        run: ./scripts/aio-smoke.sh hse-aio:ci
