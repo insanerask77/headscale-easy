@@ -199,9 +199,9 @@ app.py:
 
 ---
 
-## Block 4: Invitations and password reset (3-4h)
+## Block 4: Invitations and password reset (3-4h) ✅
 
-### 4.1 Token generation and verification
+### 4.1 Token generation and verification ✅
 **Files:** `web/local_accounts.py`
 
 ```python
@@ -226,7 +226,7 @@ app.py:
 - `test_reset_token_single_use`
 - `test_revoke_token`
 
-### 4.2 Accept invitation / reset password pages
+### 4.2 Accept invitation / reset password pages ✅
 **Files:** `web/pages.py`, `web/app.py`
 
 ```python
@@ -251,7 +251,7 @@ app.py:
 - `test_reset_password_token_single_use`
 - `test_expired_token_rejected`
 
-### 4.3 Admin UI for invitations
+### 4.3 Admin UI for invitations ✅
 **Files:** `web/admin_pages.py`, `web/app.py`
 
 Reuse existing `web/accounts.py` UI (invitations table, create form, revoke):
