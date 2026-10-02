@@ -14,9 +14,9 @@ external pieces for advanced setups. Details, tasks and acceptance criteria in
 [SIMPLIFICATION_PLAN.md](https://github.com/insanerask77/headscale-easy/blob/main/SIMPLIFICATION_PLAN.md); the work happens on the
 `next` branch (see [CONTRIBUTING.md](https://github.com/insanerask77/headscale-easy/blob/main/CONTRIBUTING.md#branches-and-releases)).
 
-- [ ] **P0. Device sign-in without OIDC** (spike) · S
-- [ ] **P1. Local accounts in the console** (password, TOTP, invitations) · L
-- [ ] **P2. All-in-one image + first-run setup wizard** · L
+- [x] **P0. Device sign-in without OIDC** (spike) · S
+- [x] **P1. Local accounts in the console** (password, TOTP, invitations) · L
+- [x] **P2. All-in-one image + first-run setup wizard** · L
 - [ ] **P3. Built-in backups** · M
 - [ ] **P4. Advanced edition** (`deploy/compose`, external OIDC/PostgreSQL examples) · M
 - [ ] **P5. Migration from 1.x and deprecations** · M

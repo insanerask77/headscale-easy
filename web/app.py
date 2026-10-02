@@ -43,6 +43,7 @@ log = logging.getLogger("headscale-easy")
 
 import accounts  # noqa: E402  (after logging is configured)
 import admin_pages  # noqa: E402
+import local_accounts as lac  # noqa: E402
 import derp  # noqa: E402
 import derp_pages  # noqa: E402
 import status as server_status  # noqa: E402
@@ -91,6 +92,10 @@ AUDITOR_GROUPS = _csv("PORTAL_AUDITOR_GROUPS")
 SESSION_SECRET = os.environ["SESSION_SECRET"].encode()
 TAILNET_NAME = os.environ.get("TAILNET_NAME", "")
 AUTHENTIK = "/authentik/" in OIDC_ISSUER
+# MFA requirement for local accounts: admins, everyone, or optional
+MFA_REQUIRED = os.environ.get("MFA_REQUIRED", "admins")
+if MFA_REQUIRED not in ("admins", "everyone", "optional"):
+    MFA_REQUIRED = "admins"
 
 SECURE_COOKIES = PUBLIC_URL.startswith("https://")
 SESSION_TTL = 8 * 3600
@@ -104,6 +109,8 @@ NODE_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 USER_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._@-]{0,62}$")
 TAG_RE = re.compile(r"^tag:[a-z0-9][a-z0-9-]{0,62}$")
 AUTH_ID_RE = re.compile(r"^[A-Za-z0-9_:-]{8,200}$")
+# Device approval page: Caddy sends Headscale's /register/<auth id> link here
+REGISTER_PATH_RE = re.compile(rf"{BASE}/register/([A-Za-z0-9_:-]{{8,200}})")
 KEY_DAYS = {"1", "7", "30", "90"}
 APIKEY_DAYS = {"30", "90", "365"}
 EXIT_ROUTES = ["0.0.0.0/0", "::/0"]
@@ -113,7 +120,7 @@ EXIT_ROUTES = ["0.0.0.0/0", "::/0"]
 # policy from the visual editor; saving it from Advanced is checked in do_POST)
 # or removes data.
 DEMO_BLOCKED = re.compile(
-    rf"{BASE}/(keys|apikeys(/\d+/expire)?|machines/(register|remove-inactive)|machines/\d+/(delete|expire)"
+    rf"{BASE}/(keys|apikeys(/\d+/expire)?|machines/(register|remove-inactive)|register/[^/]+|machines/\d+/(delete|expire)"
     rf"|machines/bulk/(expire|remove)|settings/(key-expiry|mfa|notify-test|sessions/revoke(-all)?)|users(/\d+/(rename|delete))?"
     rf"|invitations(/[0-9a-f-]+/revoke)?|accounts/\d+/recovery|dns|derp"
     rf"|acl/(rules|groups|tags|autoapprove/(routes|exit-node)|ssh))")
@@ -168,8 +175,28 @@ def to_machines(nodes: list[dict]) -> list[pages.Machine]:
 
 
 def my_user(session: dict) -> dict | None:
-    """The session's Headscale user (None for API key sessions)."""
-    return hs.user_for_sub(session["sub"]) if session.get("sub") else None
+    """The session's Headscale user (None for API key sessions).
+
+    For OIDC sessions: looks up by providerId.
+    For local sessions: looks up by headscale_user from the local account.
+    """
+    sub = session.get("sub")
+    if not sub:
+        return None
+
+    # Local account session: sub format is "local:{account_id}"
+    if session.get("kind") == "local" and sub.startswith("local:"):
+        try:
+            account_id = int(sub.split(":", 1)[1])
+            account = lac.get_account(id=account_id)
+            if account and account.get("headscale_user"):
+                return hs.user_by_name(account["headscale_user"])
+        except (ValueError, IndexError):
+            pass
+        return None
+
+    # OIDC session: look up by providerId
+    return hs.user_for_sub(sub)
 
 
 def role_of(groups: list[str], email: str, email_verified: bool = True) -> str:
@@ -325,7 +352,15 @@ class Handler(BaseHTTPRequestHandler):
         in the server-side table (sessions.py): revoked ones, and cookies from
         before sessions were revocable (no sid), are rejected."""
         data = unsign(self.cookie("hse_session"))
-        return data if data and sessions.validate(data) else None
+        if not (data and sessions.validate(data)):
+            return None
+        if data.get("kind") == "local":  # live, so the 2FA suggestion goes away once it is enabled
+            try:
+                account = lac.get_account(id=int(str(data.get("sub", "")).split(":")[-1]))
+            except (ValueError, TypeError):
+                account = None
+            data["totp_on"] = bool(account and account.get("totp_confirmed"))
+        return data
 
     def rate_limited(self, bucket: str) -> int:
         """Seconds to wait when this client IP has too many sign-in attempts, else 0
@@ -378,13 +413,27 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, admin_pages.login_page(SSO, API_KEY_LOGIN))
             if path == f"{BASE}/login/sso" and SSO:
                 return self.start_sso()
+            if path == f"{BASE}/login/totp":
+                return self.totp_verify_page()
             if path == f"{BASE}/callback" and SSO:
                 return self.callback(params)
+            # Invitation and password reset (public routes)
+            accept_match = re.fullmatch(rf"{BASE}/accept/([A-Za-z0-9_-]+)", path)
+            if accept_match:
+                return self.accept_invitation_page(accept_match.group(1))
+            reset_match = re.fullmatch(rf"{BASE}/reset/([A-Za-z0-9_-]+)", path)
+            if reset_match:
+                return self.reset_password_page(reset_match.group(1))
 
             session = self.session()
+            register = REGISTER_PATH_RE.fullmatch(path)
             if not session:
-                return self.redirect(f"{BASE}/login")
+                # Come back to this device's approval page after signing in
+                after = [self.set_cookie("hse_next", sign({"path": path, "exp": time.time() + 600}), 600)] if register else None
+                return self.redirect(f"{BASE}/login", after)
             admin = session.get("admin")
+            if register:
+                return self.register_view(session, register.group(1))
 
             if path in (BASE, f"{BASE}/"):
                 return self.redirect(f"{BASE}/machines")
@@ -420,6 +469,28 @@ class Handler(BaseHTTPRequestHandler):
             if path == f"{BASE}/settings/sessions":
                 return self.send(200, pages.sessions_page(
                     session, CTX, sessions.list_all() if sees_all else sessions.list_for(session), flash))
+            if path == f"{BASE}/settings/account":
+                # Account settings for local accounts
+                if session.get("kind") != "local":
+                    return self.redirect(f"{BASE}/settings/general")
+                account_id = int(session.get("sub", "").split(":")[-1])
+                account = lac.get_account(id=account_id)
+                if not account:
+                    return self.redirect(f"{BASE}/settings/general")
+                return self.send(200, pages.account_settings_page(session, CTX, account, flash))
+            if path == f"{BASE}/settings/account/totp/enroll":
+                # Start TOTP enrollment
+                if session.get("kind") != "local":
+                    return self.redirect(f"{BASE}/settings/general")
+                account_id = int(session.get("sub", "").split(":")[-1])
+                account = lac.get_account(id=account_id)
+                if not account:
+                    return self.redirect(f"{BASE}/settings/general")
+                if account.get('totp_confirmed'):
+                    return self.redirect(f"{BASE}/settings/account?m=totp-already-enabled")
+                # Generate secret and QR code
+                secret, qr_data = lac.enroll_totp(account_id)
+                return self.send(200, pages.totp_enroll_page(session, CTX, secret, qr_data))
 
             # --- admins only (Access controls: also network admins and auditors;
             # Users/Logs: also auditors, view only -- see can_edit_network()/is_auditor()) ---
@@ -477,6 +548,17 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == f"{BASE}/login/apikey" and API_KEY_LOGIN:
                 return self.apikey_login(self.form())
+            if path == f"{BASE}/login/local":
+                return self.local_login(self.form())
+            if path == f"{BASE}/login/totp":
+                return self.verify_totp_login(self.form())
+            # Invitation and password reset (public routes)
+            accept_match = re.fullmatch(rf"{BASE}/accept/([A-Za-z0-9_-]+)", path)
+            if accept_match:
+                return self.accept_invitation(accept_match.group(1), self.form())
+            reset_match = re.fullmatch(rf"{BASE}/reset/([A-Za-z0-9_-]+)", path)
+            if reset_match:
+                return self.reset_password(reset_match.group(1), self.form())
 
             session = self.session()
             if not session:
@@ -495,6 +577,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.revoke_session(session, form)
             if path == f"{BASE}/settings/sessions/revoke-all":
                 return self.revoke_all_sessions(session, form)
+            if path == f"{BASE}/settings/account/password":
+                return self.change_password(session, form)
+            if path == f"{BASE}/settings/account/totp/confirm":
+                return self.confirm_totp_enrollment(session, form)
+            if path == f"{BASE}/settings/account/totp/disable":
+                return self.disable_totp_account(session, form)
+            if path == f"{BASE}/settings/account/totp/recovery/reset":
+                return self.reset_totp_recovery(session, form)
             if path == f"{BASE}/settings/language":
                 lang = str(form.get("lang", ""))
                 back = self.headers.get("Referer", "")
@@ -510,6 +600,9 @@ class Handler(BaseHTTPRequestHandler):
             m = re.fullmatch(rf"{BASE}/machines/(\d+)/(rename|delete|expire|expiry|routes|tags)", path)
             if m:
                 return self.machine_action(session, m.group(1), m.group(2), form)
+            m = REGISTER_PATH_RE.fullmatch(path)
+            if m:
+                return self.register_device(session, m.group(1), form)
 
             # --- ACL and DNS: admins and network admins (auditors: test/simulate only) ---
             if path == f"{BASE}/acl/test":
@@ -553,10 +646,11 @@ class Handler(BaseHTTPRequestHandler):
             m = re.fullmatch(rf"{BASE}/users/(\d+)/(rename|delete)", path)
             if m:
                 return self.user_action(session, m.group(1), m.group(2), form)
-            if path == f"{BASE}/invitations" and AUTHENTIK:
+            if path == f"{BASE}/invitations":
                 return self.create_invitation(session, form)
-            m = re.fullmatch(rf"{BASE}/invitations/([0-9a-f-]{{32,36}})/revoke", path)
-            if m and AUTHENTIK:
+            # Revoke invitation: AUTHENTIK uses UUID pk, local uses token_hash (64 hex chars)
+            m = re.fullmatch(rf"{BASE}/invitations/([0-9a-f-]{{32,}})/revoke", path)
+            if m:
                 return self.revoke_invitation(session, m.group(1))
             m = re.fullmatch(rf"{BASE}/accounts/(\d+)/recovery", path)
             if m and AUTHENTIK:
@@ -753,15 +847,322 @@ class Handler(BaseHTTPRequestHandler):
         self.start_session({"kind": "apikey", "sub": "", "username": "", "name": _("Administrator"),
                             "email": "", "groups": [], "admin": True, "role": "admin", "key": hs.api_key_prefix(key)})
 
+    def local_login(self, form: dict):
+        """Sign in with a local account (username + password)."""
+        wait = self.rate_limited("local")
+        if wait:
+            return self.too_many(wait, admin_pages.login_page(
+                SSO, API_KEY_LOGIN, _("Too many sign-in attempts. Try again in a few minutes.")))
+
+        username = str(form.get("username", "")).strip()
+        password = str(form.get("password", ""))
+
+        if not username or not password:
+            sessions.hit(f"local:{audit.client_ip(self)}")
+            return self.send(401, admin_pages.login_page(
+                SSO, API_KEY_LOGIN, _("Username and password are required.")))
+
+        # Get account
+        account = lac.get_account(username=username)
+        if not account:
+            sessions.hit(f"local:{audit.client_ip(self)}")
+            time.sleep(1)  # slow down enumeration
+            log.warning("Local sign-in rejected: unknown user '%s' from %s", username, self.address_string())
+            audit.request_event(self, None, "auth.signin_failed", "",
+                               {"method": "local", "username": username, "reason": "unknown_user"}, actor="")
+            return self.send(401, admin_pages.login_page(
+                SSO, API_KEY_LOGIN, _("Wrong username or password.")))
+
+        # Verify password
+        if not lac.verify_password(password, account['pw_hash']):
+            sessions.hit(f"local:{audit.client_ip(self)}")
+            time.sleep(1)  # slow down guessing
+            log.warning("Local sign-in rejected: wrong password for '%s' from %s", username, self.address_string())
+            audit.request_event(self, None, "auth.signin_failed", "",
+                               {"method": "local", "username": username, "reason": "wrong_password"}, actor="")
+            return self.send(401, admin_pages.login_page(
+                SSO, API_KEY_LOGIN, _("Wrong username or password.")))
+
+        # Check if account is disabled
+        if account['disabled']:
+            sessions.hit(f"local:{audit.client_ip(self)}")
+            log.warning("Local sign-in rejected: disabled account '%s' from %s", username, self.address_string())
+            audit.request_event(self, None, "auth.signin_failed", "",
+                               {"method": "local", "username": username, "reason": "disabled"}, actor="")
+            return self.send(403, admin_pages.login_page(
+                SSO, API_KEY_LOGIN, _("This account is disabled.")))
+
+        # Check if TOTP is required
+        totp_required = self.totp_required_for(account)
+        if totp_required and account.get('totp_confirmed'):
+            # TOTP is enabled and confirmed: redirect to second step
+            sessions.reset(f"local:{audit.client_ip(self)}")
+            # Create a temporary "pending TOTP" token (expires in 5 minutes)
+            pending = {
+                "account_id": account['id'],
+                "username": username,
+                "exp": time.time() + 300,  # 5 minutes
+            }
+            return self.redirect(f"{BASE}/login/totp", [
+                self.set_cookie("hse_totp_pending", sign(pending), 300)
+            ])
+        elif totp_required and not account.get('totp_confirmed'):
+            # TOTP is required but not enrolled: force enrollment after login
+            sessions.reset(f"local:{audit.client_ip(self)}")
+            self.start_session({
+                "kind": "local",
+                "sub": f"local:{account['id']}",
+                "username": username,
+                "name": account.get('email', username),
+                "email": account.get('email', ''),
+                "groups": [],
+                "admin": account['role'] == 'admin',
+                "role": account['role'],
+                "totp_enrollment_required": True,
+            })
+            return  # start_session redirects
+
+        # Success (password-only login)
+        sessions.reset(f"local:{audit.client_ip(self)}")
+        log.info("Local sign-in: %s", username)
+
+        # Create session
+        self.start_session({
+            "kind": "local",
+            "sub": f"local:{account['id']}",
+            "username": username,
+            "name": account.get('email', username),
+            "email": account.get('email', ''),
+            "groups": [],
+            "admin": account['role'] == 'admin',
+            "role": account['role'],
+        })
+
+    def totp_required_for(self, account: dict) -> bool:
+        """Check if TOTP is required for this account based on MFA_REQUIRED setting."""
+        if MFA_REQUIRED == "everyone":
+            return True
+        elif MFA_REQUIRED == "admins":
+            return account['role'] == 'admin'
+        else:  # optional
+            return False
+
+    def totp_verify_page(self):
+        """Show the TOTP verification page (second step after password)."""
+        pending = unsign(self.cookie("hse_totp_pending"))
+        if not pending:
+            return self.redirect(f"{BASE}/login")
+
+        username = pending.get("username", "")
+        return self.send(200, pages.totp_verify_page(username, error=None))
+
+    def verify_totp_login(self, form: dict):
+        """Verify TOTP code during login (second step)."""
+        pending = unsign(self.cookie("hse_totp_pending"))
+        if not pending:
+            return self.redirect(f"{BASE}/login")
+
+        account_id = pending.get("account_id")
+        username = pending.get("username", "")
+
+        account = lac.get_account(id=account_id)
+        if not account:
+            return self.redirect(f"{BASE}/login")
+
+        code = str(form.get("code", "")).strip()
+        use_recovery = form.get("use_recovery") == "1"
+
+        if not code:
+            return self.send(401, pages.totp_verify_page(username, error=_("Code is required.")))
+
+        valid = False
+        if use_recovery:
+            # Verify recovery code
+            recovery_codes = account.get('recovery_codes', '')
+            valid, remaining = lac.verify_recovery_code(recovery_codes, code)
+            if valid:
+                # Update the account with remaining codes
+                with lac._db() as db:
+                    db.execute("UPDATE accounts SET recovery_codes = ?, updated = ? WHERE id = ?",
+                             (remaining, lac._now(), account_id))
+                log.info("Recovery code used for account %s (%s)", account_id, username)
+        else:
+            # Verify TOTP code
+            secret = account.get('totp_secret', '')
+            last_step = account.get('totp_last_step')
+            valid, new_step = lac.verify_totp(secret, code, last_step)
+            if valid:
+                # Update last_step to prevent replay
+                with lac._db() as db:
+                    db.execute("UPDATE accounts SET totp_last_step = ?, updated = ? WHERE id = ?",
+                             (new_step, lac._now(), account_id))
+
+        if not valid:
+            sessions.hit(f"totp:{audit.client_ip(self)}")
+            log.warning("TOTP verification failed for '%s' from %s", username, self.address_string())
+            audit.request_event(self, None, "auth.signin_failed", "",
+                               {"method": "local+totp", "username": username, "reason": "wrong_totp"}, actor="")
+            return self.send(401, pages.totp_verify_page(username, error=_("Invalid code. Try again.")))
+
+        # Success
+        sessions.reset(f"totp:{audit.client_ip(self)}")
+        log.info("TOTP verified for: %s", username)
+
+        # Create session
+        self.start_session({
+            "kind": "local",
+            "sub": f"local:{account['id']}",
+            "username": username,
+            "name": account.get('email', username),
+            "email": account.get('email', ''),
+            "groups": [],
+            "admin": account['role'] == 'admin',
+            "role": account['role'],
+        })
+        # Clear the pending cookie
+        return  # start_session handles redirect
+
+    def accept_invitation_page(self, token: str):
+        """Show the invitation acceptance page (GET /accept/{token})."""
+        # Check the token (don't consume it yet)
+        data = lac.check_token(token, kind='invite')
+        if not data:
+            return self.send(400, pages.invitation_page(token, "", "", _("This invitation link is invalid or has expired.")))
+
+        return self.send(200, pages.invitation_page(token, data['email'], data['role'], ""))
+
+    def accept_invitation(self, token: str, form: dict):
+        """Accept an invitation and create account (POST /accept/{token})."""
+        # Verify and consume the token
+        data = lac.verify_token(token, kind='invite')
+        if not data:
+            return self.send(400, pages.invitation_page(token, "", "", _("This invitation link is invalid or has expired.")))
+
+        email = data['email']
+        role = data['role']
+
+        # Get form data
+        username = str(form.get("username", "")).strip()
+        password = str(form.get("password", ""))
+        password2 = str(form.get("password2", ""))
+
+        # Validate inputs
+        if not username or not password:
+            return self.send(400, pages.invitation_page(token, email, role, _("Username and password are required.")))
+
+        if password != password2:
+            return self.send(400, pages.invitation_page(token, email, role, _("Passwords do not match.")))
+
+        # Validate username format (3-32 chars, alphanumeric + - and _)
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{3,32}", username):
+            return self.send(400, pages.invitation_page(token, email, role,
+                _("Username must be 3-32 characters: letters, numbers, - and _")))
+
+        # Create Headscale user
+        try:
+            hs.api("POST", "/user", {"name": username})
+            log.info("Created Headscale user for invitation: %s", username)
+        except Exception as e:
+            log.error("Failed to create Headscale user '%s': %s", username, e)
+            return self.send(500, pages.invitation_page(token, email, role,
+                _("Failed to create user. The username may already exist.")))
+
+        # Create local account
+        try:
+            account_id = lac.create_account(username, email, password, role=role, headscale_user=username)
+            log.info("Created local account from invitation: %s (role=%s)", username, role)
+        except ValueError as e:
+            # If account creation fails, try to delete the Headscale user
+            try:
+                hs.api("DELETE", f"/user/{username}")
+            except Exception:
+                pass
+            return self.send(400, pages.invitation_page(token, email, role, str(e)))
+
+        # Sign in automatically
+        self.start_session({
+            "kind": "local",
+            "sub": f"local:{account_id}",
+            "username": username,
+            "name": email,
+            "email": email,
+            "groups": [],
+            "admin": role == 'admin',
+            "role": role,
+        })
+
+    def reset_password_page(self, token: str):
+        """Show the password reset page (GET /reset/{token})."""
+        # Check the token (don't consume it yet)
+        data = lac.check_token(token, kind='reset')
+        if not data:
+            return self.send(400, pages.reset_password_page(token, "", _("This password reset link is invalid or has expired.")))
+
+        # Get the account
+        account = lac.get_account(id=data['account_id'])
+        if not account:
+            return self.send(400, pages.reset_password_page(token, "", _("Account not found.")))
+
+        return self.send(200, pages.reset_password_page(token, account['username'], ""))
+
+    def reset_password(self, token: str, form: dict):
+        """Reset password (POST /reset/{token})."""
+        # Verify and consume the token
+        data = lac.verify_token(token, kind='reset')
+        if not data:
+            return self.send(400, pages.reset_password_page(token, "", _("This password reset link is invalid or has expired.")))
+
+        # Get the account
+        account = lac.get_account(id=data['account_id'])
+        if not account:
+            return self.send(400, pages.reset_password_page(token, "", _("Account not found.")))
+
+        username = account['username']
+
+        # Get form data
+        password = str(form.get("password", ""))
+        password2 = str(form.get("password2", ""))
+
+        # Validate inputs
+        if not password:
+            return self.send(400, pages.reset_password_page(token, username, _("Password is required.")))
+
+        if password != password2:
+            return self.send(400, pages.reset_password_page(token, username, _("Passwords do not match.")))
+
+        # Update password
+        try:
+            lac.update_password(data['account_id'], password)
+            log.info("Password reset for account: %s", username)
+        except ValueError as e:
+            return self.send(400, pages.reset_password_page(token, username, str(e)))
+
+        # Sign in automatically
+        self.start_session({
+            "kind": "local",
+            "sub": f"local:{data['account_id']}",
+            "username": username,
+            "name": account['email'],
+            "email": account['email'],
+            "groups": [],
+            "admin": account['role'] == 'admin',
+            "role": account['role'],
+        })
+
     def start_session(self, data: dict):
         data.update(csrf=secrets.token_urlsafe(24), exp=time.time() + SESSION_TTL)
         role = data.get("role") or ("admin" if data["admin"] else "member")
         data["sid"] = sessions.create(data, audit.client_ip(self), self.headers.get("User-Agent", ""), SESSION_TTL)
         audit.request_event(self, data, "auth.signin", "", {"method": data["kind"], "role": role})
         log.info("sign-in: %s (%s, %s)", data["username"] or data["name"], data["kind"], role)
-        self.redirect(f"{BASE}/machines", [
+        # Only a device approval page can be the destination (no open redirect)
+        nxt = unsign(self.cookie("hse_next")) or {}
+        dest = nxt.get("path", "") if REGISTER_PATH_RE.fullmatch(str(nxt.get("path", ""))) else f"{BASE}/machines"
+        self.redirect(dest, [
             self.set_cookie("hse_session", sign(data), SESSION_TTL),
             self.set_cookie("hse_oidc", "", 0),
+            self.set_cookie("hse_next", "", 0),
+            self.set_cookie("hse_totp_pending", "", 0),  # Clear TOTP pending cookie
         ])
 
     def logout(self, session: dict):
@@ -814,6 +1215,100 @@ class Handler(BaseHTTPRequestHandler):
             count = int(sessions.revoke(session.get("sid", "")))
         audit.request_event(self, session, "auth.sessions_revoked_all", "", {"scope": "mine", "count": count})
         return self.redirect(f"{BASE}/login?m=signed-out", [self.set_cookie("hse_session", "", 0)])
+
+    # --- TOTP and account settings (Block 3.3) ---
+    def change_password(self, session: dict, form: dict):
+        """Change password for local account."""
+        if session.get("kind") != "local":
+            return self.fail(403, _("No permission"), _("This action is for local accounts only."))
+
+        account_id = int(session.get("sub", "").split(":")[-1])
+        account = lac.get_account(id=account_id)
+        if not account:
+            return self.fail(404, _("Not found"), _("Account not found."))
+
+        old_password = str(form.get("old_password", ""))
+        new_password = str(form.get("new_password", ""))
+        new_password2 = str(form.get("new_password2", ""))
+
+        if not old_password or not new_password:
+            return self.redirect(f"{BASE}/settings/account?m=password-required")
+
+        if new_password != new_password2:
+            return self.redirect(f"{BASE}/settings/account?m=password-mismatch")
+
+        # Verify old password
+        if not lac.verify_password(old_password, account['pw_hash']):
+            return self.redirect(f"{BASE}/settings/account?m=wrong-password")
+
+        # Update password
+        try:
+            lac.update_password(account_id, new_password)
+            audit.request_event(self, session, "account.password_changed", "", {})
+            log.info("Password changed for account %s (%s)", account_id, account['username'])
+            return self.redirect(f"{BASE}/settings/account?m=password-changed")
+        except ValueError as e:
+            return self.redirect(f"{BASE}/settings/account?m=" + urllib.parse.quote(str(e)))
+
+    def confirm_totp_enrollment(self, session: dict, form: dict):
+        """Confirm TOTP enrollment with a valid code."""
+        if session.get("kind") != "local":
+            return self.fail(403, _("No permission"), _("This action is for local accounts only."))
+
+        account_id = int(session.get("sub", "").split(":")[-1])
+        account = lac.get_account(id=account_id)
+        if not account:
+            return self.fail(404, _("Not found"), _("Account not found."))
+
+        code = str(form.get("code", "")).strip()
+        if not code:
+            return self.redirect(f"{BASE}/settings/account/totp/enroll?m=code-required")
+
+        # Confirm TOTP
+        valid = lac.confirm_totp(account_id, code)
+        if not valid:
+            return self.redirect(f"{BASE}/settings/account/totp/enroll?m=invalid-code")
+
+        audit.request_event(self, session, "account.totp_enabled", "", {})
+        log.info("TOTP enabled for account %s (%s)", account_id, account['username'])
+        return self.redirect(f"{BASE}/settings/account?m=totp-enabled")
+
+    def disable_totp_account(self, session: dict, form: dict):
+        """Disable TOTP for the account."""
+        if session.get("kind") != "local":
+            return self.fail(403, _("No permission"), _("This action is for local accounts only."))
+
+        account_id = int(session.get("sub", "").split(":")[-1])
+        account = lac.get_account(id=account_id)
+        if not account:
+            return self.fail(404, _("Not found"), _("Account not found."))
+
+        # Disable TOTP
+        lac.disable_totp(account_id)
+        audit.request_event(self, session, "account.totp_disabled", "", {})
+        log.info("TOTP disabled for account %s (%s)", account_id, account['username'])
+        return self.redirect(f"{BASE}/settings/account?m=totp-disabled")
+
+    def reset_totp_recovery(self, session: dict, form: dict):
+        """Generate new recovery codes."""
+        if session.get("kind") != "local":
+            return self.fail(403, _("No permission"), _("This action is for local accounts only."))
+
+        account_id = int(session.get("sub", "").split(":")[-1])
+        account = lac.get_account(id=account_id)
+        if not account:
+            return self.fail(404, _("Not found"), _("Account not found."))
+
+        if not account.get('totp_confirmed'):
+            return self.redirect(f"{BASE}/settings/account?m=totp-not-enabled")
+
+        # Generate new recovery codes
+        new_codes = lac.reset_recovery_codes(account_id)
+        audit.request_event(self, session, "account.recovery_codes_reset", "", {})
+        log.info("Recovery codes reset for account %s (%s)", account_id, account['username'])
+
+        # Show the new codes to the user
+        return self.send(200, pages.recovery_codes_page(session, CTX, new_codes))
 
     # --- machines ---
     def machine_action(self, session: dict, node_id: str, action: str, form: dict):
@@ -894,14 +1389,55 @@ class Handler(BaseHTTPRequestHandler):
         if not AUTH_ID_RE.fullmatch(auth_id) or user not in {u["name"] for u in hs.all_users()}:
             return self.redirect(f"{BASE}/machines?m=failed")
         try:
-            hs.api("POST", "/auth/register", {"user": user, "authId": auth_id})
+            self.register_auth_id(session, user, auth_id)
         except urllib.error.HTTPError as exc:
-            msg = hs.api_error(exc)
-            log.warning("Auth ID registration rejected: %s", msg)
             return self.send(400, pages.machines_page(session, CTX, to_machines(visible_nodes(session)), True, "",
-                                                      hs.all_users(), error=_("Could not register: {reason}", reason=msg)))
-        audit.request_event(self, session, "machine.register", user, {"user": user, "auth_id": audit.prefix(auth_id)})
+                                                      hs.all_users(), error=_("Could not register: {reason}",
+                                                                              reason=hs.api_error(exc))))
         return self.redirect(f"{BASE}/machines?m=registered")
+
+    def register_auth_id(self, session: dict, user: str, auth_id: str) -> dict:
+        """Register a pending 'tailscale up' (Auth ID) to user; the new node."""
+        try:
+            node = hs.api("POST", "/auth/register", {"user": user, "authId": auth_id}).get("node") or {}
+        except urllib.error.HTTPError as exc:
+            log.warning("Auth ID registration rejected: %s", hs.api_error(exc))
+            raise
+        audit.request_event(self, session, "machine.register", user, {"user": user, "auth_id": audit.prefix(auth_id)})
+        return node
+
+    def register_owner(self, session: dict) -> tuple[list[dict] | None, dict | None]:
+        """(users to choose from, default owner) on the approval page: admins
+        pick any user (their own preselected); members and network admins can
+        only add devices to their own user."""
+        own = my_user(session)
+        return (hs.all_users(), own) if session.get("admin") else (None, own)
+
+    def register_view(self, session: dict, auth_id: str):
+        if is_auditor(session):
+            return self.fail(403, _("No permission"), _("Auditors cannot add devices."))
+        users, owner = self.register_owner(session)
+        self.send(200, pages.register_page(session, CTX, auth_id, users, owner))
+
+    def register_device(self, session: dict, auth_id: str, form: dict):
+        if is_auditor(session):
+            return self.fail(403, _("No permission"), _("Auditors cannot add devices."))
+        users, owner = self.register_owner(session)
+        if users is not None:
+            user = str(form.get("user", ""))
+            if user not in {u["name"] for u in users}:
+                return self.redirect(f"{BASE}/machines?m=failed")
+        elif owner:
+            user = owner["name"]  # never from the form: a member only adds to themselves
+        else:
+            return self.redirect(f"{BASE}/register/{auth_id}")
+        try:
+            node = self.register_auth_id(session, user, auth_id)
+        except urllib.error.HTTPError as exc:
+            return self.send(400, pages.register_page(session, CTX, auth_id, users, owner,
+                                                      error=_("Could not register: {reason}", reason=hs.api_error(exc))))
+        dest = f"{BASE}/machines/{node['id']}" if str(node.get("id", "")).isdigit() else f"{BASE}/machines"
+        return self.redirect(f"{dest}?m=registered")
 
     def remove_inactive(self, session: dict, form: dict):
         """Admin: remove the ticked machines of "Remove inactive machines…".
@@ -1019,7 +1555,9 @@ class Handler(BaseHTTPRequestHandler):
     def users_view(self, session: dict, status: int = 200, flash: str = "", error: str = "",
                    result: dict | None = None):
         users = hs.all_users()
-        # Built-in Authentik: invitations, reset links and accounts without devices
+        # Invitations and accounts data
+        # For now, only show Authentik invitations in the users page
+        # Local accounts invitations will be shown in a separate management page (Phase 1 Block 5)
         data = accounts.page_data(users) if AUTHENTIK else None
         return self.send(status, admin_pages.users_page(session, CTX, users, hs.all_nodes(), flash, error=error,
                                                         accounts=data, result=result))
@@ -1064,13 +1602,42 @@ class Handler(BaseHTTPRequestHandler):
         except urllib.error.HTTPError as exc:
             return self.users_error(session, hs.api_error(exc))
 
-    # --- invitations and password reset links (built-in Authentik, accounts.py) ---
+    # --- invitations and password reset links ---
     def create_invitation(self, session: dict, form: dict):
         role = str(form.get("role", ""))
         email = str(form.get("email", "")).strip()
         days = str(form.get("days", "7"))
         days = days if days in accounts.INVITE_DAYS else "7"
         who = session["username"] or session["name"]
+
+        # Local accounts backend
+        if not AUTHENTIK:
+            try:
+                # Validate role
+                if role not in ('admin', 'network_admin', 'auditor', 'member'):
+                    raise ValueError(f"Invalid role: {role}")
+
+                # Create invitation token
+                expires_hours = int(days) * 24
+                token = lac.create_invitation(email, role=role, expires_hours=expires_hours)
+
+                # Build public link
+                link = f"{PUBLIC_URL}{BASE}/accept/{token}"
+
+                # Calculate expiration
+                from datetime import timedelta
+                expires = (datetime.now(timezone.utc) + timedelta(hours=expires_hours)).isoformat()
+
+                log.info("%s created an invitation (%s, %s, %s days)", who, role, email, days)
+                audit.request_event(self, session, "invite.create", email, {"role": role, "days": days})
+
+                return self.users_view(session, error="", result={
+                    "kind": "invite", "link": link, "expires": expires, "email": email, "sent": False})
+            except (ValueError, Exception) as exc:
+                log.warning("%s tried to create an invitation: %s", who, exc)
+                return self.users_error(session, str(exc))
+
+        # Authentik backend
         try:
             inv = accounts.create_invitation(role, email, int(days), who)
         except accounts.AccountsError as exc:
@@ -1091,6 +1658,17 @@ class Handler(BaseHTTPRequestHandler):
             "kind": "invite", "link": inv["link"], "expires": inv["expires"], "email": inv["email"], "sent": sent})
 
     def revoke_invitation(self, session: dict, pk: str):
+        # Local accounts backend
+        if not AUTHENTIK:
+            # pk is the token_hash for local accounts
+            if lac.revoke_token_by_hash(pk):
+                log.info("%s revoked an invitation", session["username"] or session["name"])
+                audit.request_event(self, session, "invite.revoke", "")
+                return self.redirect(f"{BASE}/users?m=invite-revoked")
+            else:
+                return self.redirect(f"{BASE}/users?m=not-found")
+
+        # Authentik backend
         try:
             inv = accounts.revoke_invitation(pk)
         except accounts.AccountsError as exc:
@@ -1480,10 +2058,73 @@ def _key_expiry_days(form: dict) -> int | None:
     return int(raw)
 
 
+def bootstrap_admin() -> None:
+    """Bootstrap the first admin account on first run.
+
+    If no accounts exist:
+    - If HSE_ADMIN_EMAIL and HSE_ADMIN_PASSWORD are set: create admin account
+    - If HSE_ADMIN_EMAIL is set but not password: create invitation token and log it
+    - Otherwise: do nothing (admin will be created via wizard in Phase 2)
+    """
+    accounts = lac.list_accounts()
+    if accounts:
+        return  # Accounts already exist, nothing to bootstrap
+
+    admin_email = os.environ.get("HSE_ADMIN_EMAIL", "").strip()
+    if not admin_email:
+        log.info("No accounts exist yet. Set HSE_ADMIN_EMAIL to bootstrap the first admin.")
+        return
+
+    admin_password = os.environ.get("HSE_ADMIN_PASSWORD", "").strip()
+
+    if admin_password:
+        # Create admin account with the given credentials
+        username = admin_email.split("@")[0]  # Use email prefix as username
+        try:
+            account_id = lac.create_account(
+                username=username,
+                email=admin_email,
+                password=admin_password,
+                role="admin",
+                headscale_user=username
+            )
+            log.info("✓ Bootstrap: Created admin account '%s' (%s)", username, admin_email)
+
+            # Create corresponding Headscale user
+            try:
+                hs.create_user(username)
+                log.info("✓ Bootstrap: Created Headscale user '%s'", username)
+            except Exception as e:
+                log.warning("Failed to create Headscale user '%s': %s (will retry on first login)", username, e)
+        except Exception as e:
+            log.error("Failed to create bootstrap admin account: %s", e)
+    else:
+        # Create invitation token and log it
+        try:
+            token = lac.create_invitation(email=admin_email, role="admin", expires_hours=168)
+            invite_url = f"{PUBLIC_URL}{BASE}/admin/accept/{token}"
+            log.info("=" * 80)
+            log.info("Bootstrap invitation created for admin: %s", admin_email)
+            log.info("Invitation URL (valid for 7 days):")
+            log.info("")
+            log.info("    %s", invite_url)
+            log.info("")
+            log.info("=" * 80)
+        except Exception as e:
+            log.error("Failed to create bootstrap invitation: %s", e)
+
+
 def main():
     port = int(os.environ.get("PORT", "8000"))
     log.info("Headscale Easy %s listening on :%d (public: %s%s, SSO=%s, API key sign-in=%s%s)",
              VERSION, port, PUBLIC_URL, BASE, SSO, API_KEY_LOGIN, ", DEMO MODE" if DEMO else "")
+
+    # Initialize local accounts database
+    lac.configure(os.environ.get("ACCOUNTS_DB", "/data/console/accounts.db"))
+
+    # Bootstrap first admin if no accounts exist
+    bootstrap_admin()
+
     apikey.start()
     audit.start()
     naming.start()

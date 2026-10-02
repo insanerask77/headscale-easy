@@ -1,0 +1,10 @@
+{
+  "Auditors cannot add devices.": "Auditoren können keine Geräte hinzufügen.",
+  "Add a device": "Gerät hinzufügen",
+  "A device is waiting to join the tailnet. Only approve it if you just ran 'tailscale up' or signed in on that device yourself.": "Ein Gerät wartet darauf, dem Tailnet beizutreten. Genehmige es nur, wenn du gerade selbst 'tailscale up' ausgeführt oder dich auf diesem Gerät angemeldet hast.",
+  "Request": "Anfrage",
+  "Approve device": "Gerät genehmigen",
+  "It will be added to your account, {user}.": "Es wird deinem Konto {user} hinzugefügt.",
+  "Your account has no Headscale user yet, so it cannot own devices. Ask an admin.": "Dein Konto hat noch keinen Headscale-Benutzer und kann daher keine Geräte besitzen. Wende dich an einen Admin.",
+  "Back to Machines": "Zurück zu Maschinen"
+}

@@ -22,7 +22,7 @@ jobs:
           python-version: "3.13"
 
       - name: Python syntax
-        run: python -m py_compile web/*.py helper/*.py scripts/check_i18n.py
+        run: python -m py_compile web/*.py helper/*.py aio/*.py scripts/check_i18n.py
 
       - name: Translations
         run: python scripts/check_i18n.py
@@ -92,3 +92,16 @@ jobs:
           done
           docker logs hse
           exit 1
+
+  aio:
+    # The all-in-one image: build, then headless and setup-mode smoke tests,
+    # and fail above the size / idle-RAM targets (scripts/aio-smoke.sh).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the all-in-one image
+        run: docker build -f aio/Dockerfile -t hse-aio:ci .
+
+      - name: Smoke tests, image size and idle RAM
+        run: ./scripts/aio-smoke.sh hse-aio:ci

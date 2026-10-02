@@ -68,6 +68,7 @@ plugins:
             Architecture and resources: Arquitectura y recursos
             AI usage: Uso de IA
             Getting started: Primeros pasos
+            All-in-one image (preview): Imagen todo en uno (preview)
             Configuration: Configuración
             Operations: Operación
             Project: Proyecto
@@ -83,6 +84,7 @@ nav:
   - Home: index.md
   - Why Headscale Easy?: why.md
   - Getting started: getting-started.md
+  - All-in-one image (preview): all-in-one.md
   - Configuration: configuration.md
   - Operations: operations.md
   - Production and hardening: hardening.md

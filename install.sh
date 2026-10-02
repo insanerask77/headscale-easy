@@ -1130,7 +1130,20 @@ EOF
         AUTHENTIK_ROUTE="    # Authentik disabled (AUTH_PROVIDER=${AUTH_PROVIDER})"
     fi
 
-    export CADDY_DOMAIN CADDY_TLS CADDY_HSTS HEADSCALE_HTTP_PORT HTTP_REDIRECT AUTHENTIK_ROUTE
+    if [[ "$AUTH_PROVIDER" == "none" ]]; then
+        # Without OIDC, 'tailscale up' prints <url>/register/<auth id>: the web
+        # UI signs the person in and approves the device for them.
+        REGISTER_ROUTE=$(cat <<'EOF'
+    # Device sign-in without OIDC: approve it in the web UI
+    @register path_regexp register ^/register/([A-Za-z0-9_:-]+)$
+    redir @register /admin/register/{re.register.1} 302
+EOF
+        )
+    else
+        REGISTER_ROUTE="    # /register/<id>: Headscale sends the device to the OIDC provider"
+    fi
+
+    export CADDY_DOMAIN CADDY_TLS CADDY_HSTS HEADSCALE_HTTP_PORT HTTP_REDIRECT AUTHENTIK_ROUTE REGISTER_ROUTE
     envsubst < "$TEMPLATES_DIR/Caddyfile.tmpl" > "$SCRIPT_DIR/Caddyfile"
     print_success "$(t "Written" "Generado"): Caddyfile"
 }

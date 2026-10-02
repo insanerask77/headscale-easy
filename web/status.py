@@ -25,7 +25,17 @@ RELEASES = {
 }
 CACHE_TTL = 12 * 3600
 FAIL_TTL = 900  # retry a failed lookup sooner
-DISKS = (("data", "/data"), ("headscale", "/headscale"))
+def _disks_from_env(raw: str | None) -> tuple[tuple[str, str], ...]:
+    """STATUS_DISKS='data:/data,headscale:/headscale' -> (("data", "/data"), ...)."""
+    pairs = []
+    for item in (raw or "").split(","):
+        key, sep, path = item.strip().partition(":")
+        if sep and key.strip() and path.strip():
+            pairs.append((key.strip(), path.strip()))
+    return tuple(pairs) or (("data", "/data"), ("headscale", "/headscale"))
+
+
+DISKS = _disks_from_env(os.environ.get("STATUS_DISKS"))
 
 _cache: dict[str, tuple[float, str | None]] = {}
 _lock = threading.Lock()

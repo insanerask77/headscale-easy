@@ -29,8 +29,11 @@ cuenta, para servidores que se unen con claves.
 - **Linux / servidores**: `tailscale up --login-server=https://<tu-dominio>`, o
   con una clave (Ajustes → Claves) para máquinas desatendidas:
   `tailscale up --login-server=https://<tu-dominio> --authkey=<clave>`.
+- **Sin OIDC** (inicio de sesión sólo con API key): el enlace que imprime
+  `tailscale up` (`https://<tu-dominio>/register/…`) abre la consola, que pide
+  iniciar sesión y después aprobar el dispositivo. Los admins eligen el dueño.
 - **Auth ID**: si un dispositivo muestra una URL con un ID de registro, un admin
-  puede aprobarlo con **Añadir dispositivo → Registrar con Auth ID**.
+  también puede aprobarlo con **Añadir dispositivo → Registrar con Auth ID**.
 
 La página **Añadir dispositivo** de la consola muestra los pasos para cada sistema.
 

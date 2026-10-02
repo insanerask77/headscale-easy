@@ -416,10 +416,27 @@
       sync();
     }
   });
+
   document.addEventListener("click", function (ev) {
     var el = ev.target.closest("[data-bulk-clear]");
     if (!el) return;
     items().forEach(function (i) { i.checked = false; });
     sync();
   });
+})();
+
+// ---- Two-factor suggestion: once per browser session ------------------------------
+(function () {
+  var dlg = document.getElementById("nudge-2fa");
+  if (!dlg || !dlg.showModal) return;
+  try { if (sessionStorage.getItem("hse_nudge_2fa")) return; } catch (e) { /* storage blocked: show it */ }
+  dlg.addEventListener("close", function () {
+    try { sessionStorage.setItem("hse_nudge_2fa", "1"); } catch (e) { /* ignore */ }
+  });
+  dlg.querySelectorAll("a").forEach(function (a) {
+    a.addEventListener("click", function () {
+      try { sessionStorage.setItem("hse_nudge_2fa", "1"); } catch (e) { /* ignore */ }
+    });
+  });
+  dlg.showModal();
 })();

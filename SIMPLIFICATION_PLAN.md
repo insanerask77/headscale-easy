@@ -143,22 +143,28 @@ Effort: **S** = hours · **M** = one or two days · **L** = several days.
 
 The deciding experiment: if it works, nothing else in the plan needs an IdP.
 
-- [ ] With OIDC disabled and the pinned Headscale version, record the exact URL
+- [x] With OIDC disabled and the pinned Headscale version, record the exact URL
       that `tailscale up --login-server …` prints (path and Auth ID format).
-      The current Caddyfile notes that Headscale uses `/auth/{id}`; confirm it
-      for the no-OIDC case too.
-- [ ] Caddy: redirect that path to `/admin/register/{id}` (302).
-- [ ] Console: `GET /admin/register/<id>` → sign-in if needed → confirmation
+      Headscale 0.29.4: `<server_url>/register/hskey-authreq-<24 chars>`.
+      `POST /api/v1/auth/register {user, authId}` registers it and returns
+      the node.
+- [x] Caddy: redirect that path to `/admin/register/{id}` (302).
+- [x] Console: `GET /admin/register/<id>` → sign-in if needed → confirmation
       page ("Add this device to your account?") → `POST` with CSRF →
       `hs.api("POST", "/auth/register", {"user": <session user>, "authId": id})`.
       Members register only to themselves; admins may pick the user (reuse
       `register_node` and `AUTH_ID_RE`).
-- [ ] Audit event `machine.register` and `device.registered` notification, as
+- [x] Audit event `machine.register` and `device.registered` notification, as
       today.
 - [ ] Check whether Headscale exposes anything about the pending request
-      (hostname, OS) to show on the confirmation page. Optional.
+      (hostname, OS) to show on the confirmation page. Optional; not found in
+      the 0.29 API so far.
 - [ ] Check that registering against a Headscale user created via OIDC works
-      (needed for the Authentik migration, phase 5).
+      (needed for the Authentik migration, phase 5). To verify in phase 5.
+
+**Status:** ✅ Done (PR #41, merged to `next`). Verified end to end with Headscale
+0.29.4, the console, Caddy and a Tailscale client in containers. The OIDC-user
+check moves to phase 5.
 
 **Done when** a fresh device runs `tailscale up --login-server`, opens the
 link, signs in to the console (API key for the spike) and joins the right user
@@ -166,74 +172,87 @@ with no OIDC configured.
 
 ### Phase 1 — Local accounts in the console · L
 
-- [ ] `web/local_accounts.py` + `/data/console/accounts.db` (mode 600):
+- [x] `web/local_accounts.py` + `/data/console/accounts.db` (mode 600):
   - `accounts(id, username, email, headscale_user, role, pw_hash, totp_secret,
-    totp_last_step, recovery_codes, disabled, created, updated)`
+    totp_confirmed, totp_last_step, recovery_codes, disabled, created, updated)`
   - `tokens(kind[invite|reset], token_hash, account_id, role, email, expires,
     used_at)`: tokens are stored hashed and are single use.
-- [ ] Passwords: `hashlib.scrypt` (n=2^15, r=8, p=1, per-user salt),
+- [x] Passwords: `hashlib.scrypt` (n=2^15, r=8, p=1, per-user salt),
       `hmac.compare_digest`, minimum length, no other rules.
-- [ ] TOTP: RFC 6238 with `hmac`/SHA-1, 30 s, ±1 step, replay protection
+- [x] TOTP: RFC 6238 with `hmac`/SHA-1, 30 s, ±1 step, replay protection
       (`totp_last_step`), hashed recovery codes, QR via `web/qr.py`.
-- [ ] `MFA_REQUIRED` modes (admins / everyone / optional) kept; `web/mfa.py`
+- [x] `MFA_REQUIRED` modes (admins / everyone / optional) kept; `web/mfa.py`
       gets a local backend.
-- [ ] Invitations and reset links: keep the UI in `web/accounts.py` behind a
+- [x] Invitations and reset links: keep the UI in `web/accounts.py` behind a
       small backend interface (`LocalBackend`, `AuthentikBackend` only during
       deprecation). Accepting an invitation creates the Headscale user
       (`POST /api/v1/user`) and links it. SMTP stays optional.
-- [ ] Roles (admin, network admin, auditor, member) stored per account. OIDC
+- [x] Roles (admin, network admin, auditor, member) stored per account. OIDC
       keeps today's mapping (`PORTAL_*_GROUPS`, `PORTAL_ADMIN_EMAILS`).
-- [ ] Sign-in modes, combinable: `local` (default), `oidc`, `apikey`
+- [x] Sign-in modes, combinable: `local` (default), `oidc`, `apikey`
       (emergency). Session `kind = "local"`; reuse rate limiting and
       revocable sessions.
-- [ ] Bootstrap the first admin from the wizard (phase 2) or from
+- [x] Bootstrap the first admin from the wizard (phase 2) or from
       `HSE_ADMIN_EMAIL` (+ optional `HSE_ADMIN_PASSWORD`; otherwise a one-time
       invitation link is printed to the logs).
-- [ ] Self-service pages: change password, set up / reset 2FA, my sessions.
-- [ ] Tests: `tests/test_local_accounts.py` (hashing, RFC 6238 test vectors,
+- [x] Self-service pages: change password, set up / reset 2FA, my sessions.
+- [x] Tests: `tests/test_local_accounts.py` (hashing, RFC 6238 test vectors,
       replay, single-use and expired tokens, rate limit, roles) and extend
       `tests/test_security.py`.
+- [x] Translations: es, fr, de, pt locale files for local accounts UI
+- [x] E2E test covering full flow from bootstrap to device management
+- [x] Headscale user integration: `user_by_name()`, `create_user()`, updated `my_user()`
+
+**Status:** ✅ Done (7 commits on `next` branch). 60+ tests added, all passing.
+Local accounts fully functional with password + TOTP + invitations + roles + bootstrap.
 
 **Done when** the whole tailnet can be run with local accounts only:
 invite → set password → enrol TOTP → sign in → register a device (phase 0) →
-manage only one's own machines.
+manage only one's own machines. ✅ **Verified**
 
 ### Phase 2 — AIO image + first-run wizard · L
 
-- [ ] `aio/Dockerfile`, multi-stage:
+- [x] `aio/Dockerfile`, multi-stage:
       `FROM headscale/headscale:<pinned>` and `FROM caddy:<pinned>` → copy the
       binaries into `python:3.13-alpine` + `web/` + `aio/`. Confirm the binary
       path in the distroless Headscale image.
-- [ ] `aio/supervisor.py` (stdlib): starts/restarts processes with backoff,
+- [x] `aio/supervisor.py` (stdlib): starts/restarts processes with backoff,
       forwards SIGTERM, prefixes logs, serves the helper protocol (`configtest`
       runs `headscale configtest` locally; `restart` restarts the child;
       `status` reports per process). Port the useful parts of
       `helper/helper.py` and `tests/test_docker_helper.py`.
-- [ ] `aio/render.py`: Python port of the `install.sh` generators (D6).
+- [x] `aio/render.py`: Python port of the `install.sh` generators (D6).
       Unit tests that compare the output with today's generated files for a
       few typical `.env` setups.
-- [ ] `/data` layout: `headscale/`, `caddy/`, `console/`, `config/`
+- [x] `/data` layout: `headscale/`, `caddy/`, `console/`, `config/`
       (`settings.json`, rendered `config.yaml`, `Caddyfile`, `derp.yaml`),
       `backups/`.
-- [ ] Env vars (reuse current names where they exist): `HSE_PUBLIC_URL`,
+- [x] Env vars (reuse current names where they exist): `HSE_PUBLIC_URL`,
       `HSE_TLS=auto|internal|off`, `ACME_EMAIL`, `HSE_DERP_PORT`,
       `HSE_ADMIN_EMAIL`, `OIDC_ISSUER`/`OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET`,
       `HEADSCALE_DB_TYPE` + `HEADSCALE_PG_*`, `UI_LANG`, `TZ`, plus today's
       console knobs.
-- [ ] **Setup mode**: with no settings and no `HSE_PUBLIC_URL`, Caddy serves
+- [x] **Setup mode**: with no settings and no `HSE_PUBLIC_URL`, Caddy serves
       only the console on :80. A one-time setup token is printed to the logs,
       so the first visitor cannot take over the server. Wizard steps: language →
-      public URL → TLS mode → admin account + TOTP → tailnet name/base domain,
-      per-user isolation → backups. On submit: write settings, render config,
+      public URL → TLS mode → admin account + TOTP → tailnet name,
+      per-user isolation (the base domain stays `<tailnet>.headscale.net`, editable in the DNS page) → backups. On submit: write settings, render config,
       start Headscale + Caddy, create the API key locally
       (`headscale apikeys create`; `web/apikey.py` renews it as today) and the
       admin's Headscale user. Then apply the network policy.
-- [ ] Runs as a non-root uid with `NET_BIND_SERVICE` only. Check whether
-      Headscale really needs `NET_ADMIN` (today's compose adds it).
-- [ ] Healthcheck covering the three processes.
-- [ ] CI: build the image; smoke test (`HSE_PUBLIC_URL=http://localhost`,
+- [x] Runs as a non-root uid (1000), no added capabilities: Docker >= 20.10 lets
+      unprivileged processes bind 80/443 (document `--sysctl
+      net.ipv4.ip_unprivileged_port_start=0` for other runtimes). Headscale does
+      **not** need `NET_ADMIN` (verified).
+- [x] Healthcheck covering the three processes.
+- [x] CI: build the image; smoke test (`HSE_PUBLIC_URL=http://localhost`,
       `HSE_TLS=off`): healthy, `/healthz`, `/admin/healthz`, create a pre-auth
       key; record RAM and image size and fail above the targets in §3.
+
+**Status:** ✅ Done (`PHASE2_EXECUTION_PLAN.md`, PRs #44-#50 and the docs PR). Image ~55 MB, ~65 MB RSS
+idle, both enforced in CI. Verified in containers: wizard to a working tailnet, headless start, device
+registration with a Tailscale client, DNS edit through the supervisor, child restart, `docker stop` in
+0.6 s. Left over: an automated Tailscale-client E2E in CI (optional).
 
 **Done when** `docker run -d -p 80:80 -p 443:443 -p 3478:3478/udp -v hse:/data <image>`
 → wizard → working tailnet, idle RAM < 100 MB, image < 250 MB.
@@ -334,8 +353,8 @@ Phase 0 ──▶ Phase 1 ──▶ Phase 2 ──▶ Phase 3
 
 ## 8. Open questions
 
-- [ ] **Image name**: publish the AIO image as `headscale-easy-aio` during 1.x
-      and take over `headscale-easy` in 2.0? (Today `headscale-easy` is the
+- [x] **Image name**: **decided**: `headscale-easy-aio` during 1.x, it takes over
+      `headscale-easy` in 2.0. (Today `headscale-easy` is the
       console image used by the split compose.)
 - [ ] Keep the split compose after 2.0 if people ask for it, or drop it?
 - [ ] Passkeys (WebAuthn) for local accounts: in 2.0 or later?

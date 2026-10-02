@@ -169,6 +169,11 @@ class Page(unittest.TestCase):
 
 
 class Disk(unittest.TestCase):
+    def test_disks_from_env(self):
+        self.assertEqual(status._disks_from_env("data:/data, extra:/mnt/x"), (("data", "/data"), ("extra", "/mnt/x")))
+        self.assertEqual(status._disks_from_env(None), (("data", "/data"), ("headscale", "/headscale")))
+        self.assertEqual(status._disks_from_env("junk,:/x,y:"), (("data", "/data"), ("headscale", "/headscale")))
+
     def test_disk_usage(self):
         d = status.disk_usage(tempfile.gettempdir())
         self.assertTrue(0 <= d["percent"] <= 100)
