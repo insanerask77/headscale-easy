@@ -143,7 +143,7 @@ Before starting:
       and document the result.
 - [ ] `HEALTHCHECK` via `hse health`: healthy when the three processes run
       (setup mode: wizard + caddy).
-- [ ] `web/app.py`: `lac.configure(os.environ.get("ACCOUNTS_DB", "/data/console/accounts.db"))`.
+- [x] `web/app.py`: `lac.configure(os.environ.get("ACCOUNTS_DB", "/data/console/accounts.db"))`.
 - [ ] `web/status.py`: configurable disks by env.
 
 **Verify:** `docker build -f aio/Dockerfile -t hse-aio .` and `docker image inspect` < 250 MB.
@@ -255,7 +255,7 @@ Reuse `web/static`, `web/i18n.py`, `web/locales`, the TOTP code and `web/qr.py` 
 
 ### Modified files:
 - [x] `helper/helper.py` (reusable handler with pluggable backends)
-- [ ] `web/app.py` (`ACCOUNTS_DB`)
+- [x] `web/app.py` (`ACCOUNTS_DB`)
 - [ ] `web/status.py` (configurable disks)
 - [ ] `web/locales/*` (wizard strings)
 - [ ] `tests/test_security.py`
