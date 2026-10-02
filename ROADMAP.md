@@ -7,6 +7,21 @@ ships and note the version. Ideas and votes are welcome in
 
 Effort: **S** = hours · **M** = one or two days · **L** = several days.
 
+## 🧭 2.0 — Simplification
+
+One container and one command for the simple case, the same image plus
+external pieces for advanced setups. Details, tasks and acceptance criteria in
+[SIMPLIFICATION_PLAN.md](https://github.com/insanerask77/headscale-easy/blob/main/SIMPLIFICATION_PLAN.md); the work happens on the
+`next` branch (see [CONTRIBUTING.md](https://github.com/insanerask77/headscale-easy/blob/main/CONTRIBUTING.md#branches-and-releases)).
+
+- [ ] **P0. Device sign-in without OIDC** (spike) · S
+- [ ] **P1. Local accounts in the console** (password, TOTP, invitations) · L
+- [ ] **P2. All-in-one image + first-run setup wizard** · L
+- [ ] **P3. Built-in backups** · M
+- [ ] **P4. Advanced edition** (`deploy/compose`, external OIDC/PostgreSQL examples) · M
+- [ ] **P5. Migration from 1.x and deprecations** · M
+- [ ] **P6. Docs and clean-up** · M
+
 ## 🔴 Critical — keeps installations working and safe
 
 - [x] **1. Automatic renewal of the web UI's API key** · S — *1.0.4*
