@@ -141,6 +141,21 @@ socket de Docker, secretos, copias fuera del servidor y actualizaciones.
 | 80 / 443 | TCP | Consola web, plano de control, Let's Encrypt |
 | 3478 | UDP | STUN del relay DERP integrado (debe ser accesible) |
 
+## 🧪 Prueba la imagen todo en uno (preview)
+
+Headscale 2.0 llega como un solo contenedor: Headscale + Caddy + la consola,
+configurado desde el navegador, sin socket de Docker ni instalador. Es una
+preview; el instalador de arriba sigue siendo la forma soportada de usarlo.
+
+```bash
+docker run -d --name headscale-easy -p 80:80 -p 443:443 -p 3478:3478/udp \
+  -v hse:/data ghcr.io/insanerask77/headscale-easy-aio
+docker logs headscale-easy      # el token de configuración de un solo uso
+```
+
+Luego abre `http://<tu-servidor>/admin/setup`. Detalles, variables para el
+arranque sin asistente y límites: [imagen todo en uno](https://insanerask77.github.io/headscale-easy/es/all-in-one/).
+
 ## 🧩 Cómo funciona
 
 Los clientes de Tailscale sólo hablan con Headscale (imagen oficial). Caddy

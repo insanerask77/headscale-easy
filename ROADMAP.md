@@ -16,7 +16,7 @@ external pieces for advanced setups. Details, tasks and acceptance criteria in
 
 - [x] **P0. Device sign-in without OIDC** (spike) · S
 - [x] **P1. Local accounts in the console** (password, TOTP, invitations) · L
-- [ ] **P2. All-in-one image + first-run setup wizard** · L (blocks 1-4 done: render, supervisor, Dockerfile, wizard; CI and docs left)
+- [x] **P2. All-in-one image + first-run setup wizard** · L
 - [ ] **P3. Built-in backups** · M
 - [ ] **P4. Advanced edition** (`deploy/compose`, external OIDC/PostgreSQL examples) · M
 - [ ] **P5. Migration from 1.x and deprecations** · M

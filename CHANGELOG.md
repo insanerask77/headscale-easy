@@ -17,6 +17,24 @@ Work in progress on the `next` branch: see `SIMPLIFICATION_PLAN.md`.
   device through Headscale's API. Members and network admins can only add
   devices to their own user, admins choose the owner, auditors cannot approve.
   Re-run `./install.sh` once to regenerate the Caddyfile.
+- All-in-one image, preview (plan phase 2): `ghcr.io/insanerask77/headscale-easy-aio`
+  runs Headscale, Caddy and the console in one non-root container under a small
+  Python supervisor (restart with backoff, ordered shutdown, the hs-helper
+  protocol on a local socket, `hse health` / `hse reload`). No Docker socket.
+  State lives in one `/data` volume.
+  - First-run wizard: a one-time token in the logs, then language, public URL
+    and HTTPS, administrator with two-factor, tailnet and isolation, backup
+    settings. It creates the API key, the Headscale user and the isolation
+    policy, and can be retried safely. With `HSE_PUBLIC_URL` set the container
+    starts without the wizard (headless).
+  - `aio/render.py` ports the installer's config generators (output verified
+    against `install.sh`).
+  - CI builds the image, smoke-tests both modes and fails above 250 MB or
+    100 MB of idle RAM (about 55 MB and 65 MB today); the image is published
+    next to the others.
+  - `web/status.py` reads its disks from `STATUS_DISKS`.
+  - See `docs/all-in-one.md`. The 1.x installer and the split compose are
+    unchanged.
 
 ## [Unreleased]
 
