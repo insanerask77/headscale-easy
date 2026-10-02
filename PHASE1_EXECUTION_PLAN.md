@@ -268,9 +268,9 @@ Reuse existing `web/accounts.py` UI (invitations table, create form, revoke):
 
 ---
 
-## Block 5: Role management and UI integration (2-3h)
+## Block 5: Role management and UI integration (2-3h) ✅
 
-### 5.1 Roles in local accounts
+### 5.1 Roles in local accounts ✅
 **Files:** `web/local_accounts.py`, `web/app.py`
 
 ```python
@@ -290,7 +290,9 @@ app.py:
 - `test_local_account_role_auditor`
 - `test_local_account_role_member_default`
 
-### 5.2 Combined sign-in modes
+**Verify:** All 10 role tests passing ✅
+
+### 5.2 Combined sign-in modes ✅
 **Files:** `web/app.py`, `web/admin_pages.py`
 
 ```python
@@ -309,7 +311,9 @@ login_page shows:
 - `test_signin_mode_local_and_oidc`
 - `test_signin_mode_apikey_only`
 
-### 5.3 Self-service account pages
+**Verify:** All 5 signin mode tests passing ✅
+
+### 5.3 Self-service account pages ✅
 **Files:** `web/pages.py`, `web/app.py`
 
 ```python
@@ -325,7 +329,7 @@ New routes:
 - `test_user_cannot_change_password_without_old`
 - `test_user_cannot_change_role`
 
-**Verify:** User can change password, set up 2FA, see their sessions
+**Verify:** User can change password, set up 2FA, see their sessions ✅
 
 ---
 
