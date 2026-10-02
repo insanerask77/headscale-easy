@@ -221,8 +221,6 @@ globally. Setup runs over plain HTTP on :80: say so in the docs (Block 6).
 - [ ] Optional: E2E of the Phase 0 device flow with a Tailscale client container
       against the AIO image.
 
----
-
 The smoke tests, size and RAM gates live in `scripts/aio-smoke.sh` (run it locally with
 `./scripts/aio-smoke.sh hse-aio:ci`); measured: 54 MB image, ~64 MB idle RAM.
 
