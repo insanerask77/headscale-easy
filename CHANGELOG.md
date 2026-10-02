@@ -22,9 +22,10 @@ Work in progress on the `next` branch: see `SIMPLIFICATION_PLAN.md`.
   Python supervisor (restart with backoff, ordered shutdown, the hs-helper
   protocol on a local socket, `hse health` / `hse reload`). No Docker socket.
   State lives in one `/data` volume.
-  - First-run wizard: a one-time token in the logs, then language, public URL
-    and HTTPS, administrator with two-factor, tailnet and isolation, backup
-    settings. It creates the API key, the Headscale user and the isolation
+  - First-run wizard (styled like the console): a one-time token in the logs, then
+    language, public URL and HTTPS, administrator, tailnet and isolation, backup
+    settings. Two-factor is optional there; local accounts without it get a
+    popup in the console (once per browser session) suggesting to enable it. It creates the API key, the Headscale user and the isolation
     policy, and can be retried safely. With `HSE_PUBLIC_URL` set the container
     starts without the wizard (headless).
   - `aio/render.py` ports the installer's config generators (output verified

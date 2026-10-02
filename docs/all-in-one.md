@@ -37,12 +37,12 @@ Setup mode starts when there is no `/data/config/settings.json` and no
 3. **Public URL and HTTPS**: automatic (Let's Encrypt, needs a domain and an
    email), internal (self-signed) or none (plain HTTP, or HTTPS handled by a
    proxy in front).
-4. **Administrator**: email, username and password.
-5. **Two-factor**: scan the QR code and confirm a code. The recovery codes are
-   shown once.
-6. **Tailnet name** and whether users are isolated (each user only reaches
+4. **Administrator**: email, username and password. Two-factor is optional
+   here: the console suggests turning it on (a popup after you sign in, once
+   per browser session) and you enable it in **Settings → Account**.
+5. **Tailnet name** and whether users are isolated (each user only reaches
    their own devices).
-7. **Backups**: schedule and retention are stored for the built-in backups
+6. **Backups**: schedule and retention are stored for the built-in backups
    that arrive in a later release.
 
 Finishing creates the Headscale API key, the administrator's Headscale user and

@@ -24,7 +24,6 @@
   "Headscale Easy is starting. Sign in with the administrator account you just created.": "Headscale Easy se está iniciando. Entra con la cuenta de administrador que acabas de crear.",
   "Headscale did not become healthy in time.": "Headscale no estuvo operativo a tiempo.",
   "Headscale stopped on start: {detail}": "Headscale se detuvo al arrancar: {detail}",
-  "I saved them": "Ya los he guardado",
   "Internal certificate (self-signed)": "Certificado interno (autofirmado)",
   "Invalid or expired form. Reload the page.": "Formulario no válido o caducado. Recarga la página.",
   "Invalid settings: {detail}": "Ajustes no válidos: {detail}",
@@ -34,7 +33,6 @@
   "Public URL": "URL pública",
   "Retry": "Reintentar",
   "Review and finish": "Revisar y terminar",
-  "Save these one-time codes somewhere safe. They are the only way in if you lose your authenticator, and they are not shown again.": "Guarda estos códigos de un solo uso en un lugar seguro. Son la única forma de entrar si pierdes tu autenticador y no se vuelven a mostrar.",
   "Scheduled backups arrive in a later release; these values are stored for it.": "Las copias programadas llegarán en una versión posterior; estos valores se guardan para entonces.",
   "See the container logs for details.": "Consulta los logs del contenedor para más detalles.",
   "Server address": "Dirección del servidor",
@@ -44,7 +42,6 @@
   "Setup token": "Token de configuración",
   "Step {n} of {total}": "Paso {n} de {total}",
   "Tailnet name": "Nombre del tailnet",
-  "That code is not valid. Try the next one.": "Ese código no es válido. Prueba con el siguiente.",
   "That token is not valid.": "Ese token no es válido.",
   "The address your devices and browsers will use to reach this server.": "La dirección que usarán tus dispositivos y navegadores para llegar a este servidor.",
   "The passwords do not match.": "Las contraseñas no coinciden.",
@@ -52,6 +49,5 @@
   "Unexpected error: {detail}": "Error inesperado: {detail}",
   "Unlock": "Desbloquear",
   "Wait a minute and try again.": "Espera un minuto e inténtalo de nuevo.",
-  "With automatic certificates the first load can take a few seconds.": "Con certificados automáticos la primera carga puede tardar unos segundos.",
-  "authenticator app QR code": "código QR de la app de autenticación"
+  "With automatic certificates the first load can take a few seconds.": "Con certificados automáticos la primera carga puede tardar unos segundos."
 }

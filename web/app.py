@@ -352,7 +352,15 @@ class Handler(BaseHTTPRequestHandler):
         in the server-side table (sessions.py): revoked ones, and cookies from
         before sessions were revocable (no sid), are rejected."""
         data = unsign(self.cookie("hse_session"))
-        return data if data and sessions.validate(data) else None
+        if not (data and sessions.validate(data)):
+            return None
+        if data.get("kind") == "local":  # live, so the 2FA suggestion goes away once it is enabled
+            try:
+                account = lac.get_account(id=int(str(data.get("sub", "")).split(":")[-1]))
+            except (ValueError, TypeError):
+                account = None
+            data["totp_on"] = bool(account and account.get("totp_confirmed"))
+        return data
 
     def rate_limited(self, bucket: str) -> int:
         """Seconds to wait when this client IP has too many sign-in attempts, else 0

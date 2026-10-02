@@ -162,7 +162,7 @@ class TokenAndRoutingTest(WizardTestBase):
 
     def test_csrf_is_enforced_on_every_post(self):
         self.unlock()
-        for step in ("language", "server", "admin", "totp", "network", "backups", "finish"):
+        for step in ("language", "server", "admin", "network", "backups", "finish"):
             self.assertEqual(self.c.request("/admin/setup/" + step, {"x": "1"})[0], 403, step)
             self.assertEqual(self.c.request("/admin/setup/" + step, {"csrf": "wrong"})[0], 403, step)
         status, _h, _b = self.c.request("/admin/setup", {"token": self.token})
@@ -182,8 +182,9 @@ class TokenAndRoutingTest(WizardTestBase):
         self.unlock()
         status, headers, _b = self.c.request("/admin/setup/finish")
         self.assertEqual((status, headers["Location"]), (303, "/admin/setup/language"))
-        status, headers, _b = self.c.request("/admin/setup/totp")
+        status, headers, _b = self.c.request("/admin/setup/network")
         self.assertEqual(headers["Location"], "/admin/setup/language")
+        self.assertEqual(self.c.request("/admin/setup/totp")[0], 404)  # two-factor is not a wizard step
 
     def test_session_cookie_flags(self):
         _s, headers, _b = self.c.request("/admin/setup")
@@ -242,38 +243,17 @@ class ValidationTest(unittest.TestCase):
 
 
 class FullFlowTest(WizardTestBase):
-    def go_to_totp(self, tls="off", url="http://localhost:8080"):
+    def go_to_network(self, tls="off", url="http://localhost:8080"):
         c = self.unlock()
         self.assertEqual(c.post("/admin/setup/language", {"lang": "es"})[0], 303)
         self.assertEqual(c.post("/admin/setup/server", {"public_url": url, "tls": tls, "acme_email": ""})[0], 303)
         status, headers, _b = c.post("/admin/setup/admin", admin_form("Admin@Example.com", PW1, PW1))
-        self.assertEqual((status, headers["Location"]), (303, "/admin/setup/totp"))
+        self.assertEqual((status, headers["Location"]), (303, "/admin/setup/network"))
         return c
 
-    def confirm_totp(self, c):
-        _s, _h, html = c.request("/admin/setup/totp")
-        account = lac.get_account(email="admin@example.com")
-        self.assertTrue(account["totp_secret"])
-        code = lac.compute_totp(account["totp_secret"])
-        return c.request("/admin/setup/totp", {"code": code, "csrf": c.csrf(html)})
-
-    def test_wrong_totp_code_is_refused(self):
-        c = self.go_to_totp()
-        status, _h, html = c.post("/admin/setup/totp", {"code": "000000"})
-        self.assertEqual(status, 400)
-        self.assertFalse(lac.get_account(email="admin@example.com")["totp_confirmed"])
-        status, headers, _b = c.request("/admin/setup/network")
-        self.assertEqual(headers["Location"], "/admin/setup/totp")  # cannot skip 2FA
-
     def test_full_flow(self):
-        c = self.go_to_totp()
+        c = self.go_to_network()
         self.assertIn("es", [ck.value for ck in c.jar if ck.name == "hse_lang"])
-        status, headers, _b = self.confirm_totp(c)
-        self.assertEqual((status, headers["Location"]), (303, "/admin/setup/recovery"))
-        _s, _h, html = c.request("/admin/setup/recovery")
-        self.assertEqual(len(re.findall(r"<pre>(.*?)</pre>", html, re.S)[0].split()), 8)
-        self.assertEqual(c.post("/admin/setup/recovery", {}, page=html)[0], 303)
-        self.assertEqual(c.request("/admin/setup/recovery")[1]["Location"], "/admin/setup/network")
         self.assertEqual(c.post("/admin/setup/network", {"tailnet_name": "acme", "isolation": "1"})[0], 303)
         self.assertEqual(c.post("/admin/setup/backups", {"backup_schedule": "30 2 * * *", "backup_keep_days": "7"})[0], 303)
         _s, _h, review = c.request("/admin/setup/finish")
@@ -303,9 +283,10 @@ class FullFlowTest(WizardTestBase):
         # Headscale: user created, isolation policy applied (once)
         self.assertEqual(open(os.path.join(self.state, "users")).read().split(), ["admin"])
         self.assertIn("autogroup:self", open(os.path.join(self.state, "policy")).read())
-        # the account: admin, TOTP confirmed, mapped to the Headscale user
+        # the account: admin, no two-factor yet (the console suggests it), mapped to the Headscale user
         account = lac.get_account(email="admin@example.com")
-        self.assertEqual((account["role"], account["totp_confirmed"], account["headscale_user"]), ("admin", 1, "admin"))
+        self.assertEqual((account["role"], account["totp_confirmed"], account["headscale_user"]), ("admin", 0, "admin"))
+        self.assertEqual(saved["mfa_required"], "optional")  # an admin is not forced to enrol at first sign-in
         # the loaded settings are what the supervisor will use
         loaded = render.load_settings({}, path)
         self.assertEqual(loaded["tailnet_name"], "acme")
@@ -316,15 +297,12 @@ class FullFlowTest(WizardTestBase):
         self.assertEqual(c2.request("/admin/setup", {"token": self.token, "csrf": c2.csrf(html)})[0], 403)
 
     def finish_all(self, c, isolation="1"):
-        self.confirm_totp(c)
-        _s, _h, html = c.request("/admin/setup/recovery")
-        c.post("/admin/setup/recovery", {}, page=html)
         c.post("/admin/setup/network", {"tailnet_name": "acme", **({"isolation": "1"} if isolation else {})})
         c.post("/admin/setup/backups", {"backup_schedule": "0 3 * * *", "backup_keep_days": "14"})
         return c.post("/admin/setup/finish", {})
 
     def test_isolation_off_skips_the_policy_and_existing_policy_is_kept(self):
-        c = self.go_to_totp()
+        c = self.go_to_network()
         self.assertEqual(self.finish_all(c, isolation="")[0], 200)
         self.assertFalse(os.path.exists(os.path.join(self.state, "policy")))
         self.assertEqual(json.load(open(os.path.join(self.data, "config", "settings.json")))["network_isolation"],
@@ -333,12 +311,12 @@ class FullFlowTest(WizardTestBase):
     def test_existing_policy_is_not_replaced(self):
         with open(os.path.join(self.state, "policy"), "w") as fh:
             fh.write("custom")
-        c = self.go_to_totp()
+        c = self.go_to_network()
         self.assertEqual(self.finish_all(c)[0], 200)
         self.assertEqual(open(os.path.join(self.state, "policy")).read(), "custom")
 
     def test_finish_failure_can_be_retried_without_duplicates(self):
-        c = self.go_to_totp()
+        c = self.go_to_network()
         # break `users create` once: the fake exits 2 for unknown commands
         broken = open(self.fake).read().replace('elif cmd == "users" and args[1] == "create":',
                                                 'elif cmd == "users" and args[1] == "create" and os.path.exists(os.path.join(state, "break")):\n    sys.exit(1)\nelif cmd == "users" and args[1] == "create":')
@@ -357,19 +335,32 @@ class FullFlowTest(WizardTestBase):
         self.assertEqual(len(lac.list_accounts()), 1)
         self.assertEqual(open(os.path.join(self.state, "calls")).read().count("apikeys"), 1)
 
-    def test_resuming_reuses_the_account_and_totp(self):
-        c = self.go_to_totp()
-        self.confirm_totp(c)
-        secret = lac.get_account(email="admin@example.com")["totp_secret"]
+    def test_resuming_reuses_the_account(self):
+        c = self.go_to_network()
         c2 = self.unlock(Client(self.server.server_address[1]))  # a new browser session, e.g. wizard restarted
         c2.post("/admin/setup/language", {"lang": "en"})
         c2.post("/admin/setup/server", {"public_url": "http://localhost:8080", "tls": "off", "acme_email": ""})
         status, headers, _b = c2.post("/admin/setup/admin", admin_form("admin@example.com", PW2, PW2))
-        self.assertEqual(status, 303)
+        self.assertEqual((status, headers["Location"]), (303, "/admin/setup/network"))
         self.assertEqual(len(lac.list_accounts()), 1)
         self.assertTrue(lac.verify_password(PW2, lac.get_account(email="admin@example.com")["pw_hash"]))
-        self.assertEqual(c2.request("/admin/setup/totp")[1]["Location"], "/admin/setup/network")
-        self.assertEqual(lac.get_account(email="admin@example.com")["totp_secret"], secret)
+
+    def test_pages_use_the_console_components(self):
+        c = self.unlock()
+        pages = [c.request("/admin/setup/language")[2]]
+        c.post("/admin/setup/language", {"lang": "en"})
+        pages.append(c.request("/admin/setup/server")[2])
+        c.post("/admin/setup/server", {"public_url": "http://localhost", "tls": "off", "acme_email": ""})
+        pages.append(c.request("/admin/setup/admin")[2])
+        pages.append(c.request("/admin/setup")[2])  # (redirects: still the card markup is checked below)
+        for html in pages[:3]:
+            self.assertIn('class="card narrow center login setup"', html)
+            self.assertIn("btn wide primary", html)
+            self.assertIn('class="field"', html)
+            self.assertIn('class="setup-steps"', html)
+            self.assertNotIn("login-container", html)  # that class has no CSS
+        token_page = Client(self.server.server_address[1]).request("/admin/setup")[2]
+        self.assertIn('class="card narrow center login setup"', token_page)
 
     def test_invalid_input_keeps_the_step(self):
         c = self.unlock()

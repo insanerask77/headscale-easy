@@ -24,7 +24,6 @@
   "Headscale Easy is starting. Sign in with the administrator account you just created.": "Headscale Easy démarre. Connectez-vous avec le compte administrateur que vous venez de créer.",
   "Headscale did not become healthy in time.": "Headscale n'est pas devenu opérationnel à temps.",
   "Headscale stopped on start: {detail}": "Headscale s'est arrêté au démarrage : {detail}",
-  "I saved them": "Je les ai enregistrés",
   "Internal certificate (self-signed)": "Certificat interne (auto-signé)",
   "Invalid or expired form. Reload the page.": "Formulaire invalide ou expiré. Rechargez la page.",
   "Invalid settings: {detail}": "Paramètres invalides : {detail}",
@@ -34,7 +33,6 @@
   "Public URL": "URL publique",
   "Retry": "Réessayer",
   "Review and finish": "Vérifier et terminer",
-  "Save these one-time codes somewhere safe. They are the only way in if you lose your authenticator, and they are not shown again.": "Conservez ces codes à usage unique en lieu sûr. Ils sont le seul moyen d'accès si vous perdez votre application d'authentification, et ils ne sont plus affichés ensuite.",
   "Scheduled backups arrive in a later release; these values are stored for it.": "Les sauvegardes planifiées arriveront dans une prochaine version ; ces valeurs sont conservées pour elle.",
   "See the container logs for details.": "Consultez les logs du conteneur pour plus de détails.",
   "Server address": "Adresse du serveur",
@@ -44,7 +42,6 @@
   "Setup token": "Jeton de configuration",
   "Step {n} of {total}": "Étape {n} sur {total}",
   "Tailnet name": "Nom du tailnet",
-  "That code is not valid. Try the next one.": "Ce code n'est pas valide. Essayez le suivant.",
   "That token is not valid.": "Ce jeton n'est pas valide.",
   "The address your devices and browsers will use to reach this server.": "L'adresse que vos appareils et navigateurs utiliseront pour joindre ce serveur.",
   "The passwords do not match.": "Les mots de passe ne correspondent pas.",
@@ -52,6 +49,5 @@
   "Unexpected error: {detail}": "Erreur inattendue : {detail}",
   "Unlock": "Déverrouiller",
   "Wait a minute and try again.": "Attendez une minute et réessayez.",
-  "With automatic certificates the first load can take a few seconds.": "Avec les certificats automatiques, le premier chargement peut prendre quelques secondes.",
-  "authenticator app QR code": "code QR de l'application d'authentification"
+  "With automatic certificates the first load can take a few seconds.": "Avec les certificats automatiques, le premier chargement peut prendre quelques secondes."
 }
