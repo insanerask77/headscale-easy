@@ -234,10 +234,14 @@ choose_language() {
     echo -e "${BOLD}Language / Idioma${NC}"
     echo -e "  ${BOLD}1${NC}) English"
     echo -e "  ${BOLD}2${NC}) Español"
+    echo -e "  ${BOLD}3${NC}) Français"
+    echo -e "  ${BOLD}4${NC}) Deutsch"
+    echo -e "  ${BOLD}5${NC}) Português"
     local choice
-    read -r -p "$(echo -e "${CYAN}?${NC} [1-2] [${default_idx}]: ")" choice
+    read -r -p "$(echo -e "${CYAN}?${NC} [1-5] [${default_idx}]: ")" choice
     choice="${choice:-$default_idx}"
-    UI_LANG=$([[ "$choice" == "2" ]] && echo "es" || echo "en")
+    [[ "$choice" =~ ^[1-5]$ ]] || choice=$default_idx
+    UI_LANG="${langs[$((choice - 1))]}"
 }
 
 # ONE deployment shape: Caddy in front of Headscale and the web UI, routing

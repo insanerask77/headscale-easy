@@ -1,0 +1,21 @@
+{
+  "Expires soon": "Expira em breve",
+  "Expiring soon": "Expirando em breve",
+  "Last seen {when}": "Visto por último {when}",
+  "Nothing was removed: none of the selected machines is inactive any more.": "Nada foi removido: nenhuma das máquinas selecionadas está mais inativa.",
+  "Offline for {days}+ days": "Offline há {days}+ dias",
+  "Remove inactive machines": "Remover máquinas inativas",
+  "Remove inactive machines…": "Remover máquinas inativas…",
+  "Remove selected": "Remover selecionadas",
+  "Show only these": "Mostrar somente estas",
+  "The key expires {when}. Sign in again on the device (or disable key expiry) to keep it connected.": "A chave expira {when}. Faça login novamente no dispositivo (ou desative a expiração da chave) para mantê-lo conectado.",
+  "These machines have been offline for more than {days} days. The selected ones are removed from the tailnet; to use one again it has to be connected again.": "Estas máquinas estão offline há mais de {days} dias. As selecionadas são removidas do tailnet; para usar uma novamente, é preciso conectá-la de novo.",
+  "{n} inactive machine removed.": "{n} máquina inativa removida.",
+  "{n} inactive machines removed.": "{n} máquinas inativas removidas.",
+  "{n} machine has been offline for more than {days} days.": "{n} máquina está offline há mais de {days} dias.",
+  "{n} machines have been offline for more than {days} days.": "{n} máquinas estão offline há mais de {days} dias.",
+  "{n} machine expires in the next {days} days.": "{n} máquina expira nos próximos {days} dias.",
+  "{n} machines expire in the next {days} days.": "{n} máquinas expiram nos próximos {days} dias.",
+  "{n} machine has an expired key and cannot connect until it signs in again.": "{n} máquina tem a chave expirada e não consegue se conectar até fazer login novamente.",
+  "{n} machines have an expired key and cannot connect until they sign in again.": "{n} máquinas têm a chave expirada e não conseguem se conectar até fazer login novamente."
+}

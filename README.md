@@ -92,7 +92,7 @@ includes its own console. See the [detailed comparison](https://insanerask77.git
 - 🔐 **HTTPS your way**: Let's Encrypt, self-signed, behind your existing proxy
   (Nginx Proxy Manager, nginx, Traefik, Caddy — the snippet is generated for
   you), or plain HTTP on a LAN.
-- 🌍 **English and Spanish** in the installer and the console (more welcome!).
+- 🌍 **English, Spanish, French, German and Portuguese** in the console (installer: English and Spanish; more welcome!).
 - 💾 **Daily backups** of everything (database, keys, accounts, configuration)
   and a one-command restore, also on a new server.
 - 🪶 **Lightweight**: the console is plain Python standard library, no

@@ -112,7 +112,7 @@ and verifiable comes before new features.
 - [x] **17. PostgreSQL support** for large tailnets instead of SQLite · M — *next*
   Bundled or external PostgreSQL chosen in the installer; the web UI reads it
   with a read-only role through a small stdlib client; backups use `pg_dump`.
-- [ ] **18. More languages**: French, German, Portuguese (the structure is ready) · S each
+- [x] **18. More languages**: French, German, Portuguese · *next*
 - [x] **19. Faster renaming of "localhost" devices**: check every 5 s instead of 30 s · S (*next*)
 
 ## Suggested order

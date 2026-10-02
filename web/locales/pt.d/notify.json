@@ -1,0 +1,16 @@
+{
+  "Device removed": "Dispositivo removido",
+  "Events: {events}": "Eventos: {events}",
+  "Get a message in Slack, Telegram, ntfy or any webhook when a device joins, is removed or its key expires.": "Receba uma mensagem no Slack, Telegram, ntfy ou em qualquer webhook quando um dispositivo entrar, for removido ou tiver a chave expirada.",
+  "Key expired": "Chave expirada",
+  "Key expiring soon": "Chave prestes a expirar",
+  "New device": "Novo dispositivo",
+  "No notification destination is configured: set NOTIFY_URLS in .env.": "Nenhum destino de notificação está configurado: defina NOTIFY_URLS no .env.",
+  "Notifications": "Notificações",
+  "Send a test": "Enviar teste",
+  "Sent a test notification": "Enviou uma notificação de teste",
+  "Set NOTIFY_URLS in .env (or run ./install.sh) and restart the web container.": "Defina NOTIFY_URLS no .env (ou execute ./install.sh) e reinicie o contêiner web.",
+  "Test notification sent to every destination.": "Notificação de teste enviada a todos os destinos.",
+  "The test notification could not be delivered to at least one destination. Check the logs of the web container.": "Não foi possível entregar a notificação de teste a pelo menos um destino. Verifique os logs do contêiner web.",
+  "Webhook notifications": "Notificações por webhook"
+}

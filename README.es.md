@@ -90,7 +90,7 @@ consola. Mira la [comparativa detallada](https://insanerask77.github.io/headscal
 - 🔐 **HTTPS a tu manera**: Let's Encrypt, autofirmado, detrás de tu proxy
   (Nginx Proxy Manager, nginx, Traefik, Caddy: se genera la configuración) o
   HTTP en una LAN.
-- 🌍 **Inglés y español** en el instalador y la consola (¡se aceptan más idiomas!).
+- 🌍 **Inglés, español, francés, alemán y portugués** en la consola (instalador: inglés y español; ¡se aceptan más idiomas!).
 - 💾 **Copias diarias** de todo (base de datos, claves, cuentas, configuración) y
   restauración con un solo comando, también en un servidor nuevo.
 - 🪶 **Ligero**: la consola es Python de la librería estándar, sin compilación,

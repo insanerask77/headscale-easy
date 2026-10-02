@@ -1,0 +1,15 @@
+{
+  "QR code: {label}": "Code QR : {label}",
+  "server URL {url}": "URL du serveur {url}",
+  "Scan it with the phone's camera to get the URL on the phone, then copy it into the app. The Tailscale app cannot read QR codes itself.": "Scannez-le avec l'appareil photo du téléphone pour récupérer l'URL sur le téléphone, puis copiez-la dans l'application. L'application Tailscale ne sait pas lire les codes QR.",
+  "In the Tailscale app, tap the profile icon in the top-right corner, then Log in (or your account, if the app is already signed in to another tailnet).": "Dans l'application Tailscale, touchez l'icône de profil en haut à droite, puis Log in (ou votre compte, si l'application est déjà connectée à un autre tailnet).",
+  "Tap the ⋯ menu in the top-right corner, choose Use a custom coordination server and enter this URL:": "Touchez le menu ⋯ en haut à droite, choisissez Use a custom coordination server et saisissez cette URL :",
+  "Tap the ⋮ menu in the top-right corner, choose Use an alternate server and enter this URL:": "Touchez le menu ⋮ en haut à droite, choisissez Use an alternate server et saisissez cette URL :",
+  "Tap Log in and sign in with your account.": "Touchez Log in et connectez-vous avec votre compte.",
+  "To connect without signing in, set the server first and then choose Use an auth key in the same ⋮ menu, with a key from {link}.": "Pour vous connecter sans vous identifier, définissez d'abord le serveur puis choisissez Use an auth key dans le même menu ⋮, avec une clé de {link}.",
+  "Show as QR codes": "Afficher en codes QR",
+  "auth key": "clé d'authentification",
+  "command to connect a Linux device": "commande pour connecter un appareil Linux",
+  "Linux command": "Commande Linux",
+  "Most phone cameras can copy the text of a QR code. On Android, paste the key in the Tailscale app with Use an auth key (⋮ menu, after setting the server).": "La plupart des appareils photo de téléphone peuvent copier le texte d'un code QR. Sur Android, collez la clé dans l'application Tailscale avec Use an auth key (menu ⋮, après avoir défini le serveur)."
+}
