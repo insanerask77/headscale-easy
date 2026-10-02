@@ -88,40 +88,40 @@ Before starting:
 
 ---
 
-## Block 2: `aio/supervisor.py` (M, ~6-8h)
+## Block 2: `aio/supervisor.py` (M, ~6-8h) ✅ DONE
 
 ### 2.1 Process management
 **Files:** `aio/supervisor.py`
 
-- [ ] Stdlib only, runs under `tini` as PID 1's child.
-- [ ] Start order: render → `headscale serve`, `caddy run --config /data/config/Caddyfile`,
+- [x] Stdlib only, runs under `tini` as PID 1's child.
+- [x] Start order: render → `headscale serve`, `caddy run --config /data/config/Caddyfile`,
       then the console (`python /app/web/app.py` with `console_env()`) **or** the
       wizard when there are no settings and no `HSE_PUBLIC_URL`.
-- [ ] Exponential backoff restart (1 s → 30 s, reset after 60 s healthy).
-- [ ] Log prefixes `[headscale]` / `[caddy]` / `[console]`.
-- [ ] Forward SIGTERM/SIGINT; ordered shutdown (console → caddy → headscale) with timeout.
-- [ ] The console waits for `headscale health` (replaces `depends_on: service_healthy`);
+- [x] Exponential backoff restart (1 s → 30 s, reset after 60 s healthy).
+- [x] Log prefixes `[headscale]` / `[caddy]` / `[console]`.
+- [x] Forward SIGTERM/SIGINT; ordered shutdown (console → caddy → headscale) with timeout.
+- [x] The console waits for `headscale health` (replaces `depends_on: service_healthy`);
       API key read from `/data/console/api-key` (already renewed by `web/apikey.py`)
       and passed as `HEADSCALE_API_KEY`.
 
 ### 2.2 Helper protocol on a local socket
 **Files:** `aio/supervisor.py`, `helper/helper.py`
 
-- [ ] Serve the helper protocol on `/run/hse/helper.sock` (mode 660), reusing
+- [x] Serve the helper protocol on `/run/hse/helper.sock` (mode 660), reusing
       `Handler` / `Server` / `serve()` from `helper/helper.py` (same contract:
       no query, no body, 404/405/400). Refactor the helper to accept a dict of
       backends instead of copying code.
-- [ ] `configtest` → `headscale configtest -c /data/config/config.yaml`.
-- [ ] `restart` → restart the child, wait for `headscale health`.
-- [ ] `status` → `{"api":1,"docker":true,"headscale":{...version},"containers":[one per process]}`
+- [x] `configtest` → `headscale configtest -c /data/config/config.yaml`.
+- [x] `restart` → restart the child, wait for `headscale health`.
+- [x] `status` → `{"api":1,"docker":true,"headscale":{...version},"containers":[one per process]}`
       (`docker: true` so `web/headscale.py:415` treats the backend as available).
-- [ ] `hse` control CLI: `hse reload` (re-render + restart Caddy/Headscale), `hse health`.
+- [x] `hse` control CLI: `hse reload` (re-render + restart Caddy/Headscale), `hse health`.
 
 ### 2.3 Tests
 **Files:** `tests/test_supervisor.py`
 
-- [ ] Fake children (`python -c ...`): restart, backoff, signals, ordered stop.
-- [ ] Socket contract ported from `tests/test_docker_helper.py`
+- [x] Fake children (`python -c ...`): restart, backoff, signals, ordered stop.
+- [x] Socket contract ported from `tests/test_docker_helper.py`
       (`HelperTest`, `WebClientTest`) against the supervisor.
 
 **Verify:** `python3 -m unittest tests.test_supervisor tests.test_docker_helper`
@@ -246,15 +246,15 @@ Reuse `web/static`, `web/i18n.py`, `web/locales`, the TOTP code and `web/qr.py` 
 
 ### New files:
 - [ ] `aio/Dockerfile`
-- [ ] `aio/supervisor.py`
+- [x] `aio/supervisor.py`
 - [x] `aio/render.py`
 - [ ] `aio/wizard.py`
-- [ ] `aio/hse` (CLI: `reload`, `health`)
-- [ ] `tests/test_render.py` ✅, `tests/test_supervisor.py`, `tests/test_wizard.py`
+- [x] `aio/hse` (CLI: `reload`, `health`)
+- [ ] `tests/test_render.py` ✅, `tests/test_supervisor.py` ✅, `tests/test_wizard.py`
 - [x] `tests/fixtures/render/*` (+ `scripts/gen_render_goldens.sh`)
 
 ### Modified files:
-- [ ] `helper/helper.py` (reusable handler with pluggable backends)
+- [x] `helper/helper.py` (reusable handler with pluggable backends)
 - [ ] `web/app.py` (`ACCOUNTS_DB`)
 - [ ] `web/status.py` (configurable disks)
 - [ ] `web/locales/*` (wizard strings)

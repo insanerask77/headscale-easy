@@ -1,0 +1,639 @@
+"""aio/supervisor.py: process management and the helper protocol on a local socket.
+
+Real child processes, but fake ``headscale`` / ``caddy`` / console executables
+(small Python scripts) so nothing needs to be installed:
+
+- restart with exponential backoff (reset after a healthy run), log prefixes;
+- SIGTERM stops everything in order (console -> caddy -> headscale);
+- the console waits for ``headscale health`` and gets the API key;
+- setup mode (no settings): wizard + caddy only, then run mode when the wizard exits 0;
+- the helper contract (tests/test_docker_helper.py) served by the supervisor.
+
+    python3 -m unittest tests.test_supervisor
+"""
+import json
+import os
+import signal
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from unittest import mock
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "tests"))
+from aio import supervisor as sup  # noqa: E402
+from test_docker_helper import call  # noqa: E402
+
+SHORT_TMP = "/tmp" if os.path.isdir("/tmp") else None
+
+FAKE_HEADSCALE = """#!%(py)s
+import json, os, signal, sys, time
+args = sys.argv[1:]
+cmd = args[0]
+if cmd == "version":
+    print("headscale version v0.26.1")
+    sys.exit(0)
+cfg = args[args.index("-c") + 1]
+state = os.path.join(os.path.dirname(os.path.dirname(cfg)), "fake")
+def flag(name):
+    return os.path.exists(os.path.join(state, name))
+def log(name, text):
+    with open(os.path.join(state, name), "a") as fh:
+        fh.write(text + "\\n")
+if cmd == "serve":
+    log("serves", str(os.getpid()))
+    open(os.path.join(state, "up"), "w").close()
+    def term(*_):
+        log("stops", "headscale")
+        try:
+            os.unlink(os.path.join(state, "up"))
+        except OSError:
+            pass
+        sys.exit(0)
+    signal.signal(signal.SIGTERM, term)
+    print("headscale serving", flush=True)
+    while True:
+        time.sleep(0.05)
+elif cmd == "health":
+    sys.exit(0 if flag("up") and not flag("health_block") else 1)
+elif cmd == "configtest":
+    if flag("configtest_fail"):
+        print("bad config")
+        sys.exit(1)
+    print("Config OK")
+elif cmd == "apikeys":
+    log("apikeys", " ".join(args))
+    print("hskey-fake.abc")
+else:
+    sys.exit(2)
+"""
+
+FAKE_CADDY = """#!%(py)s
+import json, os, signal, sys, time
+cfg = sys.argv[sys.argv.index("--config") + 1]
+state = os.path.join(os.path.dirname(os.path.dirname(cfg)), "fake")
+with open(os.path.join(state, "caddy_env.json"), "w") as fh:
+    json.dump(dict(os.environ), fh)
+with open(os.path.join(state, "caddy_starts"), "a") as fh:
+    fh.write(str(os.getpid()) + "\\n")
+def term(*_):
+    with open(os.path.join(state, "stops"), "a") as fh:
+        fh.write("caddy\\n")
+    sys.exit(0)
+signal.signal(signal.SIGTERM, term)
+print("caddy serving", flush=True)
+while True:
+    time.sleep(0.05)
+"""
+
+FAKE_CONSOLE = """import json, os, signal, sys, time
+state = os.path.join(os.path.dirname(os.path.dirname(os.environ["SESSIONS_DB"])), "fake")
+with open(os.path.join(state, "console_env.json"), "w") as fh:
+    json.dump(dict(os.environ), fh)
+with open(os.path.join(state, "console_starts"), "a") as fh:
+    fh.write("up" if os.path.exists(os.path.join(state, "up")) else "headscale-down")
+    fh.write("\\n")
+def term(*_):
+    with open(os.path.join(state, "stops"), "a") as fh:
+        fh.write("console\\n")
+    sys.exit(0)
+signal.signal(signal.SIGTERM, term)
+print("console serving", flush=True)
+while True:
+    time.sleep(0.05)
+"""
+
+# The wizard of setup mode: writes the settings the real one would, then exits 0
+FAKE_WIZARD = """import json, os, sys, time
+data = os.environ["HSE_DATA_DIR"]
+print("wizard up", flush=True)
+delay = os.path.join(data, "fake", "wizard_delay")
+time.sleep(float(open(delay).read()) if os.path.exists(delay) else 3600)
+with open(os.path.join(data, "config", "settings.json"), "w") as fh:
+    json.dump({"public_url": "http://localhost", "tls": "off"}, fh)
+sys.exit(0)
+"""
+
+
+def wait_for(cond, timeout=10.0, step=0.02):
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        value = cond()
+        if value:
+            return value
+        time.sleep(step)
+    return cond()
+
+
+class Fakes:
+    """Fake executables in a temp dir, plus the data dir they share."""
+
+    def __init__(self, tmp):
+        self.bin = os.path.join(tmp, "bin")
+        self.data = os.path.join(tmp, "data")
+        self.run = tempfile.mkdtemp(prefix="hse", dir=SHORT_TMP)
+        os.makedirs(self.bin)
+        os.makedirs(os.path.join(self.data, "fake"))
+        for name, body in (("headscale", FAKE_HEADSCALE), ("caddy", FAKE_CADDY)):
+            self.write(os.path.join(self.bin, name), body % {"py": sys.executable}, 0o755)
+        self.console = self.write(os.path.join(self.bin, "console.py"), FAKE_CONSOLE)
+        self.wizard = self.write(os.path.join(self.bin, "wizard.py"), FAKE_WIZARD)
+
+    @staticmethod
+    def write(path, body, mode=0o644):
+        with open(path, "w") as fh:
+            fh.write(body)
+        os.chmod(path, mode)
+        return path
+
+    @property
+    def state(self):
+        return os.path.join(self.data, "fake")
+
+    def flag(self, name, on=True):
+        path = os.path.join(self.state, name)
+        if on:
+            open(path, "w").close()
+        elif os.path.exists(path):
+            os.unlink(path)
+
+    def lines(self, name):
+        try:
+            with open(os.path.join(self.state, name)) as fh:
+                return fh.read().splitlines()
+        except OSError:
+            return []
+
+    def json(self, name):
+        with open(os.path.join(self.state, name)) as fh:
+            return json.load(fh)
+
+    def env(self, **extra):
+        env = {"PATH": os.environ["PATH"], "HSE_HEADSCALE_BIN": os.path.join(self.bin, "headscale"),
+               "HSE_CADDY_BIN": os.path.join(self.bin, "caddy"), "HSE_CONSOLE_APP": self.console,
+               "HSE_WIZARD_APP": self.wizard, "HSE_DATA_DIR": self.data, "HSE_RUN_DIR": self.run,
+               "HSE_TEMPLATES_DIR": os.path.join(ROOT, "templates"), "HSE_START_TIMEOUT": "10"}
+        env.update(extra)
+        return env
+
+
+class FakeCase(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(dir=SHORT_TMP)
+        self.addCleanup(self.tmp.cleanup)
+        self.fakes = Fakes(self.tmp.name)
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.fakes.run, ignore_errors=True))
+
+
+# --- Child: restart, backoff, signals ---------------------------------------------------
+
+def py(code):
+    return [sys.executable, "-c", code]
+
+
+class ChildTest(unittest.TestCase):
+    def child(self, argv, **kw):
+        self.lines = []
+        opts = dict(backoff_min=0.05, backoff_max=0.2, healthy_after=5, sink=self.lines.append, stop_timeout=1)
+        opts.update(kw)
+        child = sup.Child("fake", argv, None, **opts)
+        self.addCleanup(child.stop)
+        return child
+
+    def delays(self):
+        return [float(ln.split(" in ")[1].rstrip("s")) for ln in self.lines if "restarting fake in" in ln]
+
+    def test_output_gets_a_prefix(self):
+        child = self.child(py("print('hello', flush=True); import time; time.sleep(30)"))
+        child.start()
+        self.assertTrue(wait_for(lambda: "[fake] hello" in self.lines))
+
+    def test_crashing_child_is_restarted_with_exponential_backoff(self):
+        child = self.child(py("import sys; sys.exit(3)"))
+        child.start()
+        self.assertTrue(wait_for(lambda: len(self.delays()) >= 5))
+        self.assertEqual(self.delays()[:5], [0.05, 0.1, 0.2, 0.2, 0.2])  # capped at the maximum
+        self.assertEqual(child.last_exit, 3)
+        self.assertGreaterEqual(child.starts, 5)
+        self.assertTrue(any("exited with code 3" in ln for ln in self.lines))
+
+    def test_backoff_resets_after_a_healthy_run(self):
+        child = self.child(py("import time; time.sleep(0.3)"), healthy_after=0.2)
+        child.start()
+        self.assertTrue(wait_for(lambda: len(self.delays()) >= 3))
+        self.assertEqual(self.delays()[:3], [0.05, 0.05, 0.05])
+
+    def test_unstartable_command_is_retried(self):
+        child = self.child(["/nonexistent/binary"])
+        child.start()
+        self.assertTrue(wait_for(lambda: len(self.delays()) >= 2))
+        self.assertTrue(any("could not start" in ln for ln in self.lines))
+
+    def test_failing_prepare_counts_as_a_failure(self):
+        calls = []
+
+        def prepare():
+            calls.append(1)
+            raise RuntimeError("not ready")
+
+        self.lines = []
+        child = sup.Child("fake", prepare=prepare, backoff_min=0.05, backoff_max=0.1, sink=self.lines.append)
+        self.addCleanup(child.stop)
+        child.start()
+        self.assertTrue(wait_for(lambda: len(calls) >= 3))
+        self.assertEqual(child.starts, 0)
+
+    def test_stop_sends_sigterm_and_does_not_restart(self):
+        child = self.child(py(
+            "import signal, sys, time\n"
+            "signal.signal(signal.SIGTERM, lambda *_: (print('got term', flush=True), sys.exit(0)))\n"
+            "print('ready', flush=True)\ntime.sleep(30)"))
+        child.start()
+        self.assertTrue(wait_for(lambda: "[fake] ready" in self.lines))
+        child.stop()
+        self.assertIn("[fake] got term", self.lines)
+        self.assertFalse(child.running)
+        self.assertEqual(child.state, "stopped")
+        time.sleep(0.3)
+        self.assertEqual(child.starts, 1)
+
+    def test_stop_kills_a_child_that_ignores_sigterm(self):
+        child = self.child(py(
+            "import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+            "print('ready', flush=True)\ntime.sleep(30)"), stop_timeout=0.3)
+        child.start()
+        self.assertTrue(wait_for(lambda: "[fake] ready" in self.lines))
+        started = time.monotonic()
+        child.stop()
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertFalse(child.running)
+        self.assertTrue(any("killing it" in ln for ln in self.lines))
+
+    def test_stop_reaches_grandchildren(self):
+        # the child leads its own process group, so a shell's children die with it
+        child = self.child(["/bin/sh", "-c", "sleep 30 & echo $! ; wait"])
+        child.start()
+        pid = int(wait_for(lambda: next((ln.split()[1] for ln in self.lines if ln.startswith("[fake] ")
+                                         and ln.split()[1].isdigit()), None)))
+        child.stop()
+        self.assertTrue(wait_for(lambda: not os.path.exists("/proc/%d" % pid) or
+                                 open("/proc/%d/stat" % pid).read().split()[2] == "Z"))
+
+    def test_restart_starts_a_new_process_without_backoff(self):
+        child = self.child(py("import time; time.sleep(30)"), backoff_min=5, backoff_max=5)
+        child.start()
+        first = wait_for(lambda: child.pid)
+        child.restart()
+        second = wait_for(lambda: child.pid not in (None, first) and child.pid, timeout=3)
+        self.assertTrue(second)
+        self.assertEqual(child.starts, 2)
+
+    def test_on_exit_can_end_supervision(self):
+        child = self.child(py("import sys; sys.exit(0)"), on_exit=lambda code: code == 0)
+        child.start()
+        self.assertTrue(wait_for(lambda: child.state == "done"))
+        self.assertEqual(child.starts, 1)
+
+
+# --- Supervisor in-process ---------------------------------------------------------------
+
+class SupervisorMixin:
+    def make(self, **env):
+        env = {"HSE_PUBLIC_URL": "http://localhost", "HSE_TLS": "off", **env}
+        patches = [mock.patch.object(sup, "HEADSCALE_BIN", os.path.join(self.fakes.bin, "headscale")),
+                   mock.patch.object(sup, "CADDY_BIN", os.path.join(self.fakes.bin, "caddy")),
+                   mock.patch.object(sup, "CONSOLE_CMD", [sys.executable, self.fakes.console]),
+                   mock.patch.object(sup, "WIZARD_CMD", [sys.executable, self.fakes.wizard]),
+                   mock.patch.object(sup, "START_TIMEOUT", 10.0),
+                   mock.patch.object(sup.render, "TEMPLATES_DIR", os.path.join(ROOT, "templates"))]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        lines = []
+        s = sup.Supervisor(data_dir=self.fakes.data, env={"PATH": os.environ["PATH"], **env}, sink=lines.append,
+                           run_dir=self.fakes.run,
+                           backoff={"backoff_min": 0.05, "backoff_max": 0.2, "healthy_after": 5},
+                           stop_timeouts={"console": 2, "wizard": 2, "caddy": 2, "headscale": 2})
+        s.lines = lines
+        s.serve_helper()
+        self.addCleanup(s.shutdown)
+        return s
+
+
+class SupervisorTest(SupervisorMixin, FakeCase):
+    def test_mode_detection(self):
+        self.assertEqual(self.make().detect_mode(), "run")
+        self.assertEqual(self.make(HSE_PUBLIC_URL="").detect_mode(), "setup")
+
+    def test_mode_from_settings_json(self):
+        s = self.make(HSE_PUBLIC_URL="")
+        os.makedirs(os.path.join(self.fakes.data, "config"))
+        with open(s.paths["settings"], "w") as fh:
+            json.dump({"public_url": "http://localhost", "tls": "off"}, fh)
+        self.assertEqual(s.detect_mode(), "run")
+
+    def test_run_mode_starts_the_three_processes_and_the_data_layout(self):
+        s = self.make()
+        s.start_children()
+        self.assertEqual(s.mode, "run")
+        self.assertTrue(wait_for(lambda: all(c.running for c in s.children.values()) and len(s.children) == 3))
+        self.assertEqual(sorted(s.children), ["caddy", "console", "headscale"])
+        for sub in ("headscale", "caddy/logs", "console", "config", "backups"):
+            path = os.path.join(self.fakes.data, sub)
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o700, sub)
+        for name in ("config.yaml", "Caddyfile", "derp.yaml"):
+            self.assertEqual(os.stat(os.path.join(self.fakes.data, "config", name)).st_mode & 0o777, 0o600)
+
+    def test_logs_have_prefixes(self):
+        s = self.make()
+        s.start_children()
+        for line in ("[headscale] headscale serving", "[caddy] caddy serving", "[console] console serving"):
+            self.assertTrue(wait_for(lambda: line in s.lines), line)
+
+    def test_console_waits_for_headscale_health_and_gets_the_api_key(self):
+        self.fakes.flag("health_block")
+        s = self.make()
+        s.start_children()
+        self.assertTrue(wait_for(lambda: s.children["headscale"].running))
+        time.sleep(0.6)
+        self.assertEqual(self.fakes.lines("console_starts"), [])  # still waiting
+        self.fakes.flag("health_block", False)
+        self.assertTrue(wait_for(lambda: self.fakes.lines("console_starts")))
+        self.assertEqual(self.fakes.lines("console_starts"), ["up"])
+        env = self.fakes.json("console_env.json")
+        self.assertEqual(env["HEADSCALE_API_KEY"], "hskey-fake.abc")
+        key = os.path.join(self.fakes.data, "console", "api-key")
+        self.assertEqual(open(key).read().strip(), "hskey-fake.abc")
+        self.assertEqual(os.stat(key).st_mode & 0o777, 0o600)
+        self.assertEqual(self.fakes.lines("apikeys"), ["apikeys create --expiration 90d -c %s/config/config.yaml"
+                                                       % self.fakes.data])
+
+    def test_existing_api_key_is_kept(self):
+        os.makedirs(os.path.join(self.fakes.data, "console"))
+        with open(os.path.join(self.fakes.data, "console", "api-key"), "w") as fh:
+            fh.write("hskey-renewed.xyz\n")
+        s = self.make()
+        s.start_children()
+        self.assertTrue(wait_for(lambda: self.fakes.lines("console_starts")))
+        self.assertEqual(self.fakes.json("console_env.json")["HEADSCALE_API_KEY"], "hskey-renewed.xyz")
+        self.assertEqual(self.fakes.lines("apikeys"), [])
+
+    def test_console_environment(self):
+        s = self.make(HSE_ADMIN_EMAIL="admin@example.com", HSE_ADMIN_PASSWORD="fake-password",
+                      OIDC_ISSUER="https://idp.example.com", OIDC_CLIENT_ID="hs", OIDC_CLIENT_SECRET="fake-secret")
+        s.start_children()
+        self.assertTrue(wait_for(lambda: self.fakes.lines("console_starts")))
+        env = self.fakes.json("console_env.json")
+        self.assertEqual(env["PUBLIC_URL"], "http://localhost")
+        self.assertEqual(env["HSE_ADMIN_PASSWORD"], "fake-password")
+        self.assertEqual(env["HELPER_SOCKET"], "/run/hse/helper.sock")
+        self.assertEqual(env["ACCOUNTS_DB"], self.fakes.data + "/console/accounts.db")
+        self.assertGreaterEqual(len(env["SESSION_SECRET"]), 32)
+        # the generated secret is persisted, so sessions survive a restart
+        path = os.path.join(self.fakes.data, "config", "session-secret")
+        self.assertEqual(open(path).read().strip(), env["SESSION_SECRET"])
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+
+    def test_caddy_and_headscale_do_not_get_the_console_secrets(self):
+        s = self.make(HSE_ADMIN_PASSWORD="fake-password", OIDC_CLIENT_SECRET="fake-secret",
+                      OIDC_ISSUER="https://idp.example.com", OIDC_CLIENT_ID="hs")
+        s.start_children()
+        self.assertTrue(wait_for(lambda: self.fakes.lines("caddy_starts")))
+        env = self.fakes.json("caddy_env.json")
+        self.assertNotIn("HSE_ADMIN_PASSWORD", env)
+        self.assertNotIn("OIDC_CLIENT_SECRET", env)
+        self.assertEqual(env["XDG_DATA_HOME"], self.fakes.data + "/caddy")
+
+    def test_killed_child_is_restarted(self):
+        s = self.make()
+        s.start_children()
+        self.assertTrue(wait_for(lambda: s.children["headscale"].pid))
+        first = s.children["headscale"].pid
+        os.kill(first, signal.SIGKILL)
+        self.assertTrue(wait_for(lambda: s.children["headscale"].pid not in (None, first)))
+        self.assertTrue(any("headscale exited with code -9" in ln for ln in s.lines))
+
+    def test_ordered_stop(self):
+        s = self.make()
+        s.start_children()
+        self.assertTrue(wait_for(lambda: self.fakes.lines("console_starts") and s.children["caddy"].running))
+        s.stop_children()
+        self.assertEqual(self.fakes.lines("stops"), ["console", "caddy", "headscale"])
+        self.assertFalse(any(c.running for c in s.children.values()))
+
+    def test_setup_mode_runs_wizard_and_caddy_only(self):
+        s = self.make(HSE_PUBLIC_URL="")
+        s.start_children()
+        self.assertEqual(s.mode, "setup")
+        self.assertTrue(wait_for(lambda: all(c.running for c in s.children.values())))
+        self.assertEqual(sorted(s.children), ["caddy", "wizard"])
+        self.assertIn(":80 {", open(os.path.join(self.fakes.data, "config", "Caddyfile")).read())
+        self.assertIn("127.0.0.1:8000", open(os.path.join(self.fakes.data, "config", "Caddyfile")).read())
+        self.assertEqual(self.fakes.lines("serves"), [])  # no headscale yet
+
+    def test_wizard_finishing_switches_to_run_mode(self):
+        s = self.make(HSE_PUBLIC_URL="")
+        with open(os.path.join(self.fakes.state, "wizard_delay"), "w") as fh:
+            fh.write("0.3")
+        s.start_children()
+        self.assertTrue(wait_for(lambda: s.mode == "run" and "console" in s.children and
+                                 self.fakes.lines("console_starts"), timeout=15))
+        self.assertEqual(sorted(s.children), ["caddy", "console", "headscale"])
+        self.assertIn("reverse_proxy 127.0.0.1:8080", open(os.path.join(self.fakes.data, "config", "Caddyfile")).read())
+
+    def test_invalid_settings_stop_the_start(self):
+        s = self.make(HSE_PUBLIC_URL="https://localhost", HSE_TLS="auto")
+        with self.assertRaises(ValueError):
+            s.start_children()
+
+
+# --- The helper contract, served by the supervisor ----------------------------------------
+
+class HelperSocketTest(SupervisorMixin, FakeCase):
+    def setUp(self):
+        super().setUp()
+        self.s = self.make()
+        self.s.start_children()
+        self.assertTrue(wait_for(lambda: self.s.children["headscale"].running and
+                                 self.fakes.lines("console_starts")))
+        self.sock = self.s.helper_socket
+
+    def req(self, method, target, **kw):
+        return call(self.sock, method, target, **kw)
+
+    def test_socket_is_not_world_accessible(self):
+        self.assertEqual(os.stat(self.sock).st_mode & 0o777, 0o660)
+
+    def test_unknown_paths_are_404(self):
+        for path in ("/", "/exec", "/containers/json", "/configtest/", "/status/x", "/reload", "/../etc/passwd"):
+            with self.subTest(path=path):
+                self.assertEqual(self.req("GET", path)[0], 404)
+
+    def test_wrong_methods_are_405(self):
+        for method, path, allow in (("GET", "/configtest", "POST"), ("GET", "/restart", "POST"),
+                                    ("POST", "/status", "GET"), ("DELETE", "/status", "GET")):
+            with self.subTest(method=method, path=path):
+                code, headers, _ = self.req(method, path)
+                self.assertEqual(code, 405)
+                self.assertEqual(headers.get("Allow"), allow)
+
+    def test_query_strings_and_bodies_are_refused(self):
+        self.assertEqual(self.req("GET", "/status?x=1")[0], 400)
+        self.assertEqual(self.req("POST", "/restart?t=0")[0], 400)
+        self.assertEqual(self.req("POST", "/configtest", body=b'{"cmd": "sh"}',
+                                  headers={"Content-Type": "application/json"})[0], 400)
+        self.assertEqual(self.fakes.lines("stops"), [])
+
+    def test_configtest_ok_and_failure(self):
+        code, _, data = self.req("POST", "/configtest")
+        self.assertEqual((code, data), (200, {"ok": True, "output": "Config OK"}))
+        self.fakes.flag("configtest_fail")
+        code, _, data = self.req("POST", "/configtest")
+        self.assertEqual((code, data["ok"], data["output"]), (200, False, "bad config"))
+
+    def test_restart_restarts_headscale_and_waits_for_health(self):
+        first = self.s.children["headscale"].pid
+        code, _, data = self.req("POST", "/restart")
+        self.assertEqual((code, data), (200, {"ok": True}))
+        self.assertNotEqual(self.s.children["headscale"].pid, first)
+        self.assertTrue(self.s.headscale_healthy(fresh=True))
+
+    def test_restart_reports_unhealthy(self):
+        with mock.patch.object(sup, "RESTART_WAIT", 1.0):
+            self.fakes.flag("health_block")
+            code, _, data = self.req("POST", "/restart")
+        self.assertEqual(code, 200)
+        self.assertFalse(data["ok"])
+        self.assertIn("healthy", data["error"])
+
+    def test_status_contract(self):
+        code, _, data = self.req("GET", "/status")
+        self.assertEqual(code, 200)
+        self.assertEqual(data["api"], 1)
+        self.assertTrue(data["docker"])  # web/headscale.py treats this backend as available
+        self.assertEqual(data["mode"], "run")
+        self.assertEqual(data["headscale"]["version"], "v0.26.1")
+        rows = {r["name"]: r for r in data["containers"]}
+        self.assertEqual(sorted(rows), ["caddy", "console", "headscale"])
+        for row in rows.values():
+            self.assertEqual(sorted(row), ["health", "image", "name", "service", "state", "status"])
+            self.assertEqual(row["state"], "running")
+        self.assertEqual(rows["headscale"]["health"], "healthy")
+
+    def test_status_after_a_crash(self):
+        os.kill(self.s.children["console"].pid, signal.SIGKILL)
+        self.s.children["console"].backoff_min = 5  # keep it down for a moment
+        self.assertTrue(wait_for(lambda: not self.s.children["console"].running))
+        rows = {r["name"]: r for r in self.req("GET", "/status")[2]["containers"]}
+        self.assertNotEqual(rows["console"]["state"], "running")
+
+    def test_the_console_client_uses_it(self):
+        sys.path.insert(0, os.path.join(ROOT, "web"))
+        os.environ.update(HEADSCALE_API_KEY="x", PUBLIC_URL="https://vpn.example.com", SESSION_SECRET="s")
+        import headscale as hs
+        with mock.patch.object(hs, "HELPER_SOCKET", self.sock):
+            self.assertTrue(hs.docker_available())
+            self.assertEqual(hs.headscale_configtest(), (True, "Config OK"))
+            self.assertTrue(hs.restart_headscale(wait=5))
+            status = hs.helper_status()
+        self.assertEqual({c["name"] for c in status["containers"]}, {"caddy", "console", "headscale"})
+
+
+# --- The real thing: a supervisor process and signals ---------------------------------------
+
+class ProcessTest(FakeCase):
+    def launch(self, **extra):
+        env = self.fakes.env(**{"HSE_PUBLIC_URL": "http://localhost", "HSE_TLS": "off", **extra})
+        proc = subprocess.Popen([sys.executable, os.path.join(ROOT, "aio", "supervisor.py")], env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        self.addCleanup(lambda: proc.poll() is None and proc.kill())
+        self.out = []
+        threading.Thread(target=lambda: [self.out.append(ln.rstrip()) for ln in proc.stdout], daemon=True).start()
+        return proc
+
+    def up(self):
+        return wait_for(lambda: self.fakes.lines("console_starts") and self.fakes.lines("caddy_starts"), timeout=15)
+
+    def test_sigterm_stops_everything_in_order_and_quickly(self):
+        proc = self.launch()
+        self.assertTrue(self.up())
+        started = time.monotonic()
+        proc.send_signal(signal.SIGTERM)
+        self.assertEqual(proc.wait(10), 0)
+        self.assertLess(time.monotonic() - started, 8)  # docker stop gives 10 s
+        self.assertEqual(self.fakes.lines("stops"), ["console", "caddy", "headscale"])
+        self.assertFalse(os.path.exists(os.path.join(self.fakes.run, "helper.sock")))
+
+    def test_sigint_also_stops(self):
+        proc = self.launch()
+        self.assertTrue(self.up())
+        proc.send_signal(signal.SIGINT)
+        self.assertEqual(proc.wait(10), 0)
+        self.assertEqual(self.fakes.lines("stops"), ["console", "caddy", "headscale"])
+
+    def test_sighup_reloads_caddy_and_headscale(self):
+        proc = self.launch()
+        self.assertTrue(self.up())
+        first_hs = self.fakes.lines("serves")
+        first_caddy = self.fakes.lines("caddy_starts")
+        proc.send_signal(signal.SIGHUP)
+        self.assertTrue(wait_for(lambda: len(self.fakes.lines("serves")) > len(first_hs) and
+                                 len(self.fakes.lines("caddy_starts")) > len(first_caddy)))
+        self.assertTrue(wait_for(lambda: "[supervisor] reload done" in self.out))
+        proc.send_signal(signal.SIGTERM)
+        self.assertEqual(proc.wait(10), 0)
+
+    def test_reload_with_a_bad_config_keeps_headscale_running(self):
+        proc = self.launch()
+        self.assertTrue(self.up())
+        first_hs = self.fakes.lines("serves")
+        self.fakes.flag("configtest_fail")
+        proc.send_signal(signal.SIGHUP)
+        self.assertTrue(wait_for(lambda: "[supervisor] reload done" in self.out))
+        self.assertEqual(self.fakes.lines("serves"), first_hs)
+        self.assertTrue(any("configtest failed" in ln for ln in self.out))
+        proc.send_signal(signal.SIGTERM)
+        proc.wait(10)
+
+    def test_invalid_configuration_exits_with_a_message(self):
+        proc = self.launch(HSE_TLS="auto", HSE_PUBLIC_URL="https://localhost")
+        self.assertEqual(proc.wait(10), 2)
+        self.assertTrue(wait_for(lambda: any("invalid configuration" in ln for ln in self.out)))
+
+    def test_hse_cli(self):
+        proc = self.launch()
+        self.assertTrue(self.up())
+        hse = os.path.join(ROOT, "aio", "hse")
+        env = {"PATH": os.environ["PATH"], "HSE_RUN_DIR": self.fakes.run}
+        res = subprocess.run([sys.executable, hse, "health"], env=env, capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("healthy (run mode)", res.stdout)
+        first = self.fakes.lines("serves")
+        res = subprocess.run([sys.executable, hse, "reload"], env=env, capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertTrue(wait_for(lambda: len(self.fakes.lines("serves")) > len(first)))
+        self.assertEqual(subprocess.run([sys.executable, hse], env=env, capture_output=True).returncode, 2)
+        proc.send_signal(signal.SIGTERM)
+        proc.wait(10)
+        res = subprocess.run([sys.executable, hse, "health"], env=env, capture_output=True, text=True)
+        self.assertEqual(res.returncode, 1)  # supervisor gone
+
+    def test_hse_health_in_setup_mode(self):
+        proc = self.launch(HSE_PUBLIC_URL="")
+        self.assertTrue(wait_for(lambda: "[wizard] wizard up" in self.out and self.fakes.lines("caddy_starts"),
+                                 timeout=15))
+        hse = os.path.join(ROOT, "aio", "hse")
+        env = {"PATH": os.environ["PATH"], "HSE_RUN_DIR": self.fakes.run}
+        res = wait_for(lambda: (lambda r: r if r.returncode == 0 else None)(
+            subprocess.run([sys.executable, hse, "health"], env=env, capture_output=True, text=True)))
+        self.assertIn("healthy (setup mode): caddy, wizard", res.stdout)
+        proc.send_signal(signal.SIGTERM)
+        self.assertEqual(proc.wait(10), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
