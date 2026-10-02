@@ -212,40 +212,46 @@ manage only one's own machines. ✅ **Verified**
 
 ### Phase 2 — AIO image + first-run wizard · L
 
-- [ ] `aio/Dockerfile`, multi-stage:
+- [x] `aio/Dockerfile`, multi-stage:
       `FROM headscale/headscale:<pinned>` and `FROM caddy:<pinned>` → copy the
       binaries into `python:3.13-alpine` + `web/` + `aio/`. Confirm the binary
       path in the distroless Headscale image.
-- [ ] `aio/supervisor.py` (stdlib): starts/restarts processes with backoff,
+- [x] `aio/supervisor.py` (stdlib): starts/restarts processes with backoff,
       forwards SIGTERM, prefixes logs, serves the helper protocol (`configtest`
       runs `headscale configtest` locally; `restart` restarts the child;
       `status` reports per process). Port the useful parts of
       `helper/helper.py` and `tests/test_docker_helper.py`.
-- [ ] `aio/render.py`: Python port of the `install.sh` generators (D6).
+- [x] `aio/render.py`: Python port of the `install.sh` generators (D6).
       Unit tests that compare the output with today's generated files for a
       few typical `.env` setups.
-- [ ] `/data` layout: `headscale/`, `caddy/`, `console/`, `config/`
+- [x] `/data` layout: `headscale/`, `caddy/`, `console/`, `config/`
       (`settings.json`, rendered `config.yaml`, `Caddyfile`, `derp.yaml`),
       `backups/`.
-- [ ] Env vars (reuse current names where they exist): `HSE_PUBLIC_URL`,
+- [x] Env vars (reuse current names where they exist): `HSE_PUBLIC_URL`,
       `HSE_TLS=auto|internal|off`, `ACME_EMAIL`, `HSE_DERP_PORT`,
       `HSE_ADMIN_EMAIL`, `OIDC_ISSUER`/`OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET`,
       `HEADSCALE_DB_TYPE` + `HEADSCALE_PG_*`, `UI_LANG`, `TZ`, plus today's
       console knobs.
-- [ ] **Setup mode**: with no settings and no `HSE_PUBLIC_URL`, Caddy serves
+- [x] **Setup mode**: with no settings and no `HSE_PUBLIC_URL`, Caddy serves
       only the console on :80. A one-time setup token is printed to the logs,
       so the first visitor cannot take over the server. Wizard steps: language →
-      public URL → TLS mode → admin account + TOTP → tailnet name/base domain,
-      per-user isolation → backups. On submit: write settings, render config,
+      public URL → TLS mode → admin account + TOTP → tailnet name,
+      per-user isolation (the base domain stays `<tailnet>.headscale.net`, editable in the DNS page) → backups. On submit: write settings, render config,
       start Headscale + Caddy, create the API key locally
       (`headscale apikeys create`; `web/apikey.py` renews it as today) and the
       admin's Headscale user. Then apply the network policy.
-- [ ] Runs as a non-root uid with `NET_BIND_SERVICE` only. Check whether
-      Headscale really needs `NET_ADMIN` (today's compose adds it).
-- [ ] Healthcheck covering the three processes.
+- [x] Runs as a non-root uid (1000), no added capabilities: Docker >= 20.10 lets
+      unprivileged processes bind 80/443 (document `--sysctl
+      net.ipv4.ip_unprivileged_port_start=0` for other runtimes). Headscale does
+      **not** need `NET_ADMIN` (verified).
+- [x] Healthcheck covering the three processes.
 - [ ] CI: build the image; smoke test (`HSE_PUBLIC_URL=http://localhost`,
       `HSE_TLS=off`): healthy, `/healthz`, `/admin/healthz`, create a pre-auth
       key; record RAM and image size and fail above the targets in §3.
+
+**Status:** blocks 1-4 of `PHASE2_EXECUTION_PLAN.md` are done: renderer, supervisor,
+Dockerfile (image ~55 MB, ~67 MiB RSS idle in run mode) and the setup wizard (PR #48).
+Left: CI smoke test and size/RAM gates plus publishing (block 5), docs (block 6).
 
 **Done when** `docker run -d -p 80:80 -p 443:443 -p 3478:3478/udp -v hse:/data <image>`
 → wizard → working tailnet, idle RAM < 100 MB, image < 250 MB.
