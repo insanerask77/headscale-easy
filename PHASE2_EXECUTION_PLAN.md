@@ -1,5 +1,7 @@
 # Phase 2 Execution Plan — AIO Image + First-run Wizard
 
+**Status:** ✅ Done (blocks 1-6). Left over: the optional automated Tailscale-client E2E in CI.
+
 Detailed implementation plan for SIMPLIFICATION_PLAN.md Phase 2.  
 **Estimated effort:** L (several days)  
 **Goal:** One container (`headscale-easy-aio`) running Headscale + Caddy + the
@@ -226,51 +228,53 @@ The smoke tests, size and RAM gates live in `scripts/aio-smoke.sh` (run it local
 
 ---
 
-## Block 6: Docs and close-out (S, ~2h)
+## Block 6: Docs and close-out (S, ~2h) ✅ DONE
 
-- [ ] `docs/` page and a short README section "Try the all-in-one image (preview)".
-- [ ] `CHANGELOG.md` entry under [2.0.0] - Unreleased.
-- [ ] Tick Phase 2 in `SIMPLIFICATION_PLAN.md` and P2 in `ROADMAP.md`; resolve the
+- [x] `docs/` page and a short README section "Try the all-in-one image (preview)".
+- [x] `CHANGELOG.md` entry under [2.0.0] - Unreleased.
+- [x] Tick Phase 2 in `SIMPLIFICATION_PLAN.md` and P2 in `ROADMAP.md`; resolve the
       image-name open question in §8.
 
 ---
 
 ## Acceptance criteria (Phase 2 done when):
 
-- [ ] All unit tests pass, `check_i18n.py` passes
-- [ ] `docker run -d -p 80:80 -p 443:443 -p 3478:3478/udp -v hse:/data <image>`
+- [x] All unit tests pass, `check_i18n.py` passes
+- [x] `docker run -d -p 80:80 -p 443:443 -p 3478:3478/udp -v hse:/data <image>`
       → wizard → working tailnet
-- [ ] Headless start with env vars works (no wizard)
-- [ ] Wizard cannot be taken over without the log token
-- [ ] Device registration flow (Phase 0) works against the AIO image
-- [ ] Killing a child process: the supervisor restarts it; `docker stop` < 10 s
-- [ ] DNS edit in the console → configtest + restart through the supervisor socket
-- [ ] Idle RAM < 100 MB, image < 250 MB (enforced in CI)
-- [ ] No Docker socket anywhere; container runs as non-root
-- [ ] 1.x compose and `install.sh` unchanged and still working
-- [ ] CHANGELOG, ROADMAP and docs updated
+- [x] Headless start with env vars works (no wizard)
+- [x] Wizard cannot be taken over without the log token
+- [x] Device registration flow (Phase 0) works against the AIO image (a `tailscale/tailscale`
+      container, userspace mode: Caddy redirect → console approval → node in Machines; checked by hand,
+      not automated in CI)
+- [x] Killing a child process: the supervisor restarts it; `docker stop` < 10 s (0.57 s measured)
+- [x] DNS edit in the console → configtest + restart through the supervisor socket
+- [x] Idle RAM < 100 MB, image < 250 MB (enforced in CI)
+- [x] No Docker socket anywhere; container runs as non-root
+- [x] 1.x compose and `install.sh` unchanged and still working
+- [x] CHANGELOG, ROADMAP and docs updated
 
 ---
 
 ## Files created/modified (checklist):
 
 ### New files:
-- [ ] `aio/Dockerfile`
+- [x] `aio/Dockerfile`
 - [x] `aio/supervisor.py`
 - [x] `aio/render.py`
-- [ ] `aio/wizard.py`
+- [x] `aio/wizard.py`
 - [x] `aio/hse` (CLI: `reload`, `health`)
-- [ ] `tests/test_render.py` ✅, `tests/test_supervisor.py` ✅, `tests/test_wizard.py`
+- [x] `tests/test_render.py` ✅, `tests/test_supervisor.py` ✅, `tests/test_wizard.py`
 - [x] `tests/fixtures/render/*` (+ `scripts/gen_render_goldens.sh`)
 
 ### Modified files:
 - [x] `helper/helper.py` (reusable handler with pluggable backends)
 - [x] `web/app.py` (`ACCOUNTS_DB`)
-- [ ] `web/status.py` (configurable disks)
-- [ ] `web/locales/*` (wizard strings)
-- [ ] `tests/test_security.py`
-- [ ] `.github/workflows/ci.yml`, `docker.yml`, `docker-dev.yml`
-- [ ] `docs/`, `README.md`, `README.es.md`, `CHANGELOG.md`, `ROADMAP.md`, `SIMPLIFICATION_PLAN.md`
+- [x] `web/status.py` (configurable disks)
+- [x] `web/locales/*` (wizard strings)
+- [x] `tests/test_security.py`
+- [x] `.github/workflows/ci.yml`, `docker.yml`, `docker-dev.yml`, `scripts/aio-smoke.sh`
+- [x] `docs/`, `README.md`, `README.es.md`, `CHANGELOG.md`, `ROADMAP.md`, `SIMPLIFICATION_PLAN.md`
 
 ---
 

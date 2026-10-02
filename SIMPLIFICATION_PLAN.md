@@ -245,13 +245,14 @@ manage only one's own machines. ✅ **Verified**
       net.ipv4.ip_unprivileged_port_start=0` for other runtimes). Headscale does
       **not** need `NET_ADMIN` (verified).
 - [x] Healthcheck covering the three processes.
-- [ ] CI: build the image; smoke test (`HSE_PUBLIC_URL=http://localhost`,
+- [x] CI: build the image; smoke test (`HSE_PUBLIC_URL=http://localhost`,
       `HSE_TLS=off`): healthy, `/healthz`, `/admin/healthz`, create a pre-auth
       key; record RAM and image size and fail above the targets in §3.
 
-**Status:** blocks 1-4 of `PHASE2_EXECUTION_PLAN.md` are done: renderer, supervisor,
-Dockerfile (image ~55 MB, ~67 MiB RSS idle in run mode) and the setup wizard (PR #48).
-Left: CI smoke test and size/RAM gates plus publishing (block 5), docs (block 6).
+**Status:** ✅ Done (`PHASE2_EXECUTION_PLAN.md`, PRs #44-#50 and the docs PR). Image ~55 MB, ~65 MB RSS
+idle, both enforced in CI. Verified in containers: wizard to a working tailnet, headless start, device
+registration with a Tailscale client, DNS edit through the supervisor, child restart, `docker stop` in
+0.6 s. Left over: an automated Tailscale-client E2E in CI (optional).
 
 **Done when** `docker run -d -p 80:80 -p 443:443 -p 3478:3478/udp -v hse:/data <image>`
 → wizard → working tailnet, idle RAM < 100 MB, image < 250 MB.
@@ -352,8 +353,8 @@ Phase 0 ──▶ Phase 1 ──▶ Phase 2 ──▶ Phase 3
 
 ## 8. Open questions
 
-- [ ] **Image name**: publish the AIO image as `headscale-easy-aio` during 1.x
-      and take over `headscale-easy` in 2.0? (Today `headscale-easy` is the
+- [x] **Image name**: **decided**: `headscale-easy-aio` during 1.x, it takes over
+      `headscale-easy` in 2.0. (Today `headscale-easy` is the
       console image used by the split compose.)
 - [ ] Keep the split compose after 2.0 if people ask for it, or drop it?
 - [ ] Passkeys (WebAuthn) for local accounts: in 2.0 or later?
