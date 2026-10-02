@@ -128,25 +128,27 @@ Before starting:
 
 ---
 
-## Block 3: `aio/Dockerfile` and `/data` layout (M, ~4-6h)
+## Block 3: `aio/Dockerfile` and `/data` layout (M, ~4-6h) ✅ DONE
 
-- [ ] Multi-stage: `FROM headscale/headscale:0.29.4` and a pinned
-      `FROM caddy:<x.y.z>-alpine` → `python:3.13-alpine` + `tini` + `web/` + `aio/` +
+- [x] Multi-stage: `FROM headscale/headscale:0.29.4` and a pinned
+      `FROM caddy:2.11.4-alpine` → `python:3.13-alpine` + `tini` + `web/` + `aio/` +
       `templates/`. OCI labels as in `web/Dockerfile`.
-- [ ] `/data` layout: `headscale/` (db, keys, socket), `caddy/` (certs, logs),
+- [x] `/data` layout: `headscale/` (db, keys, socket), `caddy/` (certs, logs),
       `console/` (accounts/sessions/audit DBs, api-key, mfa-required),
       `config/` (settings.json, config.yaml, Caddyfile, derp.yaml, setup-token),
       `backups/`. The supervisor creates them (700 dirs / 600 files).
-- [ ] Non-root (uid 1000). Ports 80/443 without capabilities: Docker ≥ 20.10 sets
+- [x] Non-root (uid 1000). Ports 80/443 without capabilities: Docker ≥ 20.10 sets
       `net.ipv4.ip_unprivileged_port_start=0`; document `--sysctl` for other runtimes.
-- [ ] Verify whether Headscale really needs `NET_ADMIN` (today's compose adds it)
-      and document the result.
-- [ ] `HEALTHCHECK` via `hse health`: healthy when the three processes run
-      (setup mode: wizard + caddy).
+- [x] Verify whether Headscale really needs `NET_ADMIN` (today's compose adds it)
+      and document the result. **Result:** it does not. The image runs as uid 1000 with
+      Docker's default capability set (no `--cap-add`) and Headscale, Caddy (:80) and the
+      console all start healthy; Headscale only coordinates, it does not touch interfaces.
+- [x] `HEALTHCHECK` via `hse health`: healthy when the three processes run
+      (setup mode: wizard + caddy; the wizard lands in Block 4).
 - [x] `web/app.py`: `lac.configure(os.environ.get("ACCOUNTS_DB", "/data/console/accounts.db"))`.
-- [ ] `web/status.py`: configurable disks by env.
+- [x] `web/status.py`: configurable disks by env.
 
-**Verify:** `docker build -f aio/Dockerfile -t hse-aio .` and `docker image inspect` < 250 MB.
+**Verify:** `docker build -f aio/Dockerfile -t hse-aio .` and `docker image inspect` < 250 MB (measured: ~55 MB; ~67 MiB RSS idle in run mode).
 
 ---
 
