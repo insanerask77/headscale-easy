@@ -17,7 +17,7 @@ Before starting:
 
 ## Block 1: Database and core models (2-3h)
 
-### 1.1 Create `web/local_accounts.py` skeleton
+### 1.1 Create `web/local_accounts.py` skeleton ✅
 **Files:** `web/local_accounts.py`
 
 ```python
@@ -118,9 +118,9 @@ admin_pages.py:
 
 ---
 
-## Block 3: TOTP (4-5h)
+## Block 3: TOTP (4-5h) ✅
 
-### 3.1 TOTP core functions
+### 3.1 TOTP core functions ✅
 **Files:** `web/local_accounts.py`
 
 ```python
@@ -144,9 +144,9 @@ admin_pages.py:
 - `test_recovery_code_verification`
 - `test_recovery_code_single_use`
 
-**Verify:** RFC test vectors pass, replay protection works
+**Verify:** RFC test vectors pass, replay protection works ✅
 
-### 3.2 TOTP enrollment in accounts
+### 3.2 TOTP enrollment in accounts ✅
 **Files:** `web/local_accounts.py`
 
 ```python
@@ -166,7 +166,7 @@ admin_pages.py:
 - `test_disable_totp`
 - `test_reset_recovery_codes`
 
-### 3.3 TOTP UI pages
+### 3.3 TOTP UI pages ✅
 **Files:** `web/pages.py`, `web/app.py`
 
 ```python
@@ -195,7 +195,7 @@ app.py:
 - `test_signin_with_totp_wrong_code`
 - `test_recovery_code_signin`
 
-**Verify:** Can enroll TOTP, sign in with it, use recovery code
+**Verify:** Can enroll TOTP, sign in with it, use recovery code ✅
 
 ---
 
