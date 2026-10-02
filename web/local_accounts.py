@@ -331,45 +331,287 @@ def delete_account(account_id: int) -> None:
         db.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
 
 
-# TOTP functions (Block 3)
+# -----------------------------------------------------------------------------
+# TOTP functions (Block 3.1)
+# -----------------------------------------------------------------------------
+
 def generate_totp_secret() -> str:
-    raise NotImplementedError("Block 3")
+    """Generate a random TOTP secret (160 bits, base32-encoded)."""
+    import base64
+    # 160 bits = 20 bytes
+    random_bytes = secrets.token_bytes(20)
+    # base32 encode (no padding needed for 20 bytes)
+    return base64.b32encode(random_bytes).decode('ascii')
 
 
 def compute_totp(secret: str, timestamp: int | None = None) -> str:
-    raise NotImplementedError("Block 3")
+    """Compute a 6-digit TOTP code for the given secret and timestamp.
+
+    Implements RFC 6238 (TOTP: Time-Based One-Time Password Algorithm).
+
+    Args:
+        secret: base32-encoded secret key
+        timestamp: Unix timestamp (defaults to current time)
+
+    Returns:
+        6-digit TOTP code as a string
+    """
+    import base64
+    import struct
+
+    if timestamp is None:
+        timestamp = int(time.time())
+
+    # Step 1: Compute time step (T = floor(Unix_time / X))
+    step = timestamp // TOTP_PERIOD
+
+    # Step 2: Decode secret from base32
+    try:
+        key = base64.b32decode(secret, casefold=True)
+    except Exception:
+        raise ValueError("Invalid base32 secret")
+
+    # Step 3: Compute HOTP (HMAC-based One-Time Password)
+    # Counter is the time step, encoded as 8-byte big-endian integer
+    counter_bytes = struct.pack('>Q', step)
+
+    # HMAC-SHA1
+    hmac_digest = hmac.new(key, counter_bytes, hashlib.sha1).digest()
+
+    # Step 4: Dynamic truncation (extract 4 bytes)
+    offset = hmac_digest[-1] & 0x0f
+    code_bytes = hmac_digest[offset:offset + 4]
+    code_int = struct.unpack('>I', code_bytes)[0]
+
+    # Step 5: Strip the most significant bit and compute modulo 10^6
+    code_int &= 0x7fffffff
+    code = code_int % (10 ** TOTP_DIGITS)
+
+    # Step 6: Return as zero-padded string
+    return str(code).zfill(TOTP_DIGITS)
 
 
 def verify_totp(secret: str, code: str, last_step: int | None = None) -> tuple[bool, int]:
-    raise NotImplementedError("Block 3")
+    """Verify a TOTP code with ±1 step window and replay protection.
+
+    Args:
+        secret: base32-encoded secret key
+        code: 6-digit code to verify
+        last_step: the last time step that was used (for replay protection)
+
+    Returns:
+        (valid, new_step) where:
+            - valid: True if code is correct and not replayed
+            - new_step: the step that was used (save this to prevent replay)
+    """
+    if not code or not code.isdigit() or len(code) != TOTP_DIGITS:
+        return (False, last_step or 0)
+
+    current_time = int(time.time())
+    current_step = current_time // TOTP_PERIOD
+
+    # Try current step and ±TOTP_WINDOW steps
+    for offset in range(-TOTP_WINDOW, TOTP_WINDOW + 1):
+        test_step = current_step + offset
+
+        # Replay protection: don't accept a step we've already used
+        if last_step is not None and test_step <= last_step:
+            continue
+
+        # Compute TOTP for this step
+        test_timestamp = test_step * TOTP_PERIOD
+        expected_code = compute_totp(secret, test_timestamp)
+
+        # Constant-time comparison
+        if hmac.compare_digest(code, expected_code):
+            return (True, test_step)
+
+    return (False, last_step or current_step)
 
 
 def generate_recovery_codes(n: int = 8) -> list[str]:
-    raise NotImplementedError("Block 3")
+    """Generate n random recovery codes (8 characters each, alphanumeric)."""
+    codes = []
+    # Use alphanumeric characters (uppercase, easy to read)
+    # Avoid ambiguous characters: 0, O, 1, I, l
+    alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+
+    for _ in range(n):
+        # 8 characters from the alphabet
+        code = ''.join(secrets.choice(alphabet) for _ in range(8))
+        codes.append(code)
+
+    return codes
 
 
 def hash_recovery_codes(codes: list[str]) -> str:
-    raise NotImplementedError("Block 3")
+    """Hash a list of recovery codes. Returns newline-separated hashes."""
+    hashes = []
+    for code in codes:
+        # SHA-256 hash of each code
+        code_hash = hashlib.sha256(code.encode('utf-8')).hexdigest()
+        hashes.append(code_hash)
+
+    return '\n'.join(hashes)
 
 
 def verify_recovery_code(hashed: str, code: str) -> tuple[bool, str]:
-    raise NotImplementedError("Block 3")
+    """Verify a recovery code and remove it from the list (single-use).
 
+    Args:
+        hashed: newline-separated hashes of remaining codes
+        code: code to verify
+
+    Returns:
+        (valid, remaining) where:
+            - valid: True if code matched one of the hashes
+            - remaining: newline-separated hashes with the used code removed
+    """
+    if not hashed or not code:
+        return (False, hashed)
+
+    code_hash = hashlib.sha256(code.upper().encode('utf-8')).hexdigest()
+    hashes = hashed.split('\n')
+
+    # Check if the code hash exists
+    if code_hash in hashes:
+        # Remove the used hash
+        hashes.remove(code_hash)
+        remaining = '\n'.join(hashes)
+        return (True, remaining)
+
+    return (False, hashed)
+
+
+# -----------------------------------------------------------------------------
+# TOTP enrollment (Block 3.2)
+# -----------------------------------------------------------------------------
 
 def enroll_totp(account_id: int) -> tuple[str, str]:
-    raise NotImplementedError("Block 3")
+    """Start TOTP enrollment for an account. Generates a secret and QR data.
+
+    The secret is stored in the account but not yet confirmed (totp_confirmed=0).
+    User must call confirm_totp() with a valid code to activate TOTP.
+
+    Returns:
+        (secret, qr_data) where:
+            - secret: base32-encoded secret (for manual entry)
+            - qr_data: otpauth:// URL for QR code generation
+    """
+    account = get_account(id=account_id)
+    if not account:
+        raise ValueError(f"Account {account_id} not found")
+
+    # Generate a new secret
+    secret = generate_totp_secret()
+
+    # Store it in the account (not yet confirmed)
+    now = _now()
+    with _db() as db:
+        db.execute(
+            """UPDATE accounts
+               SET totp_secret = ?, totp_confirmed = 0, totp_last_step = NULL, updated = ?
+               WHERE id = ?""",
+            (secret, now, account_id)
+        )
+
+    # Generate otpauth:// URL for QR code
+    # Format: otpauth://totp/Issuer:username?secret=SECRET&issuer=Issuer
+    import urllib.parse
+    issuer = "Tailscale Console"
+    username = account['username']
+    label = f"{issuer}:{username}"
+
+    qr_data = (
+        f"otpauth://totp/{urllib.parse.quote(label)}"
+        f"?secret={secret}"
+        f"&issuer={urllib.parse.quote(issuer)}"
+        f"&digits={TOTP_DIGITS}"
+        f"&period={TOTP_PERIOD}"
+    )
+
+    return (secret, qr_data)
 
 
 def confirm_totp(account_id: int, code: str) -> bool:
-    raise NotImplementedError("Block 3")
+    """Confirm TOTP enrollment by verifying a code.
+
+    If the code is valid, marks TOTP as confirmed and generates recovery codes.
+
+    Returns:
+        True if code was valid and TOTP is now active
+    """
+    account = get_account(id=account_id)
+    if not account:
+        raise ValueError(f"Account {account_id} not found")
+
+    secret = account.get('totp_secret')
+    if not secret:
+        raise ValueError("TOTP not enrolled for this account")
+
+    # Verify the code (no replay protection needed during enrollment)
+    valid, new_step = verify_totp(secret, code, last_step=None)
+
+    if not valid:
+        return False
+
+    # Mark as confirmed and generate recovery codes
+    recovery_codes = generate_recovery_codes(8)
+    recovery_hashed = hash_recovery_codes(recovery_codes)
+
+    now = _now()
+    with _db() as db:
+        db.execute(
+            """UPDATE accounts
+               SET totp_confirmed = 1, totp_last_step = ?, recovery_codes = ?, updated = ?
+               WHERE id = ?""",
+            (new_step, recovery_hashed, now, account_id)
+        )
+
+    log.info(f"TOTP confirmed for account {account_id} ({account['username']})")
+    return True
 
 
 def disable_totp(account_id: int) -> None:
-    raise NotImplementedError("Block 3")
+    """Disable TOTP for an account. Removes secret, confirmation, and recovery codes."""
+    now = _now()
+    with _db() as db:
+        db.execute(
+            """UPDATE accounts
+               SET totp_secret = NULL, totp_confirmed = 0, totp_last_step = NULL,
+                   recovery_codes = NULL, updated = ?
+               WHERE id = ?""",
+            (now, account_id)
+        )
+        log.info(f"TOTP disabled for account {account_id}")
 
 
 def reset_recovery_codes(account_id: int) -> list[str]:
-    raise NotImplementedError("Block 3")
+    """Generate new recovery codes for an account with active TOTP.
+
+    Returns:
+        List of new recovery codes (plaintext, for display to user)
+    """
+    account = get_account(id=account_id)
+    if not account:
+        raise ValueError(f"Account {account_id} not found")
+
+    if not account.get('totp_confirmed'):
+        raise ValueError("TOTP not active for this account")
+
+    # Generate new codes
+    recovery_codes = generate_recovery_codes(8)
+    recovery_hashed = hash_recovery_codes(recovery_codes)
+
+    now = _now()
+    with _db() as db:
+        db.execute(
+            "UPDATE accounts SET recovery_codes = ?, updated = ? WHERE id = ?",
+            (recovery_hashed, now, account_id)
+        )
+
+    log.info(f"Recovery codes reset for account {account_id} ({account['username']})")
+    return recovery_codes
 
 
 # Token functions (Block 4)

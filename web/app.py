@@ -92,6 +92,10 @@ AUDITOR_GROUPS = _csv("PORTAL_AUDITOR_GROUPS")
 SESSION_SECRET = os.environ["SESSION_SECRET"].encode()
 TAILNET_NAME = os.environ.get("TAILNET_NAME", "")
 AUTHENTIK = "/authentik/" in OIDC_ISSUER
+# MFA requirement for local accounts: admins, everyone, or optional
+MFA_REQUIRED = os.environ.get("MFA_REQUIRED", "admins")
+if MFA_REQUIRED not in ("admins", "everyone", "optional"):
+    MFA_REQUIRED = "admins"
 
 SECURE_COOKIES = PUBLIC_URL.startswith("https://")
 SESSION_TTL = 8 * 3600
@@ -381,6 +385,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, admin_pages.login_page(SSO, API_KEY_LOGIN))
             if path == f"{BASE}/login/sso" and SSO:
                 return self.start_sso()
+            if path == f"{BASE}/login/totp":
+                return self.totp_verify_page()
             if path == f"{BASE}/callback" and SSO:
                 return self.callback(params)
 
@@ -428,6 +434,28 @@ class Handler(BaseHTTPRequestHandler):
             if path == f"{BASE}/settings/sessions":
                 return self.send(200, pages.sessions_page(
                     session, CTX, sessions.list_all() if sees_all else sessions.list_for(session), flash))
+            if path == f"{BASE}/settings/account":
+                # Account settings for local accounts
+                if session.get("kind") != "local":
+                    return self.redirect(f"{BASE}/settings/general")
+                account_id = int(session.get("sub", "").split(":")[-1])
+                account = lac.get_account(id=account_id)
+                if not account:
+                    return self.redirect(f"{BASE}/settings/general")
+                return self.send(200, pages.account_settings_page(session, CTX, account, flash))
+            if path == f"{BASE}/settings/account/totp/enroll":
+                # Start TOTP enrollment
+                if session.get("kind") != "local":
+                    return self.redirect(f"{BASE}/settings/general")
+                account_id = int(session.get("sub", "").split(":")[-1])
+                account = lac.get_account(id=account_id)
+                if not account:
+                    return self.redirect(f"{BASE}/settings/general")
+                if account.get('totp_confirmed'):
+                    return self.redirect(f"{BASE}/settings/account?m=totp-already-enabled")
+                # Generate secret and QR code
+                secret, qr_data = lac.enroll_totp(account_id)
+                return self.send(200, pages.totp_enroll_page(session, CTX, secret, qr_data))
 
             # --- admins only (Access controls: also network admins and auditors;
             # Users/Logs: also auditors, view only -- see can_edit_network()/is_auditor()) ---
@@ -487,6 +515,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.apikey_login(self.form())
             if path == f"{BASE}/login/local":
                 return self.local_login(self.form())
+            if path == f"{BASE}/login/totp":
+                return self.verify_totp_login(self.form())
 
             session = self.session()
             if not session:
@@ -505,6 +535,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.revoke_session(session, form)
             if path == f"{BASE}/settings/sessions/revoke-all":
                 return self.revoke_all_sessions(session, form)
+            if path == f"{BASE}/settings/account/password":
+                return self.change_password(session, form)
+            if path == f"{BASE}/settings/account/totp/confirm":
+                return self.confirm_totp_enrollment(session, form)
+            if path == f"{BASE}/settings/account/totp/disable":
+                return self.disable_totp_account(session, form)
+            if path == f"{BASE}/settings/account/totp/recovery/reset":
+                return self.reset_totp_recovery(session, form)
             if path == f"{BASE}/settings/language":
                 lang = str(form.get("lang", ""))
                 back = self.headers.get("Referer", "")
@@ -811,9 +849,37 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(403, admin_pages.login_page(
                 SSO, API_KEY_LOGIN, _("This account is disabled.")))
 
-        # TODO: Check TOTP if required (Block 3)
+        # Check if TOTP is required
+        totp_required = self.totp_required_for(account)
+        if totp_required and account.get('totp_confirmed'):
+            # TOTP is enabled and confirmed: redirect to second step
+            sessions.reset(f"local:{audit.client_ip(self)}")
+            # Create a temporary "pending TOTP" token (expires in 5 minutes)
+            pending = {
+                "account_id": account['id'],
+                "username": username,
+                "exp": time.time() + 300,  # 5 minutes
+            }
+            return self.redirect(f"{BASE}/login/totp", [
+                self.set_cookie("hse_totp_pending", sign(pending), 300)
+            ])
+        elif totp_required and not account.get('totp_confirmed'):
+            # TOTP is required but not enrolled: force enrollment after login
+            sessions.reset(f"local:{audit.client_ip(self)}")
+            self.start_session({
+                "kind": "local",
+                "sub": f"local:{account['id']}",
+                "username": username,
+                "name": account.get('email', username),
+                "email": account.get('email', ''),
+                "groups": [],
+                "admin": account['role'] == 'admin',
+                "role": account['role'],
+                "totp_enrollment_required": True,
+            })
+            return  # start_session redirects
 
-        # Success
+        # Success (password-only login)
         sessions.reset(f"local:{audit.client_ip(self)}")
         log.info("Local sign-in: %s", username)
 
@@ -829,6 +895,90 @@ class Handler(BaseHTTPRequestHandler):
             "role": account['role'],
         })
 
+    def totp_required_for(self, account: dict) -> bool:
+        """Check if TOTP is required for this account based on MFA_REQUIRED setting."""
+        if MFA_REQUIRED == "everyone":
+            return True
+        elif MFA_REQUIRED == "admins":
+            return account['role'] == 'admin'
+        else:  # optional
+            return False
+
+    def totp_verify_page(self):
+        """Show the TOTP verification page (second step after password)."""
+        pending = unsign(self.cookie("hse_totp_pending"))
+        if not pending:
+            return self.redirect(f"{BASE}/login")
+
+        username = pending.get("username", "")
+        return self.send(200, pages.totp_verify_page(username, error=None))
+
+    def verify_totp_login(self, form: dict):
+        """Verify TOTP code during login (second step)."""
+        pending = unsign(self.cookie("hse_totp_pending"))
+        if not pending:
+            return self.redirect(f"{BASE}/login")
+
+        account_id = pending.get("account_id")
+        username = pending.get("username", "")
+
+        account = lac.get_account(id=account_id)
+        if not account:
+            return self.redirect(f"{BASE}/login")
+
+        code = str(form.get("code", "")).strip()
+        use_recovery = form.get("use_recovery") == "1"
+
+        if not code:
+            return self.send(401, pages.totp_verify_page(username, error=_("Code is required.")))
+
+        valid = False
+        if use_recovery:
+            # Verify recovery code
+            recovery_codes = account.get('recovery_codes', '')
+            valid, remaining = lac.verify_recovery_code(recovery_codes, code)
+            if valid:
+                # Update the account with remaining codes
+                with lac._db() as db:
+                    db.execute("UPDATE accounts SET recovery_codes = ?, updated = ? WHERE id = ?",
+                             (remaining, lac._now(), account_id))
+                log.info("Recovery code used for account %s (%s)", account_id, username)
+        else:
+            # Verify TOTP code
+            secret = account.get('totp_secret', '')
+            last_step = account.get('totp_last_step')
+            valid, new_step = lac.verify_totp(secret, code, last_step)
+            if valid:
+                # Update last_step to prevent replay
+                with lac._db() as db:
+                    db.execute("UPDATE accounts SET totp_last_step = ?, updated = ? WHERE id = ?",
+                             (new_step, lac._now(), account_id))
+
+        if not valid:
+            sessions.hit(f"totp:{audit.client_ip(self)}")
+            log.warning("TOTP verification failed for '%s' from %s", username, self.address_string())
+            audit.request_event(self, None, "auth.signin_failed", "",
+                               {"method": "local+totp", "username": username, "reason": "wrong_totp"}, actor="")
+            return self.send(401, pages.totp_verify_page(username, error=_("Invalid code. Try again.")))
+
+        # Success
+        sessions.reset(f"totp:{audit.client_ip(self)}")
+        log.info("TOTP verified for: %s", username)
+
+        # Create session
+        self.start_session({
+            "kind": "local",
+            "sub": f"local:{account['id']}",
+            "username": username,
+            "name": account.get('email', username),
+            "email": account.get('email', ''),
+            "groups": [],
+            "admin": account['role'] == 'admin',
+            "role": account['role'],
+        })
+        # Clear the pending cookie
+        return  # start_session handles redirect
+
     def start_session(self, data: dict):
         data.update(csrf=secrets.token_urlsafe(24), exp=time.time() + SESSION_TTL)
         role = data.get("role") or ("admin" if data["admin"] else "member")
@@ -842,6 +992,7 @@ class Handler(BaseHTTPRequestHandler):
             self.set_cookie("hse_session", sign(data), SESSION_TTL),
             self.set_cookie("hse_oidc", "", 0),
             self.set_cookie("hse_next", "", 0),
+            self.set_cookie("hse_totp_pending", "", 0),  # Clear TOTP pending cookie
         ])
 
     def logout(self, session: dict):
@@ -894,6 +1045,100 @@ class Handler(BaseHTTPRequestHandler):
             count = int(sessions.revoke(session.get("sid", "")))
         audit.request_event(self, session, "auth.sessions_revoked_all", "", {"scope": "mine", "count": count})
         return self.redirect(f"{BASE}/login?m=signed-out", [self.set_cookie("hse_session", "", 0)])
+
+    # --- TOTP and account settings (Block 3.3) ---
+    def change_password(self, session: dict, form: dict):
+        """Change password for local account."""
+        if session.get("kind") != "local":
+            return self.fail(403, _("No permission"), _("This action is for local accounts only."))
+
+        account_id = int(session.get("sub", "").split(":")[-1])
+        account = lac.get_account(id=account_id)
+        if not account:
+            return self.fail(404, _("Not found"), _("Account not found."))
+
+        old_password = str(form.get("old_password", ""))
+        new_password = str(form.get("new_password", ""))
+        new_password2 = str(form.get("new_password2", ""))
+
+        if not old_password or not new_password:
+            return self.redirect(f"{BASE}/settings/account?m=password-required")
+
+        if new_password != new_password2:
+            return self.redirect(f"{BASE}/settings/account?m=password-mismatch")
+
+        # Verify old password
+        if not lac.verify_password(old_password, account['pw_hash']):
+            return self.redirect(f"{BASE}/settings/account?m=wrong-password")
+
+        # Update password
+        try:
+            lac.update_password(account_id, new_password)
+            audit.request_event(self, session, "account.password_changed", "", {})
+            log.info("Password changed for account %s (%s)", account_id, account['username'])
+            return self.redirect(f"{BASE}/settings/account?m=password-changed")
+        except ValueError as e:
+            return self.redirect(f"{BASE}/settings/account?m=" + urllib.parse.quote(str(e)))
+
+    def confirm_totp_enrollment(self, session: dict, form: dict):
+        """Confirm TOTP enrollment with a valid code."""
+        if session.get("kind") != "local":
+            return self.fail(403, _("No permission"), _("This action is for local accounts only."))
+
+        account_id = int(session.get("sub", "").split(":")[-1])
+        account = lac.get_account(id=account_id)
+        if not account:
+            return self.fail(404, _("Not found"), _("Account not found."))
+
+        code = str(form.get("code", "")).strip()
+        if not code:
+            return self.redirect(f"{BASE}/settings/account/totp/enroll?m=code-required")
+
+        # Confirm TOTP
+        valid = lac.confirm_totp(account_id, code)
+        if not valid:
+            return self.redirect(f"{BASE}/settings/account/totp/enroll?m=invalid-code")
+
+        audit.request_event(self, session, "account.totp_enabled", "", {})
+        log.info("TOTP enabled for account %s (%s)", account_id, account['username'])
+        return self.redirect(f"{BASE}/settings/account?m=totp-enabled")
+
+    def disable_totp_account(self, session: dict, form: dict):
+        """Disable TOTP for the account."""
+        if session.get("kind") != "local":
+            return self.fail(403, _("No permission"), _("This action is for local accounts only."))
+
+        account_id = int(session.get("sub", "").split(":")[-1])
+        account = lac.get_account(id=account_id)
+        if not account:
+            return self.fail(404, _("Not found"), _("Account not found."))
+
+        # Disable TOTP
+        lac.disable_totp(account_id)
+        audit.request_event(self, session, "account.totp_disabled", "", {})
+        log.info("TOTP disabled for account %s (%s)", account_id, account['username'])
+        return self.redirect(f"{BASE}/settings/account?m=totp-disabled")
+
+    def reset_totp_recovery(self, session: dict, form: dict):
+        """Generate new recovery codes."""
+        if session.get("kind") != "local":
+            return self.fail(403, _("No permission"), _("This action is for local accounts only."))
+
+        account_id = int(session.get("sub", "").split(":")[-1])
+        account = lac.get_account(id=account_id)
+        if not account:
+            return self.fail(404, _("Not found"), _("Account not found."))
+
+        if not account.get('totp_confirmed'):
+            return self.redirect(f"{BASE}/settings/account?m=totp-not-enabled")
+
+        # Generate new recovery codes
+        new_codes = lac.reset_recovery_codes(account_id)
+        audit.request_event(self, session, "account.recovery_codes_reset", "", {})
+        log.info("Recovery codes reset for account %s (%s)", account_id, account['username'])
+
+        # Show the new codes to the user
+        return self.send(200, pages.recovery_codes_page(session, CTX, new_codes))
 
     # --- machines ---
     def machine_action(self, session: dict, node_id: str, action: str, form: dict):

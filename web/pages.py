@@ -1098,3 +1098,176 @@ def sessions_page(session: dict, ctx: dict, rows: list[dict], flash: str = "") -
       {table}
     </section>"""
     return layout(_("Sessions"), "sessions", body, session, ctx)
+
+
+# --- TOTP and account settings (Block 3.3) ---
+
+def totp_verify_page(username: str, error: str | None = None) -> str:
+    """TOTP verification page (second step after password)."""
+    error_html = f'<p class="error">{esc(error)}</p>' if error else ""
+    body = f"""
+    <div class="login-container">
+      <div class="login-card">
+        {LOGO}
+        <h1>{esc(_("Two-factor authentication"))}</h1>
+        <p>{esc(_("Enter the 6-digit code from your authenticator app."))}</p>
+        {error_html}
+        <form method="post" action="{BASE}/login/totp">
+          <label>{esc(_("Code"))}
+            <input type="text" name="code" inputmode="numeric" pattern="[0-9]{{6}}"
+                   autocomplete="one-time-code" required autofocus maxlength="6">
+          </label>
+          <button type="submit" class="btn btn-primary">{esc(_("Verify"))}</button>
+          <details style="margin-top: 1rem">
+            <summary>{esc(_("Use a recovery code"))}</summary>
+            <p style="margin-top: 0.5rem; font-size: 0.9rem">{esc(_("Enter one of your recovery codes if you don't have access to your authenticator app."))}</p>
+            <input type="hidden" name="use_recovery" value="1">
+          </details>
+        </form>
+        <p class="login-footer">{esc(_("Signed in as"))} <strong>{esc(username)}</strong></p>
+      </div>
+    </div>"""
+    return layout(_("Two-factor authentication"), "login", body, None, {})
+
+
+def account_settings_page(session: dict, ctx: dict, account: dict, flash: str = "") -> str:
+    """Account settings page for local accounts."""
+    username = account['username']
+    email = account['email']
+    role = account['role']
+    totp_enabled = account.get('totp_confirmed', 0) == 1
+
+    role_labels = {
+        'admin': _("Administrator"),
+        'network_admin': _("Network Administrator"),
+        'auditor': _("Auditor"),
+        'member': _("Member")
+    }
+    role_label = role_labels.get(role, role)
+
+    totp_section = f"""
+    <section class="card">
+      <div class="card-title"><h2>{esc(_("Two-factor authentication"))}</h2></div>
+      <p>{esc(_("Two-factor authentication (2FA) adds an extra layer of security to your account."))}</p>
+      {"<p class='success'>" + esc(_("Two-factor authentication is enabled.")) + "</p>" if totp_enabled else ""}
+      <div class="btn-group">
+        {"" if totp_enabled else f'<a href="{BASE}/settings/account/totp/enroll" class="btn btn-primary">{esc(_("Enable 2FA"))}</a>'}
+        {f'''<form method="post" action="{BASE}/settings/account/totp/disable" class="inline" onsubmit="return confirm('{esc(_("Are you sure you want to disable two-factor authentication?"))}')">{csrf_input(session)}
+          <button type="submit" class="btn">{esc(_("Disable 2FA"))}</button></form>''' if totp_enabled else ""}
+        {f'''<form method="post" action="{BASE}/settings/account/totp/recovery/reset" class="inline">{csrf_input(session)}
+          <button type="submit" class="btn">{esc(_("Reset recovery codes"))}</button></form>''' if totp_enabled else ""}
+      </div>
+    </section>"""
+
+    body = page_head(_("Account settings"), "") + flash_html(flash) + f"""
+    <section class="card">
+      <div class="card-title"><h2>{esc(_("Account information"))}</h2></div>
+      <dl class="info-list">
+        <dt>{esc(_("Username"))}</dt><dd>{esc(username)}</dd>
+        <dt>{esc(_("Email"))}</dt><dd>{esc(email)}</dd>
+        <dt>{esc(_("Role"))}</dt><dd>{esc(role_label)}</dd>
+      </dl>
+    </section>
+    <section class="card">
+      <div class="card-title"><h2>{esc(_("Change password"))}</h2></div>
+      <form method="post" action="{BASE}/settings/account/password">
+        {csrf_input(session)}
+        <label>{esc(_("Current password"))}
+          <input type="password" name="old_password" required autocomplete="current-password">
+        </label>
+        <label>{esc(_("New password"))}
+          <input type="password" name="new_password" required autocomplete="new-password" minlength="8">
+        </label>
+        <label>{esc(_("Confirm new password"))}
+          <input type="password" name="new_password2" required autocomplete="new-password" minlength="8">
+        </label>
+        <button type="submit" class="btn btn-primary">{esc(_("Change password"))}</button>
+      </form>
+    </section>
+    {totp_section}"""
+    return layout(_("Account settings"), "settings", body, session, ctx)
+
+
+def totp_enroll_page(session: dict, ctx: dict, secret: str, qr_data: str) -> str:
+    """TOTP enrollment page with QR code."""
+    qr_svg = qr_figure(qr_data)
+
+    # Format secret in groups of 4 for easier manual entry
+    secret_formatted = " ".join([secret[i:i+4] for i in range(0, len(secret), 4)])
+
+    body = page_head(_("Set up two-factor authentication"),
+                    esc(_("Scan the QR code with your authenticator app, then enter a code to confirm."))) + f"""
+    <section class="card">
+      <div class="card-title"><h2>{esc(_("1. Scan QR code"))}</h2></div>
+      <div style="text-align: center; padding: 1rem;">
+        {qr_svg}
+      </div>
+      <details style="margin-top: 1rem">
+        <summary>{esc(_("Can't scan the QR code?"))}</summary>
+        <p style="margin-top: 0.5rem">{esc(_("Enter this code manually in your authenticator app:"))}</p>
+        <code style="display: block; padding: 0.5rem; background: var(--bg-2); border-radius: 4px; font-size: 0.9rem; word-break: break-all;">
+          {esc(secret_formatted)}
+        </code>
+      </details>
+    </section>
+    <section class="card">
+      <div class="card-title"><h2>{esc(_("2. Verify"))}</h2></div>
+      <p>{esc(_("Enter the 6-digit code from your authenticator app to confirm setup."))}</p>
+      <form method="post" action="{BASE}/settings/account/totp/confirm">
+        {csrf_input(session)}
+        <label>{esc(_("Verification code"))}
+          <input type="text" name="code" inputmode="numeric" pattern="[0-9]{{6}}"
+                 autocomplete="off" required autofocus maxlength="6"
+                 placeholder="000000">
+        </label>
+        <div class="btn-group">
+          <button type="submit" class="btn btn-primary">{esc(_("Confirm and enable"))}</button>
+          <a href="{BASE}/settings/account" class="btn">{esc(_("Cancel"))}</a>
+        </div>
+      </form>
+    </section>
+    <section class="card notice-info">
+      <p><strong>{esc(_("Recommended authenticator apps:"))}</strong></p>
+      <ul>
+        <li>Google Authenticator (iOS, Android)</li>
+        <li>Microsoft Authenticator (iOS, Android)</li>
+        <li>Authy (iOS, Android, Desktop)</li>
+        <li>1Password (all platforms)</li>
+      </ul>
+    </section>"""
+    return layout(_("Set up 2FA"), "settings", body, session, ctx)
+
+
+def recovery_codes_page(session: dict, ctx: dict, codes: list[str]) -> str:
+    """Show recovery codes after generation/reset."""
+    codes_html = "".join(f"<li><code>{esc(code)}</code></li>" for code in codes)
+
+    body = page_head(_("Recovery codes"),
+                    esc(_("Save these recovery codes in a safe place. Each code can only be used once."))) + f"""
+    <section class="card notice-warning">
+      <p><strong>{icon('alert-triangle')} {esc(_("Important:"))}</strong>
+         {esc(_("These codes will not be shown again. Save them now."))}</p>
+    </section>
+    <section class="card">
+      <div class="card-title"><h2>{esc(_("Your recovery codes"))}</h2></div>
+      <ul class="recovery-codes">
+        {codes_html}
+      </ul>
+      <p style="margin-top: 1rem; font-size: 0.9rem; color: var(--text-secondary);">
+        {esc(_("Use a recovery code if you lose access to your authenticator app. Each code can only be used once."))}
+      </p>
+      <div class="btn-group" style="margin-top: 1rem">
+        <button onclick="window.print()" class="btn">{icon('printer')} {esc(_("Print"))}</button>
+        <a href="{BASE}/settings/account" class="btn btn-primary">{esc(_("Done"))}</a>
+      </div>
+    </section>
+    <style>
+      .recovery-codes {{ list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem; }}
+      .recovery-codes li {{ background: var(--bg-2); padding: 0.75rem; border-radius: 4px; text-align: center; }}
+      .recovery-codes code {{ font-size: 1.1rem; font-weight: 600; letter-spacing: 0.05em; }}
+      @media print {{
+        .nav, .btn-group {{ display: none; }}
+        .recovery-codes {{ grid-template-columns: repeat(2, 1fr); }}
+      }}
+    </style>"""
+    return layout(_("Recovery codes"), "settings", body, session, ctx)

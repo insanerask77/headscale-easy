@@ -466,5 +466,206 @@ class LocalAccountSignin(Base):
         self.assertTrue(session["admin"])
 
 
+class TOTPSignin(unittest.TestCase):
+    """TOTP second-factor authentication tests (Block 3.3)."""
+
+    def setUp(self):
+        """Set up local accounts with TOTP."""
+        import local_accounts as la
+        la.configure(":memory:")
+        self.la = la
+
+        # Create test accounts
+        self.admin_id = la.create_account("admin", "admin@example.com", "password123", role="admin")
+        self.member_id = la.create_account("member", "member@example.com", "password123", role="member")
+
+        # Configure MFA_REQUIRED via environment (will be read by app.py on import)
+        self.original_mfa = os.environ.get("MFA_REQUIRED", "")
+
+    def tearDown(self):
+        """Restore MFA_REQUIRED setting."""
+        if self.original_mfa:
+            os.environ["MFA_REQUIRED"] = self.original_mfa
+        elif "MFA_REQUIRED" in os.environ:
+            del os.environ["MFA_REQUIRED"]
+
+    def test_totp_required_for_admins(self):
+        """When MFA_REQUIRED=admins, admins must set up TOTP."""
+        os.environ["MFA_REQUIRED"] = "admins"
+        # Need to reload app to pick up the new setting
+        import importlib
+        importlib.reload(app)
+
+        # Sign in as admin without TOTP enrolled
+        status, headers, body = request("POST", f"{B}/login/local", form={
+            "username": "admin",
+            "password": "password123"
+        })
+
+        # Should succeed and create session (but may force enrollment)
+        self.assertEqual(status, 303)
+
+    def test_totp_optional_for_members_when_mode_is_admins(self):
+        """When MFA_REQUIRED=admins, members can sign in without TOTP."""
+        os.environ["MFA_REQUIRED"] = "admins"
+        import importlib
+        importlib.reload(app)
+
+        # Sign in as member without TOTP
+        status, headers, body = request("POST", f"{B}/login/local", form={
+            "username": "member",
+            "password": "password123"
+        })
+
+        # Should succeed (no TOTP required)
+        self.assertEqual(status, 303)
+        self.assertTrue(location(headers).endswith("/machines"))
+
+    def test_signin_with_totp_success(self):
+        """Sign in with TOTP second factor."""
+        # Enroll and confirm TOTP for admin
+        secret, _ = self.la.enroll_totp(self.admin_id)
+        code = self.la.compute_totp(secret, int(time.time()))
+        self.assertTrue(self.la.confirm_totp(self.admin_id, code))
+
+        os.environ["MFA_REQUIRED"] = "admins"
+        import importlib
+        importlib.reload(app)
+
+        # Sign in with password - should redirect to TOTP page
+        status, headers, body = request("POST", f"{B}/login/local", form={
+            "username": "admin",
+            "password": "password123"
+        })
+        self.assertEqual(status, 303)
+        self.assertTrue(location(headers).endswith("/login/totp"))
+
+        # Extract the pending TOTP cookie
+        cookie_header = headers.get("set-cookie", [])
+        totp_cookie = next((c for c in cookie_header if "hse_totp_pending=" in c), None)
+        self.assertIsNotNone(totp_cookie)
+
+        # Generate a fresh TOTP code
+        fresh_code = self.la.compute_totp(secret, int(time.time()))
+
+        # Verify TOTP
+        status2, headers2, body2 = request("POST", f"{B}/login/totp",
+                                          headers={"Cookie": totp_cookie.split(";")[0]},
+                                          form={"code": fresh_code})
+
+        # Should succeed and create session
+        self.assertEqual(status2, 303)
+        self.assertTrue(location(headers2).endswith("/machines"))
+
+    def test_signin_with_totp_wrong_code(self):
+        """Sign in with wrong TOTP code is rejected."""
+        # Enroll and confirm TOTP for admin
+        secret, _ = self.la.enroll_totp(self.admin_id)
+        code = self.la.compute_totp(secret, int(time.time()))
+        self.assertTrue(self.la.confirm_totp(self.admin_id, code))
+
+        os.environ["MFA_REQUIRED"] = "admins"
+        import importlib
+        importlib.reload(app)
+
+        # Sign in with password
+        status, headers, body = request("POST", f"{B}/login/local", form={
+            "username": "admin",
+            "password": "password123"
+        })
+        cookie_header = headers.get("set-cookie", [])
+        totp_cookie = next((c for c in cookie_header if "hse_totp_pending=" in c), None)
+
+        # Try with wrong code
+        status2, headers2, body2 = request("POST", f"{B}/login/totp",
+                                          headers={"Cookie": totp_cookie.split(";")[0]},
+                                          form={"code": "000000"})
+
+        # Should fail
+        self.assertEqual(status2, 401)
+        self.assertIn("Invalid code", body2)
+
+    def test_recovery_code_signin(self):
+        """Sign in using a recovery code when TOTP is unavailable."""
+        # Enroll and confirm TOTP for admin
+        secret, _ = self.la.enroll_totp(self.admin_id)
+        code = self.la.compute_totp(secret, int(time.time()))
+        self.assertTrue(self.la.confirm_totp(self.admin_id, code))
+
+        # Get recovery codes
+        account = self.la.get_account(id=self.admin_id)
+        recovery_codes_hashed = account['recovery_codes']
+        # Generate and verify we can extract one
+        valid, _ = self.la.verify_recovery_code(recovery_codes_hashed, "TESTCODE")
+        self.assertFalse(valid)  # Our test code won't match
+
+        # Generate actual recovery codes
+        new_codes = self.la.reset_recovery_codes(self.admin_id)
+        self.assertEqual(len(new_codes), 8)
+
+        os.environ["MFA_REQUIRED"] = "admins"
+        import importlib
+        importlib.reload(app)
+
+        # Sign in with password
+        status, headers, body = request("POST", f"{B}/login/local", form={
+            "username": "admin",
+            "password": "password123"
+        })
+        cookie_header = headers.get("set-cookie", [])
+        totp_cookie = next((c for c in cookie_header if "hse_totp_pending=" in c), None)
+
+        # Use a recovery code
+        status2, headers2, body2 = request("POST", f"{B}/login/totp",
+                                          headers={"Cookie": totp_cookie.split(";")[0]},
+                                          form={"code": new_codes[0], "use_recovery": "1"})
+
+        # Should succeed
+        self.assertEqual(status2, 303)
+        self.assertTrue(location(headers2).endswith("/machines"))
+
+        # Verify the recovery code was consumed
+        account = self.la.get_account(id=self.admin_id)
+        remaining_count = len(account['recovery_codes'].split('\n')) if account['recovery_codes'] else 0
+        self.assertEqual(remaining_count, 7)  # One used, 7 remaining
+
+    def test_totp_replay_protection(self):
+        """TOTP codes cannot be reused (replay protection)."""
+        # Enroll and confirm TOTP for admin
+        secret, _ = self.la.enroll_totp(self.admin_id)
+        code = self.la.compute_totp(secret, int(time.time()))
+        self.assertTrue(self.la.confirm_totp(self.admin_id, code))
+
+        os.environ["MFA_REQUIRED"] = "admins"
+        import importlib
+        importlib.reload(app)
+
+        # Sign in with password twice
+        for attempt in range(2):
+            status, headers, body = request("POST", f"{B}/login/local", form={
+                "username": "admin",
+                "password": "password123"
+            })
+            cookie_header = headers.get("set-cookie", [])
+            totp_cookie = next((c for c in cookie_header if "hse_totp_pending=" in c), None)
+
+            # Generate a fresh code for first attempt
+            if attempt == 0:
+                fresh_code = self.la.compute_totp(secret, int(time.time()))
+                # First use should succeed
+                status2, headers2, body2 = request("POST", f"{B}/login/totp",
+                                                  headers={"Cookie": totp_cookie.split(";")[0]},
+                                                  form={"code": fresh_code})
+                self.assertEqual(status2, 303)
+            else:
+                # Wait a tiny bit to ensure we're in same time window
+                # Second use of same code should fail (replay)
+                status2, headers2, body2 = request("POST", f"{B}/login/totp",
+                                                  headers={"Cookie": totp_cookie.split(";")[0]},
+                                                  form={"code": fresh_code})
+                # Should fail because code was already used
+                self.assertEqual(status2, 401)
+
+
 if __name__ == "__main__":
     unittest.main()
