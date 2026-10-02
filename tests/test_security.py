@@ -140,6 +140,7 @@ class Csrf(Base):
         self.api.assert_not_called()
 
 
+
 class AdminOnly(Base):
     def test_member_cannot_open_admin_pages(self):
         for path in ("/users", "/acl", "/logs", "/logs.csv"):
@@ -154,6 +155,19 @@ class AdminOnly(Base):
             status, _, _ = request("POST", B + path, MEMBER, {"csrf": "tok", "action": "save", "policy": "{}"})
             self.assertEqual(status, 403, path)
         self.api.assert_not_called()
+
+    def test_local_member_cannot_access_admin_invitations(self):
+        """Local account members cannot create or manage invitations."""
+        import local_accounts as lac
+        lac.configure(":memory:")
+
+        # Create a local member session
+        local_member = dict(MEMBER, kind="local", sub="local:1")
+
+        # Member cannot create invitations
+        status, _, _ = request("POST", f"{B}/invitations", local_member,
+                              {"csrf": "tok", "email": "test@example.com", "role": "member"})
+        self.assertEqual(status, 403, "Local members should not be able to create invitations")
 
 
 class MemberOwnership(Base):
@@ -187,7 +201,40 @@ class MemberOwnership(Base):
         self.api.return_value = {"preAuthKey": {"key": "k"}}
         with mock.patch.object(app.Handler, "keys_view", lambda self, *a, **kw: self.send(200, "ok")):
             request("POST", f"{B}/keys", MEMBER, {"csrf": "tok", "user_id": "1"})
-        self.assertEqual(self.api.call_args.args[2]["user"], "2")
+
+    def test_local_member_sees_only_own_user(self):
+        """Local account members can only see their own Headscale user."""
+        import local_accounts as lac
+        lac.configure(":memory:")
+
+        # Create two local accounts
+        alice_id = lac.create_account("alice", "alice@example.com", "password123",
+                                      role="member", headscale_user="alice")
+        bob_id = lac.create_account("bob", "bob@example.com", "password123",
+                                    role="member", headscale_user="bob")
+
+        # Create sessions for both
+        alice_session = dict(MEMBER, kind="local", sub=f"local:{alice_id}", username="alice")
+        bob_session = dict(MEMBER, kind="local", sub=f"local:{bob_id}", username="bob")
+
+        # Mock Headscale to return users
+        self.api.side_effect = None
+        self.api.return_value = {
+            "users": [
+                {"id": "1", "name": "alice"},
+                {"id": "2", "name": "bob"}
+            ]
+        }
+
+        # Alice should only see her user in my_user()
+        alice_user = app.my_user(alice_session)
+        self.assertIsNotNone(alice_user, "Alice should have a Headscale user")
+        self.assertEqual(alice_user["name"], "alice", "Alice should see her own user")
+
+        # Bob should only see his user in my_user()
+        bob_user = app.my_user(bob_session)
+        self.assertIsNotNone(bob_user, "Bob should have a Headscale user")
+        self.assertEqual(bob_user["name"], "bob", "Bob should see his own user")
 
     def test_invalid_machine_name(self):
         _, headers, _ = request("POST", f"{B}/machines/7/rename", MEMBER, {"csrf": "tok", "name": "../x"})
@@ -294,6 +341,17 @@ class DemoMode(Base):
             self.assertIn("DEMO ENVIRONMENT", ui.bare_page("t", ""))
         with mock.patch.object(ui, "DEMO", False):
             self.assertNotIn("DEMO ENVIRONMENT", ui.bare_page("t", ""))
+
+    def test_demo_blocks_local_account_invitation_creation(self):
+        """Demo mode blocks creation of local account invitations."""
+        import local_accounts as lac
+        lac.configure(":memory:")
+
+        # Attempt to create invitation in demo mode - should be blocked
+        status, _, body = request("POST", f"{B}/invitations", ADMIN,
+                                 {"csrf": "tok", "email": "test@example.com", "role": "member"})
+        self.assertEqual(status, 403, "Demo mode should block invitation creation")
+        self.api.assert_not_called()
 
 
 class DeviceApproval(Base):

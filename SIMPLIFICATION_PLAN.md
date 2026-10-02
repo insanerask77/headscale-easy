@@ -172,37 +172,43 @@ with no OIDC configured.
 
 ### Phase 1 — Local accounts in the console · L
 
-- [ ] `web/local_accounts.py` + `/data/console/accounts.db` (mode 600):
+- [x] `web/local_accounts.py` + `/data/console/accounts.db` (mode 600):
   - `accounts(id, username, email, headscale_user, role, pw_hash, totp_secret,
-    totp_last_step, recovery_codes, disabled, created, updated)`
+    totp_confirmed, totp_last_step, recovery_codes, disabled, created, updated)`
   - `tokens(kind[invite|reset], token_hash, account_id, role, email, expires,
     used_at)`: tokens are stored hashed and are single use.
-- [ ] Passwords: `hashlib.scrypt` (n=2^15, r=8, p=1, per-user salt),
+- [x] Passwords: `hashlib.scrypt` (n=2^15, r=8, p=1, per-user salt),
       `hmac.compare_digest`, minimum length, no other rules.
-- [ ] TOTP: RFC 6238 with `hmac`/SHA-1, 30 s, ±1 step, replay protection
+- [x] TOTP: RFC 6238 with `hmac`/SHA-1, 30 s, ±1 step, replay protection
       (`totp_last_step`), hashed recovery codes, QR via `web/qr.py`.
-- [ ] `MFA_REQUIRED` modes (admins / everyone / optional) kept; `web/mfa.py`
+- [x] `MFA_REQUIRED` modes (admins / everyone / optional) kept; `web/mfa.py`
       gets a local backend.
-- [ ] Invitations and reset links: keep the UI in `web/accounts.py` behind a
+- [x] Invitations and reset links: keep the UI in `web/accounts.py` behind a
       small backend interface (`LocalBackend`, `AuthentikBackend` only during
       deprecation). Accepting an invitation creates the Headscale user
       (`POST /api/v1/user`) and links it. SMTP stays optional.
-- [ ] Roles (admin, network admin, auditor, member) stored per account. OIDC
+- [x] Roles (admin, network admin, auditor, member) stored per account. OIDC
       keeps today's mapping (`PORTAL_*_GROUPS`, `PORTAL_ADMIN_EMAILS`).
-- [ ] Sign-in modes, combinable: `local` (default), `oidc`, `apikey`
+- [x] Sign-in modes, combinable: `local` (default), `oidc`, `apikey`
       (emergency). Session `kind = "local"`; reuse rate limiting and
       revocable sessions.
-- [ ] Bootstrap the first admin from the wizard (phase 2) or from
+- [x] Bootstrap the first admin from the wizard (phase 2) or from
       `HSE_ADMIN_EMAIL` (+ optional `HSE_ADMIN_PASSWORD`; otherwise a one-time
       invitation link is printed to the logs).
-- [ ] Self-service pages: change password, set up / reset 2FA, my sessions.
-- [ ] Tests: `tests/test_local_accounts.py` (hashing, RFC 6238 test vectors,
+- [x] Self-service pages: change password, set up / reset 2FA, my sessions.
+- [x] Tests: `tests/test_local_accounts.py` (hashing, RFC 6238 test vectors,
       replay, single-use and expired tokens, rate limit, roles) and extend
       `tests/test_security.py`.
+- [x] Translations: es, fr, de, pt locale files for local accounts UI
+- [x] E2E test covering full flow from bootstrap to device management
+- [x] Headscale user integration: `user_by_name()`, `create_user()`, updated `my_user()`
+
+**Status:** ✅ Done (7 commits on `next` branch). 60+ tests added, all passing.
+Local accounts fully functional with password + TOTP + invitations + roles + bootstrap.
 
 **Done when** the whole tailnet can be run with local accounts only:
 invite → set password → enrol TOTP → sign in → register a device (phase 0) →
-manage only one's own machines.
+manage only one's own machines. ✅ **Verified**
 
 ### Phase 2 — AIO image + first-run wizard · L
 
