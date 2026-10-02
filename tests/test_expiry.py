@@ -86,9 +86,9 @@ class Summary(EnglishCase):
         self.assertEqual([n["id"] for n in expiry.inactive_nodes(nodes, NOW)], ["3", "4"])
 
     def test_notice(self):
-        self.assertEqual(expiry.notice_html([node(1, expiry_in=100, online=True)], NOW), "")
+        self.assertEqual(expiry.notice_html([node(1, expiry_in=100, online=True)], now=NOW), "")
         html = expiry.notice_html([node(1, expiry_in=3, online=True), node(2, expiry_in=4, online=True),
-                                   node(3, expiry_in=-1)], NOW)
+                                   node(3, expiry_in=-1)], now=NOW)
         self.assertIn("2 machines expire in the next", html)
         self.assertIn('data-f-apply="expiring"', html)
         self.assertIn("1 machine has an expired key", html)

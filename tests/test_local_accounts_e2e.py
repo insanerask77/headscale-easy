@@ -101,6 +101,11 @@ class LocalAccountsE2ETest(unittest.TestCase):
 
     def setUp(self):
         """Set up clean state for each test."""
+        # Other test modules delete these variables in their tearDown
+        env = mock.patch.dict(os.environ, {"HSE_ADMIN_EMAIL": "admin@example.com",
+                                           "HSE_ADMIN_PASSWORD": "AdminPassword123!"})
+        env.start()
+        self.addCleanup(env.stop)
         # Configure local accounts with in-memory database
         lac.configure(":memory:")
 
@@ -239,10 +244,9 @@ class LocalAccountsE2ETest(unittest.TestCase):
         bob_account_fresh = lac.get_account(id=bob_account["id"])
 
         # Verify that Bob can authenticate with TOTP
-        # We need to wait a moment to ensure we get a different time step
+        # The setup consumed the current time step (replay protection): use the next one
         import time
-        time.sleep(1)
-        current_code = lac.compute_totp(bob_account_fresh["totp_secret"])
+        current_code = lac.compute_totp(bob_account_fresh["totp_secret"], int(time.time()) + 30)
         valid, _ = lac.verify_totp(
             bob_account_fresh["totp_secret"],
             current_code,
