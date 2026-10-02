@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] - Unreleased
+
+Work in progress on the `next` branch: see `SIMPLIFICATION_PLAN.md`.
+
+### Added
+- Device sign-in without OIDC (plan phase 0). With `AUTH_PROVIDER=none` the
+  link `tailscale up` prints (`<url>/register/<auth id>`) now opens an approval
+  page in the console instead of Headscale's "run this command" page: Caddy
+  redirects it to `/admin/register/<auth id>`, the console asks the person to
+  sign in (and comes back to the page afterwards), and approving registers the
+  device through Headscale's API. Members and network admins can only add
+  devices to their own user, admins choose the owner, auditors cannot approve.
+  Re-run `./install.sh` once to regenerate the Caddyfile.
+
 ## [Unreleased]
 
 ### Added

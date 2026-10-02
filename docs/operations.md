@@ -27,8 +27,11 @@ for servers that join with auth keys.
 - **Linux / servers**: `tailscale up --login-server=https://<your-domain>`, or
   with an auth key (Settings → Keys) for unattended machines:
   `tailscale up --login-server=https://<your-domain> --authkey=<key>`.
+- **Without OIDC** (sign-in with API key only): the link `tailscale up` prints
+  (`https://<your-domain>/register/…`) opens the console, which asks you to
+  sign in and then to approve the device. Admins choose its owner.
 - **Auth ID**: if a device shows a URL with a registration ID, an admin can
-  approve it with **Add device → Register with Auth ID**.
+  also approve it with **Add device → Register with Auth ID**.
 
 The **Add device** page in the console shows the exact steps per OS.
 
@@ -347,9 +350,10 @@ installer generated for your proxy (`NGINX-PROXY-MANAGER.md`,
 
 **A device stays "waiting for approval" or shows a registration URL.** With
 OIDC the person must finish sign-in in the browser it opened. Without OIDC,
-register it from **Machines → Add device → Register with Auth ID** with the
-ID in that URL, or
-use an auth key. Check the owner: with isolation, a device registered to the
+open that URL: the console shows the approval page (re-run `./install.sh` once
+if it shows Headscale's own page instead, so the Caddyfile gets the redirect),
+or register it from **Machines → Add device → Register with Auth ID**, or use
+an auth key. Check the owner: with isolation, a device registered to the
 wrong user is invisible to its owner.
 
 **DNS changes are rejected.** The console runs `headscale configtest` and

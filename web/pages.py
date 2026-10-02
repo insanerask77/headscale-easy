@@ -233,6 +233,37 @@ def register_dialog(session: dict, users: list[dict]) -> str:
                          f'<label class="field">{esc(_("Owner"))}<select name="user" required>{opts}</select></label>')
 
 
+def register_page(session: dict, ctx: dict, auth_id: str, users: list[dict] | None, owner: dict | None,
+                  error: str = "") -> str:
+    """Approve a device that ran 'tailscale up' without a key: Caddy sends the
+    /register/<id> link Headscale prints here (AUTH_PROVIDER=none). Admins
+    choose the owner (users); everyone else adds it to their own user (owner)."""
+    head = page_head(_("Add a device"), esc(_("A device is waiting to join the tailnet. Only approve it if you "
+                                               "just ran 'tailscale up' or signed in on that device yourself.")))
+    head += notice("error", error) if error else ""
+    if users is not None:
+        opts = "".join(f'<option value="{esc(u["name"])}"{" selected" if owner and u["name"] == owner["name"] else ""}>'
+                       f'{esc(user_label(u))}</option>' for u in sorted(users, key=lambda u: user_label(u).lower()))
+        who = f'<label class="field">{esc(_("Owner"))}<select name="user" required>{opts}</select></label>'
+    elif owner:
+        who = f'<p>{esc(_("It will be added to your account, {user}.", user=user_label(owner)))}</p>'
+    else:
+        body = head + f"""
+    <section class="card"><p>{esc(_("Your account has no Headscale user yet, so it cannot own devices. Ask an admin."))}</p>
+      <p><a class="btn" href="{BASE}/machines">{esc(_("Back to Machines"))}</a></p></section>"""
+        return layout(_("Add a device"), "machines", body, session, ctx)
+    body = head + f"""
+    <section class="card">
+      <form method="post" action="{BASE}/register/{esc(auth_id)}">{csrf_input(session)}
+        <dl class="kvs"><dt>{esc(_("Request"))}</dt><dd><code>{esc(auth_id)}</code></dd></dl>
+        {who}
+        <div class="dialog-actions"><a class="btn" href="{BASE}/machines">{esc(_("Cancel"))}</a>
+          <button class="btn primary" type="submit">{esc(_("Approve device"))}</button></div>
+      </form>
+    </section>"""
+    return layout(_("Add a device"), "machines", body, session, ctx)
+
+
 def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: bool, flash: str,
                   users: list[dict] | None = None, error: str = "") -> str:
     admin = session.get("admin")
