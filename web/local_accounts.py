@@ -839,6 +839,29 @@ def revoke_token(token: str) -> None:
             log.info(f"Revoked token: {token_hash[:16]}...")
 
 
+def revoke_token_by_hash(token_hash: str) -> bool:
+    """Revoke a token by its hash (for admin UI).
+
+    Args:
+        token_hash: SHA-256 hash of the token
+
+    Returns:
+        True if token was revoked, False if not found or already used
+    """
+    now = _now()
+
+    with _db() as db:
+        result = db.execute(
+            "UPDATE tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL",
+            (now, token_hash)
+        )
+
+        if result.rowcount > 0:
+            log.info(f"Revoked token: {token_hash[:16]}...")
+            return True
+        return False
+
+
 def list_active_invitations() -> list[dict]:
     """List all active (not used, not expired) invitations.
 

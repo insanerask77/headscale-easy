@@ -676,8 +676,18 @@ class InvitationAndReset(Base):
         import local_accounts as la
         la.configure(":memory:")
         self.la = la
-        # Mock Headscale create/delete user
-        self.api.side_effect = lambda *a, **kw: {"user": {"name": "testuser"}} if a[0] == "POST" else None
+        # Mock Headscale API responses
+        def api_mock(method, path, *args, **kwargs):
+            if method == "POST" and "/user" in path:
+                return {"user": {"name": "testuser"}}
+            elif method == "GET" and path == "/user":
+                return {"users": []}
+            elif method == "GET" and path == "/node":
+                return {"nodes": []}
+            elif method == "DELETE":
+                return {}
+            return None
+        self.api.side_effect = api_mock
 
     def test_accept_invitation_creates_account(self):
         """Accepting an invitation creates a local account."""
@@ -831,6 +841,61 @@ class InvitationAndReset(Base):
         status, headers, body = request("GET", f"{B}/accept/invalidtoken123")
         self.assertEqual(status, 400)
         self.assertIn("invalid or has expired", body)
+
+    def test_admin_creates_invitation(self):
+        """Admins can create invitations."""
+        # Create admin session
+        admin = dict(ADMIN, kind="local", sub="local:999", role="admin")
+
+        # Create invitation
+        status, headers, body = request("POST", f"{B}/invitations", session=admin, form={
+            "csrf": "tok",
+            "role": "member",
+            "email": "admin-invite@example.com",
+            "days": "7"
+        })
+
+        # Should return users page with result (200)
+        self.assertEqual(status, 200)
+
+        # Verify invitation was created
+        invitations = self.la.list_active_invitations()
+        self.assertEqual(len(invitations), 1)
+        self.assertEqual(invitations[0]['email'], 'admin-invite@example.com')
+        self.assertEqual(invitations[0]['role'], 'member')
+
+    def test_admin_lists_invitations(self):
+        """Admins can list active invitations via API."""
+        # Create some invitations
+        self.la.create_invitation("invite1@example.com", role='member')
+        self.la.create_invitation("invite2@example.com", role='admin')
+
+        # Verify invitations are in the database
+        invitations = self.la.list_active_invitations()
+        self.assertEqual(len(invitations), 2)
+
+        emails = [inv['email'] for inv in invitations]
+        self.assertIn("invite1@example.com", emails)
+        self.assertIn("invite2@example.com", emails)
+
+    def test_admin_revokes_invitation(self):
+        """Admins can revoke invitations."""
+        # Create an invitation
+        token = self.la.create_invitation("revoke-admin@example.com", role='member')
+        token_hash = self.la._hash_token(token)
+
+        # Admin revokes it
+        admin = dict(ADMIN, kind="local", sub="local:999", role="admin")
+        status, headers, body = request("POST", f"{B}/invitations/{token_hash}/revoke", session=admin, form={
+            "csrf": "tok"
+        })
+
+        # Should redirect
+        self.assertEqual(status, 303)
+
+        # Verify invitation was revoked (can't be used)
+        data = self.la.check_token(token, kind='invite')
+        self.assertIsNone(data)
 
 
 if __name__ == "__main__":

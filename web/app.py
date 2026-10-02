@@ -618,10 +618,11 @@ class Handler(BaseHTTPRequestHandler):
             m = re.fullmatch(rf"{BASE}/users/(\d+)/(rename|delete)", path)
             if m:
                 return self.user_action(session, m.group(1), m.group(2), form)
-            if path == f"{BASE}/invitations" and AUTHENTIK:
+            if path == f"{BASE}/invitations":
                 return self.create_invitation(session, form)
-            m = re.fullmatch(rf"{BASE}/invitations/([0-9a-f-]{{32,36}})/revoke", path)
-            if m and AUTHENTIK:
+            # Revoke invitation: AUTHENTIK uses UUID pk, local uses token_hash (64 hex chars)
+            m = re.fullmatch(rf"{BASE}/invitations/([0-9a-f-]{{32,}})/revoke", path)
+            if m:
                 return self.revoke_invitation(session, m.group(1))
             m = re.fullmatch(rf"{BASE}/accounts/(\d+)/recovery", path)
             if m and AUTHENTIK:
@@ -1526,7 +1527,9 @@ class Handler(BaseHTTPRequestHandler):
     def users_view(self, session: dict, status: int = 200, flash: str = "", error: str = "",
                    result: dict | None = None):
         users = hs.all_users()
-        # Built-in Authentik: invitations, reset links and accounts without devices
+        # Invitations and accounts data
+        # For now, only show Authentik invitations in the users page
+        # Local accounts invitations will be shown in a separate management page (Phase 1 Block 5)
         data = accounts.page_data(users) if AUTHENTIK else None
         return self.send(status, admin_pages.users_page(session, CTX, users, hs.all_nodes(), flash, error=error,
                                                         accounts=data, result=result))
@@ -1571,13 +1574,42 @@ class Handler(BaseHTTPRequestHandler):
         except urllib.error.HTTPError as exc:
             return self.users_error(session, hs.api_error(exc))
 
-    # --- invitations and password reset links (built-in Authentik, accounts.py) ---
+    # --- invitations and password reset links ---
     def create_invitation(self, session: dict, form: dict):
         role = str(form.get("role", ""))
         email = str(form.get("email", "")).strip()
         days = str(form.get("days", "7"))
         days = days if days in accounts.INVITE_DAYS else "7"
         who = session["username"] or session["name"]
+
+        # Local accounts backend
+        if not AUTHENTIK:
+            try:
+                # Validate role
+                if role not in ('admin', 'network_admin', 'auditor', 'member'):
+                    raise ValueError(f"Invalid role: {role}")
+
+                # Create invitation token
+                expires_hours = int(days) * 24
+                token = lac.create_invitation(email, role=role, expires_hours=expires_hours)
+
+                # Build public link
+                link = f"{PUBLIC_URL}{BASE}/accept/{token}"
+
+                # Calculate expiration
+                from datetime import timedelta
+                expires = (datetime.now(timezone.utc) + timedelta(hours=expires_hours)).isoformat()
+
+                log.info("%s created an invitation (%s, %s, %s days)", who, role, email, days)
+                audit.request_event(self, session, "invite.create", email, {"role": role, "days": days})
+
+                return self.users_view(session, error="", result={
+                    "kind": "invite", "link": link, "expires": expires, "email": email, "sent": False})
+            except (ValueError, Exception) as exc:
+                log.warning("%s tried to create an invitation: %s", who, exc)
+                return self.users_error(session, str(exc))
+
+        # Authentik backend
         try:
             inv = accounts.create_invitation(role, email, int(days), who)
         except accounts.AccountsError as exc:
@@ -1598,6 +1630,17 @@ class Handler(BaseHTTPRequestHandler):
             "kind": "invite", "link": inv["link"], "expires": inv["expires"], "email": inv["email"], "sent": sent})
 
     def revoke_invitation(self, session: dict, pk: str):
+        # Local accounts backend
+        if not AUTHENTIK:
+            # pk is the token_hash for local accounts
+            if lac.revoke_token_by_hash(pk):
+                log.info("%s revoked an invitation", session["username"] or session["name"])
+                audit.request_event(self, session, "invite.revoke", "")
+                return self.redirect(f"{BASE}/users?m=invite-revoked")
+            else:
+                return self.redirect(f"{BASE}/users?m=not-found")
+
+        # Authentik backend
         try:
             inv = accounts.revoke_invitation(pk)
         except accounts.AccountsError as exc:
