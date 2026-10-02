@@ -1127,7 +1127,7 @@ def totp_verify_page(username: str, error: str | None = None) -> str:
         <p class="login-footer">{esc(_("Signed in as"))} <strong>{esc(username)}</strong></p>
       </div>
     </div>"""
-    return layout(_("Two-factor authentication"), "login", body, None, {})
+    return bare_page(_("Two-factor authentication"), body)
 
 
 def account_settings_page(session: dict, ctx: dict, account: dict, flash: str = "") -> str:
