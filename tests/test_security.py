@@ -898,6 +898,185 @@ class InvitationAndReset(Base):
         self.assertIsNone(data)
 
 
+class SelfServiceAccount(unittest.TestCase):
+    """Tests for self-service account management (Block 5.3)."""
+
+    def setUp(self):
+        """Set up local accounts."""
+        import local_accounts as la
+        la.configure(":memory:")
+        self.la = la
+
+        # Create test account
+        self.account_id = la.create_account("alice", "alice@example.com", "password123", role="member", headscale_user="alice")
+
+        # Reset sessions
+        sessions.configure(":memory:")
+        sessions._hits.clear()
+
+    def test_user_changes_own_password(self):
+        """User can change their own password with correct old password."""
+        # Create session for the user (request helper will call sessions.create)
+        session = {
+            "kind": "local",
+            "sub": f"local:{self.account_id}",
+            "username": "alice",
+            "name": "alice",
+            "email": "alice@example.com",
+            "admin": False,
+            "role": "member",
+            "csrf": "tok",
+            "exp": time.time() + 3600
+        }
+
+        # Change password
+        status, headers, _ = request("POST", f"{B}/settings/account/password", session, {
+            "old_password": "password123",
+            "new_password": "newpassword456",
+            "new_password2": "newpassword456",
+            "csrf": "tok"
+        })
+
+        # Should redirect with success message
+        self.assertEqual(status, 303)
+        self.assertIn("password-changed", location(headers))
+
+        # Verify new password works
+        account = self.la.get_account(id=self.account_id)
+        self.assertTrue(self.la.verify_password("newpassword456", account['pw_hash']))
+
+        # Verify old password no longer works
+        self.assertFalse(self.la.verify_password("password123", account['pw_hash']))
+
+    def test_user_cannot_change_password_without_old(self):
+        """User cannot change password without providing correct old password."""
+        session = {
+            "kind": "local",
+            "sub": f"local:{self.account_id}",
+            "username": "alice",
+            "name": "alice",
+            "admin": False,
+            "role": "member",
+            "csrf": "tok",
+            "exp": time.time() + 3600
+        }
+
+        # Try to change password with wrong old password
+        status, headers, _ = request("POST", f"{B}/settings/account/password", session, {
+            "old_password": "wrongpassword",
+            "new_password": "newpassword456",
+            "new_password2": "newpassword456",
+            "csrf": "tok"
+        })
+
+        # Should redirect with error
+        self.assertEqual(status, 303)
+        self.assertIn("wrong-password", location(headers))
+
+        # Verify password hasn't changed
+        account = self.la.get_account(id=self.account_id)
+        self.assertTrue(self.la.verify_password("password123", account['pw_hash']))
+
+    def test_user_cannot_change_password_with_mismatch(self):
+        """User cannot change password if new passwords don't match."""
+        session = {
+            "kind": "local",
+            "sub": f"local:{self.account_id}",
+            "username": "alice",
+            "name": "alice",
+            "admin": False,
+            "role": "member",
+            "csrf": "tok",
+            "exp": time.time() + 3600
+        }
+
+        # Try to change password with mismatched new passwords
+        status, headers, _ = request("POST", f"{B}/settings/account/password", session, {
+            "old_password": "password123",
+            "new_password": "newpassword456",
+            "new_password2": "differentpassword",
+            "csrf": "tok"
+        })
+
+        # Should redirect with error
+        self.assertEqual(status, 303)
+        self.assertIn("password-mismatch", location(headers))
+
+        # Verify password hasn't changed
+        account = self.la.get_account(id=self.account_id)
+        self.assertTrue(self.la.verify_password("password123", account['pw_hash']))
+
+    def test_user_cannot_change_role(self):
+        """Users cannot change their own role (role field is display-only)."""
+        session = {
+            "kind": "local",
+            "sub": f"local:{self.account_id}",
+            "username": "alice",
+            "name": "alice",
+            "admin": False,
+            "role": "member",
+            "csrf": "tok",
+            "exp": time.time() + 3600
+        }
+
+        # Get account settings page
+        status, _, body = request("GET", f"{B}/settings/account", session)
+        self.assertEqual(status, 200)
+
+        # Page should show role as read-only info (not a form field)
+        self.assertIn("Member", body)
+        # Should NOT have an editable role field
+        self.assertNotIn('name="role"', body)
+        self.assertNotIn('<select name="role"', body)
+
+    def test_oidc_user_cannot_access_account_settings(self):
+        """OIDC users are redirected away from local account settings."""
+        session = {
+            "kind": "oidc",
+            "sub": "oidc-user-123",
+            "username": "oidcuser",
+            "name": "OIDC User",
+            "admin": False,
+            "role": "member",
+            "csrf": "tok",
+            "exp": time.time() + 3600
+        }
+
+        # Try to access account settings
+        status, headers, _ = request("GET", f"{B}/settings/account", session)
+
+        # Should redirect to general settings
+        self.assertEqual(status, 303)
+        self.assertEqual(location(headers), f"{B}/settings/general")
+
+    def test_account_settings_page_shows_user_info(self):
+        """Account settings page displays username, email, and role."""
+        session = {
+            "kind": "local",
+            "sub": f"local:{self.account_id}",
+            "username": "alice",
+            "name": "alice",
+            "admin": False,
+            "role": "member",
+            "csrf": "tok",
+            "exp": time.time() + 3600
+        }
+
+        # Get account settings page
+        status, _, body = request("GET", f"{B}/settings/account", session)
+        self.assertEqual(status, 200)
+
+        # Should show account information
+        self.assertIn("alice", body)
+        self.assertIn("alice@example.com", body)
+        self.assertIn("Member", body)
+
+        # Should have password change form
+        self.assertIn('action="/admin/settings/account/password"', body)
+        self.assertIn('name="old_password"', body)
+        self.assertIn('name="new_password"', body)
+
+
 class SignInModes(unittest.TestCase):
     """Tests for combined sign-in modes (Block 5.2)."""
 
