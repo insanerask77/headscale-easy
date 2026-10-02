@@ -604,7 +604,7 @@ class TOTPSignin(unittest.TestCase):
         self.assertIsNotNone(totp_cookie)
 
         # Generate a fresh TOTP code
-        fresh_code = self.la.compute_totp(secret, int(time.time()))
+        fresh_code = self.la.compute_totp(secret, int(time.time()) + 30)  # next step: confirm_totp consumed the current one
 
         # Verify TOTP
         status2, headers2, body2 = request("POST", f"{B}/login/totp",
@@ -709,7 +709,7 @@ class TOTPSignin(unittest.TestCase):
 
             # Generate a fresh code for first attempt
             if attempt == 0:
-                fresh_code = self.la.compute_totp(secret, int(time.time()))
+                fresh_code = self.la.compute_totp(secret, int(time.time()) + 30)  # next step: confirm_totp consumed the current one
                 # First use should succeed
                 status2, headers2, body2 = request("POST", f"{B}/login/totp",
                                                   headers={"Cookie": totp_cookie.split(";")[0]},
