@@ -389,6 +389,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.totp_verify_page()
             if path == f"{BASE}/callback" and SSO:
                 return self.callback(params)
+            # Invitation and password reset (public routes)
+            accept_match = re.fullmatch(rf"{BASE}/accept/([A-Za-z0-9_-]+)", path)
+            if accept_match:
+                return self.accept_invitation_page(accept_match.group(1))
+            reset_match = re.fullmatch(rf"{BASE}/reset/([A-Za-z0-9_-]+)", path)
+            if reset_match:
+                return self.reset_password_page(reset_match.group(1))
 
             session = self.session()
             register = REGISTER_PATH_RE.fullmatch(path)
@@ -517,6 +524,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.local_login(self.form())
             if path == f"{BASE}/login/totp":
                 return self.verify_totp_login(self.form())
+            # Invitation and password reset (public routes)
+            accept_match = re.fullmatch(rf"{BASE}/accept/([A-Za-z0-9_-]+)", path)
+            if accept_match:
+                return self.accept_invitation(accept_match.group(1), self.form())
+            reset_match = re.fullmatch(rf"{BASE}/reset/([A-Za-z0-9_-]+)", path)
+            if reset_match:
+                return self.reset_password(reset_match.group(1), self.form())
 
             session = self.session()
             if not session:
@@ -978,6 +992,133 @@ class Handler(BaseHTTPRequestHandler):
         })
         # Clear the pending cookie
         return  # start_session handles redirect
+
+    def accept_invitation_page(self, token: str):
+        """Show the invitation acceptance page (GET /accept/{token})."""
+        # Check the token (don't consume it yet)
+        data = lac.check_token(token, kind='invite')
+        if not data:
+            return self.send(400, pages.invitation_page(token, "", "", _("This invitation link is invalid or has expired.")))
+
+        return self.send(200, pages.invitation_page(token, data['email'], data['role'], ""))
+
+    def accept_invitation(self, token: str, form: dict):
+        """Accept an invitation and create account (POST /accept/{token})."""
+        # Verify and consume the token
+        data = lac.verify_token(token, kind='invite')
+        if not data:
+            return self.send(400, pages.invitation_page(token, "", "", _("This invitation link is invalid or has expired.")))
+
+        email = data['email']
+        role = data['role']
+
+        # Get form data
+        username = str(form.get("username", "")).strip()
+        password = str(form.get("password", ""))
+        password2 = str(form.get("password2", ""))
+
+        # Validate inputs
+        if not username or not password:
+            return self.send(400, pages.invitation_page(token, email, role, _("Username and password are required.")))
+
+        if password != password2:
+            return self.send(400, pages.invitation_page(token, email, role, _("Passwords do not match.")))
+
+        # Validate username format (3-32 chars, alphanumeric + - and _)
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{3,32}", username):
+            return self.send(400, pages.invitation_page(token, email, role,
+                _("Username must be 3-32 characters: letters, numbers, - and _")))
+
+        # Create Headscale user
+        try:
+            hs.api("POST", "/user", {"name": username})
+            log.info("Created Headscale user for invitation: %s", username)
+        except Exception as e:
+            log.error("Failed to create Headscale user '%s': %s", username, e)
+            return self.send(500, pages.invitation_page(token, email, role,
+                _("Failed to create user. The username may already exist.")))
+
+        # Create local account
+        try:
+            account_id = lac.create_account(username, email, password, role=role, headscale_user=username)
+            log.info("Created local account from invitation: %s (role=%s)", username, role)
+        except ValueError as e:
+            # If account creation fails, try to delete the Headscale user
+            try:
+                hs.api("DELETE", f"/user/{username}")
+            except Exception:
+                pass
+            return self.send(400, pages.invitation_page(token, email, role, str(e)))
+
+        # Sign in automatically
+        self.start_session({
+            "kind": "local",
+            "sub": f"local:{account_id}",
+            "username": username,
+            "name": email,
+            "email": email,
+            "groups": [],
+            "admin": role == 'admin',
+            "role": role,
+        })
+
+    def reset_password_page(self, token: str):
+        """Show the password reset page (GET /reset/{token})."""
+        # Check the token (don't consume it yet)
+        data = lac.check_token(token, kind='reset')
+        if not data:
+            return self.send(400, pages.reset_password_page(token, "", _("This password reset link is invalid or has expired.")))
+
+        # Get the account
+        account = lac.get_account(id=data['account_id'])
+        if not account:
+            return self.send(400, pages.reset_password_page(token, "", _("Account not found.")))
+
+        return self.send(200, pages.reset_password_page(token, account['username'], ""))
+
+    def reset_password(self, token: str, form: dict):
+        """Reset password (POST /reset/{token})."""
+        # Verify and consume the token
+        data = lac.verify_token(token, kind='reset')
+        if not data:
+            return self.send(400, pages.reset_password_page(token, "", _("This password reset link is invalid or has expired.")))
+
+        # Get the account
+        account = lac.get_account(id=data['account_id'])
+        if not account:
+            return self.send(400, pages.reset_password_page(token, "", _("Account not found.")))
+
+        username = account['username']
+
+        # Get form data
+        password = str(form.get("password", ""))
+        password2 = str(form.get("password2", ""))
+
+        # Validate inputs
+        if not password:
+            return self.send(400, pages.reset_password_page(token, username, _("Password is required.")))
+
+        if password != password2:
+            return self.send(400, pages.reset_password_page(token, username, _("Passwords do not match.")))
+
+        # Update password
+        try:
+            lac.update_password(data['account_id'], password)
+            log.info("Password reset for account: %s", username)
+        except ValueError as e:
+            return self.send(400, pages.reset_password_page(token, username, str(e)))
+
+        # Sign in automatically
+        self.start_session({
+            "kind": "local",
+            "sub": f"local:{data['account_id']}",
+            "username": username,
+            "name": account['email'],
+            "email": account['email'],
+            "groups": [],
+            "admin": account['role'] == 'admin',
+            "role": account['role'],
+        })
 
     def start_session(self, data: dict):
         data.update(csrf=secrets.token_urlsafe(24), exp=time.time() + SESSION_TTL)

@@ -700,6 +700,60 @@ def create_reset_token(account_id: int, expires_hours: int = DEFAULT_RESET_HOURS
     return token
 
 
+def check_token(token: str, kind: str) -> dict | None:
+    """Check if a token is valid WITHOUT consuming it.
+
+    Args:
+        token: Unhashed token string
+        kind: 'invite' or 'reset'
+
+    Returns:
+        Dict with token data if valid (same as verify_token), or None if invalid.
+        Does NOT mark the token as used.
+    """
+    if kind not in ('invite', 'reset'):
+        raise ValueError(f"Invalid token kind: {kind}")
+
+    token_hash = _hash_token(token)
+    now = datetime.now(timezone.utc)
+
+    with _db() as db:
+        # Find the token
+        row = db.execute(
+            """SELECT * FROM tokens
+               WHERE token_hash = ? AND kind = ?""",
+            (token_hash, kind)
+        ).fetchone()
+
+        if not row:
+            return None
+
+        token_data = dict(row)
+
+        # Check if already used
+        if token_data['used_at'] is not None:
+            return None
+
+        # Check if expired
+        expires = datetime.fromisoformat(token_data['expires'])
+        if now > expires:
+            return None
+
+        # Return relevant fields (without consuming)
+        if kind == 'invite':
+            return {
+                'email': token_data['email'],
+                'role': token_data['role'],
+                'token_hash': token_hash
+            }
+        else:  # reset
+            return {
+                'account_id': token_data['account_id'],
+                'email': token_data['email'],
+                'token_hash': token_hash
+            }
+
+
 def verify_token(token: str, kind: str) -> dict | None:
     """Verify and consume a token (invitation or reset).
 

@@ -667,5 +667,171 @@ class TOTPSignin(unittest.TestCase):
                 self.assertEqual(status2, 401)
 
 
+class InvitationAndReset(Base):
+    """Test invitation and password reset flows (Block 4.2)."""
+
+    def setUp(self):
+        super().setUp()
+        # Configure local accounts
+        import local_accounts as la
+        la.configure(":memory:")
+        self.la = la
+        # Mock Headscale create/delete user
+        self.api.side_effect = lambda *a, **kw: {"user": {"name": "testuser"}} if a[0] == "POST" else None
+
+    def test_accept_invitation_creates_account(self):
+        """Accepting an invitation creates a local account."""
+        # Create an invitation
+        token = self.la.create_invitation("newuser@example.com", role='member')
+
+        # GET the invitation page (should work)
+        status1, headers1, body1 = request("GET", f"{B}/accept/{token}")
+        self.assertEqual(status1, 200)
+        self.assertIn("newuser@example.com", body1)
+        self.assertIn("Member", body1)
+
+        # POST to accept it
+        status2, headers2, body2 = request("POST", f"{B}/accept/{token}", form={
+            "username": "newuser",
+            "password": "password123",
+            "password2": "password123"
+        })
+
+        # Should redirect to machines page (auto sign-in)
+        self.assertEqual(status2, 303)
+        self.assertTrue(location(headers2).endswith(f"{B}/machines"))
+
+        # Verify account was created
+        account = self.la.get_account(username="newuser")
+        self.assertIsNotNone(account)
+        self.assertEqual(account['email'], "newuser@example.com")
+        self.assertEqual(account['role'], "member")
+        self.assertEqual(account['headscale_user'], "newuser")
+
+    def test_accept_invitation_creates_headscale_user(self):
+        """Accepting an invitation creates a Headscale user."""
+        token = self.la.create_invitation("hsuser@example.com", role='member')
+
+        # Accept the invitation
+        request("POST", f"{B}/accept/{token}", form={
+            "username": "hsuser",
+            "password": "password123",
+            "password2": "password123"
+        })
+
+        # Verify Headscale API was called to create user
+        # The mock returns {"user": {"name": "testuser"}} for POST requests
+        create_calls = [c for c in self.api.call_args_list if c[0][0] == "POST"]
+        self.assertGreater(len(create_calls), 0)
+
+    def test_accept_invitation_token_single_use(self):
+        """Invitation tokens can only be used once."""
+        token = self.la.create_invitation("singleuse@example.com", role='member')
+
+        # First use: should succeed
+        status1, headers1, body1 = request("POST", f"{B}/accept/{token}", form={
+            "username": "user1",
+            "password": "password123",
+            "password2": "password123"
+        })
+        self.assertEqual(status1, 303)
+
+        # Second use: should fail (token already used)
+        status2, headers2, body2 = request("POST", f"{B}/accept/{token}", form={
+            "username": "user2",
+            "password": "password123",
+            "password2": "password123"
+        })
+        self.assertEqual(status2, 400)
+        self.assertIn("invalid or has expired", body2)
+
+    def test_accept_invitation_password_mismatch(self):
+        """Accepting invitation fails if passwords don't match."""
+        token = self.la.create_invitation("mismatch@example.com", role='member')
+
+        status, headers, body = request("POST", f"{B}/accept/{token}", form={
+            "username": "testuser",
+            "password": "password123",
+            "password2": "different"
+        })
+
+        self.assertEqual(status, 400)
+        self.assertIn("do not match", body)
+
+    def test_reset_password_with_valid_token(self):
+        """Password reset with valid token updates the password."""
+        # Create an account
+        account_id = self.la.create_account("resetuser", "reset@example.com", "oldpassword")
+
+        # Create a reset token
+        token = self.la.create_reset_token(account_id)
+
+        # GET the reset page
+        status1, headers1, body1 = request("GET", f"{B}/reset/{token}")
+        self.assertEqual(status1, 200)
+        self.assertIn("resetuser", body1)
+
+        # POST to reset password
+        status2, headers2, body2 = request("POST", f"{B}/reset/{token}", form={
+            "password": "newpassword123",
+            "password2": "newpassword123"
+        })
+
+        # Should redirect to machines page (auto sign-in)
+        self.assertEqual(status2, 303)
+        self.assertTrue(location(headers2).endswith(f"{B}/machines"))
+
+        # Verify password was updated
+        account = self.la.get_account(id=account_id)
+        self.assertTrue(self.la.verify_password("newpassword123", account['pw_hash']))
+        self.assertFalse(self.la.verify_password("oldpassword", account['pw_hash']))
+
+    def test_reset_password_token_single_use(self):
+        """Password reset tokens can only be used once."""
+        account_id = self.la.create_account("resetonce", "resetonce@example.com", "password")
+        token = self.la.create_reset_token(account_id)
+
+        # First use: should succeed
+        status1, headers1, body1 = request("POST", f"{B}/reset/{token}", form={
+            "password": "newpass1",
+            "password2": "newpass1"
+        })
+        self.assertEqual(status1, 303)
+
+        # Second use: should fail
+        status2, headers2, body2 = request("POST", f"{B}/reset/{token}", form={
+            "password": "newpass2",
+            "password2": "newpass2"
+        })
+        self.assertEqual(status2, 400)
+        self.assertIn("invalid or has expired", body2)
+
+    def test_expired_token_rejected(self):
+        """Expired tokens are rejected."""
+        from datetime import datetime, timezone, timedelta
+
+        # Create an invitation
+        token = self.la.create_invitation("expired@example.com")
+
+        # Manually expire it
+        token_hash = self.la._hash_token(token)
+        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        with self.la._db() as db:
+            db.execute("UPDATE tokens SET expires = ? WHERE token_hash = ?",
+                      (past, token_hash))
+
+        # Try to use it
+        status, headers, body = request("GET", f"{B}/accept/{token}")
+        self.assertEqual(status, 400)
+        self.assertIn("invalid or has expired", body)
+
+    def test_invalid_token_rejected(self):
+        """Invalid tokens are rejected."""
+        # Try with a completely fake token
+        status, headers, body = request("GET", f"{B}/accept/invalidtoken123")
+        self.assertEqual(status, 400)
+        self.assertIn("invalid or has expired", body)
+
+
 if __name__ == "__main__":
     unittest.main()
