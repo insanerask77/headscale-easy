@@ -882,10 +882,48 @@ def list_active_invitations() -> list[dict]:
         return [dict(row) for row in rows]
 
 
-# Role functions (Block 5)
+# -----------------------------------------------------------------------------
+# Role functions (Block 5.1)
+# -----------------------------------------------------------------------------
+
 def get_account_role(account_id: int) -> str:
-    raise NotImplementedError("Block 5")
+    """Get the role of an account.
+
+    Returns:
+        Role string: 'admin', 'network_admin', 'auditor', or 'member'
+
+    Raises:
+        ValueError: if account not found
+    """
+    account = get_account(id=account_id)
+    if not account:
+        raise ValueError(f"Account {account_id} not found")
+
+    return account['role']
 
 
 def set_account_role(account_id: int, role: str) -> None:
-    raise NotImplementedError("Block 5")
+    """Set the role of an account.
+
+    Args:
+        account_id: Account ID
+        role: One of 'admin', 'network_admin', 'auditor', 'member'
+
+    Raises:
+        ValueError: if account not found or invalid role
+    """
+    if role not in ('admin', 'network_admin', 'auditor', 'member'):
+        raise ValueError(f"Invalid role: {role}")
+
+    account = get_account(id=account_id)
+    if not account:
+        raise ValueError(f"Account {account_id} not found")
+
+    now = _now()
+    with _db() as db:
+        db.execute(
+            "UPDATE accounts SET role = ?, updated = ? WHERE id = ?",
+            (role, now, account_id)
+        )
+
+    log.info(f"Role changed for account {account_id} ({account['username']}): {account['role']} -> {role}")

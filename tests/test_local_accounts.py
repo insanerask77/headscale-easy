@@ -767,5 +767,89 @@ class TokenTests(unittest.TestCase):
         self.assertIsNone(data)
 
 
+class RoleTests(unittest.TestCase):
+    """Test role management functions (Block 5.1)."""
+
+    def setUp(self):
+        """Create a fresh in-memory database for each test."""
+        la.configure(":memory:")
+
+    def test_get_account_role_admin(self):
+        """get_account_role() returns 'admin' for admin accounts."""
+        account_id = la.create_account("admin1", "admin@example.com", "password123", role='admin')
+        role = la.get_account_role(account_id)
+        self.assertEqual(role, 'admin')
+
+    def test_get_account_role_network_admin(self):
+        """get_account_role() returns 'network_admin' for network admin accounts."""
+        account_id = la.create_account("netadmin", "netadmin@example.com", "password123", role='network_admin')
+        role = la.get_account_role(account_id)
+        self.assertEqual(role, 'network_admin')
+
+    def test_get_account_role_auditor(self):
+        """get_account_role() returns 'auditor' for auditor accounts."""
+        account_id = la.create_account("auditor1", "auditor@example.com", "password123", role='auditor')
+        role = la.get_account_role(account_id)
+        self.assertEqual(role, 'auditor')
+
+    def test_get_account_role_member_default(self):
+        """get_account_role() returns 'member' by default."""
+        account_id = la.create_account("user1", "user@example.com", "password123")
+        role = la.get_account_role(account_id)
+        self.assertEqual(role, 'member')
+
+    def test_get_account_role_nonexistent(self):
+        """get_account_role() raises ValueError for nonexistent account."""
+        with self.assertRaises(ValueError) as ctx:
+            la.get_account_role(99999)
+        self.assertIn("not found", str(ctx.exception))
+
+    def test_set_account_role_to_admin(self):
+        """set_account_role() changes role to admin."""
+        account_id = la.create_account("user1", "user@example.com", "password123", role='member')
+        la.set_account_role(account_id, 'admin')
+
+        # Verify role changed
+        account = la.get_account(id=account_id)
+        self.assertEqual(account['role'], 'admin')
+
+    def test_set_account_role_to_member(self):
+        """set_account_role() can demote admin to member."""
+        account_id = la.create_account("admin1", "admin@example.com", "password123", role='admin')
+        la.set_account_role(account_id, 'member')
+
+        # Verify role changed
+        role = la.get_account_role(account_id)
+        self.assertEqual(role, 'member')
+
+    def test_set_account_role_invalid_role(self):
+        """set_account_role() raises ValueError for invalid role."""
+        account_id = la.create_account("user1", "user@example.com", "password123")
+
+        with self.assertRaises(ValueError) as ctx:
+            la.set_account_role(account_id, 'invalid_role')
+        self.assertIn("Invalid role", str(ctx.exception))
+
+    def test_set_account_role_nonexistent(self):
+        """set_account_role() raises ValueError for nonexistent account."""
+        with self.assertRaises(ValueError) as ctx:
+            la.set_account_role(99999, 'admin')
+        self.assertIn("not found", str(ctx.exception))
+
+    def test_set_account_role_updates_timestamp(self):
+        """set_account_role() updates the 'updated' timestamp."""
+        account_id = la.create_account("user1", "user@example.com", "password123")
+        account_before = la.get_account(id=account_id)
+
+        import time
+        time.sleep(0.01)  # Ensure timestamp changes
+
+        la.set_account_role(account_id, 'admin')
+        account_after = la.get_account(id=account_id)
+
+        # Timestamp should have changed
+        self.assertNotEqual(account_before['updated'], account_after['updated'])
+
+
 if __name__ == "__main__":
     unittest.main()
