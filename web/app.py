@@ -2112,7 +2112,7 @@ def main():
              VERSION, port, PUBLIC_URL, BASE, SSO, API_KEY_LOGIN, ", DEMO MODE" if DEMO else "")
 
     # Initialize local accounts database
-    lac.configure("/data/console/accounts.db")
+    lac.configure(os.environ.get("ACCOUNTS_DB", "/data/console/accounts.db"))
 
     # Bootstrap first admin if no accounts exist
     bootstrap_admin()
