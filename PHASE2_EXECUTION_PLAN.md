@@ -152,52 +152,57 @@ Before starting:
 
 ---
 
-## Block 4: Setup mode and `aio/wizard.py` (L, ~10-14h)
+## Block 4: Setup mode and `aio/wizard.py` (L, ~10-14h) ✅ DONE
 
 ### 4.1 Setup mode and token
 **Files:** `aio/wizard.py`, `aio/supervisor.py`
 
-- [ ] Active when `/data/config/settings.json` is missing and `HSE_PUBLIC_URL` is unset.
-- [ ] One-time token (`secrets.token_urlsafe(24)`) in `/data/config/setup-token`
+- [x] Active when `/data/config/settings.json` is missing and `HSE_PUBLIC_URL` is unset.
+- [x] One-time token (`secrets.token_urlsafe(24)`) in `/data/config/setup-token`
       (600) and printed in the logs in a banner; checked with `hmac.compare_digest`;
       simple rate limit.
-- [ ] The wizard only answers `/admin/setup*` and static files; everything else → 302.
-- [ ] With `HSE_PUBLIC_URL` set: no wizard, direct start (headless); admin via
+- [x] The wizard only answers `/admin/setup*` and static files; everything else → 302.
+- [x] With `HSE_PUBLIC_URL` set: no wizard, direct start (headless); admin via
       `HSE_ADMIN_EMAIL` (+ `HSE_ADMIN_PASSWORD`) with the existing `bootstrap_admin()`
       (`web/app.py:2053`).
 
 ### 4.2 Wizard steps
 Reuse `web/static`, `web/i18n.py`, `web/locales`, the TOTP code and `web/qr.py` from Phase 1.
 
-- [ ] Token → language → public URL → TLS (auto/internal/off, ACME email if auto) →
+- [x] Token → language → public URL → TLS (auto/internal/off, ACME email if auto) →
       admin account (`lac.create_account`) + TOTP (confirmation code required) →
-      tailnet name / base domain and per-user isolation → backups
+      tailnet name and per-user isolation (the base domain stays `<tailnet>.headscale.net`; it is editable in the console's DNS page) → backups
       (only stores `BACKUP_SCHEDULE` / `BACKUP_KEEP_DAYS` for Phase 3).
-- [ ] CSRF on every POST.
+- [x] CSRF on every POST.
 
 ### 4.3 Finish
-- [ ] Write `settings.json` (600) and a generated `SESSION_SECRET`.
-- [ ] Render config, start Headscale, create the API key
+- [x] Write `settings.json` (600) and a generated `SESSION_SECRET`.
+- [x] Render config, start Headscale, create the API key
       (`headscale apikeys create --expiration 90d` → `/data/console/api-key`),
       create the admin's Headscale user (`headscale users create`), apply the
       isolation policy if none exists (`headscale policy set -f /dev/stdin`, same
       JSON as `apply_network_policy`).
-- [ ] Delete the setup token, stop the wizard, start the console, reload Caddy with the final Caddyfile, show a final page linking to the public URL.
-- [ ] Idempotent / resumable: on a mid-way failure (e.g. ACME) show the error and
+- [x] Delete the setup token, stop the wizard, start the console, reload Caddy with the final Caddyfile, show a final page linking to the public URL.
+- [x] Idempotent / resumable: on a mid-way failure (e.g. ACME) show the error and
       allow retry without duplicating account, user or API key.
-- [ ] New strings in all 6 locales (`python scripts/check_i18n.py` passes).
+- [x] New strings in all 6 locales (`python scripts/check_i18n.py` passes).
 
 ### 4.4 Tests
 **Files:** `tests/test_wizard.py`, `tests/test_security.py`
 
-- [ ] No token → 403; reused token → 403; CSRF enforced.
-- [ ] URL / email validation.
-- [ ] Full flow with a fake Headscale (mocked commands): settings.json, api-key,
+- [x] No token → 403; reused token → 403; CSRF enforced.
+- [x] URL / email validation.
+- [x] Full flow with a fake Headscale (mocked commands): settings.json, api-key,
       admin account with TOTP.
-- [ ] No wizard when `HSE_PUBLIC_URL` is set.
-- [ ] Setup takeover regression tests in `tests/test_security.py`.
+- [x] No wizard when `HSE_PUBLIC_URL` is set.
+- [x] Setup takeover regression tests in `tests/test_security.py`.
 
 **Verify:** `python3 -m unittest tests.test_wizard tests.test_security`
+
+Implementation notes: the wizard runs Headscale itself for the last step (API key, user, policy),
+then writes `settings.json` last, so a failure leaves setup mode intact and retry is safe. The token
+stays valid until setup ends (a wizard restart must not lock the operator out) and is rate limited
+globally. Setup runs over plain HTTP on :80: say so in the docs (Block 6).
 
 ---
 
