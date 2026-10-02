@@ -898,5 +898,99 @@ class InvitationAndReset(Base):
         self.assertIsNone(data)
 
 
+class SignInModes(unittest.TestCase):
+    """Tests for combined sign-in modes (Block 5.2)."""
+
+    def test_signin_mode_local_only(self):
+        """Login page with local mode only shows username/password form."""
+        import admin_pages
+        html = admin_pages.login_page(sso=False, apikey=False, local=True)
+
+        # Should contain local sign-in form
+        self.assertIn('action="/admin/login/local"', html)
+        self.assertIn('name="username"', html)
+        self.assertIn('name="password"', html)
+
+        # Should NOT contain SSO button
+        self.assertNotIn('Sign in with SSO', html)
+
+        # Should NOT contain API key form
+        self.assertNotIn('Headscale API key', html)
+        self.assertNotIn('name="api_key"', html)
+
+    def test_signin_mode_local_and_oidc(self):
+        """Login page with local + OIDC shows both options."""
+        import admin_pages
+        html = admin_pages.login_page(sso=True, apikey=False, local=True)
+
+        # Should contain local sign-in form
+        self.assertIn('action="/admin/login/local"', html)
+        self.assertIn('name="username"', html)
+        self.assertIn('name="password"', html)
+
+        # Should contain SSO button
+        self.assertIn('Sign in with SSO', html)
+        self.assertIn('href="/admin/login/sso"', html)
+
+        # Should contain separator
+        self.assertIn('<div class="sep">', html)
+
+        # Should NOT contain API key form
+        self.assertNotIn('Headscale API key', html)
+
+    def test_signin_mode_apikey_only(self):
+        """Login page with API key mode only shows API key form."""
+        import admin_pages
+        html = admin_pages.login_page(sso=False, apikey=True, local=False)
+
+        # Should NOT contain local sign-in form
+        self.assertNotIn('action="/admin/login/local"', html)
+
+        # Should NOT contain SSO button
+        self.assertNotIn('Sign in with SSO', html)
+
+        # Should contain API key form
+        self.assertIn('Headscale API key', html)
+        self.assertIn('name="api_key"', html)
+        self.assertIn('action="/admin/login/apikey"', html)
+
+    def test_signin_mode_all_three(self):
+        """Login page with all modes shows all options."""
+        import admin_pages
+        html = admin_pages.login_page(sso=True, apikey=True, local=True)
+
+        # Should contain local sign-in form
+        self.assertIn('action="/admin/login/local"', html)
+        self.assertIn('name="username"', html)
+
+        # Should contain SSO button
+        self.assertIn('Sign in with SSO', html)
+
+        # Should contain API key form
+        self.assertIn('Headscale API key', html)
+        self.assertIn('name="api_key"', html)
+
+        # Should contain separators
+        self.assertEqual(html.count('<div class="sep">'), 2)
+
+    def test_signin_mode_sso_only(self):
+        """Login page with SSO only shows SSO button."""
+        import admin_pages
+        html = admin_pages.login_page(sso=True, apikey=False, local=False)
+
+        # Should NOT contain local sign-in form
+        self.assertNotIn('action="/admin/login/local"', html)
+
+        # Should contain SSO button
+        self.assertIn('Sign in with SSO', html)
+        self.assertIn('href="/admin/login/sso"', html)
+
+        # Should NOT contain API key form
+        self.assertNotIn('Headscale API key', html)
+
+        # Should NOT contain separator
+        self.assertNotIn('<div class="sep">', html)
+
+
 if __name__ == "__main__":
     unittest.main()
