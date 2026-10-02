@@ -143,22 +143,28 @@ Effort: **S** = hours · **M** = one or two days · **L** = several days.
 
 The deciding experiment: if it works, nothing else in the plan needs an IdP.
 
-- [ ] With OIDC disabled and the pinned Headscale version, record the exact URL
+- [x] With OIDC disabled and the pinned Headscale version, record the exact URL
       that `tailscale up --login-server …` prints (path and Auth ID format).
-      The current Caddyfile notes that Headscale uses `/auth/{id}`; confirm it
-      for the no-OIDC case too.
-- [ ] Caddy: redirect that path to `/admin/register/{id}` (302).
-- [ ] Console: `GET /admin/register/<id>` → sign-in if needed → confirmation
+      Headscale 0.29.4: `<server_url>/register/hskey-authreq-<24 chars>`.
+      `POST /api/v1/auth/register {user, authId}` registers it and returns
+      the node.
+- [x] Caddy: redirect that path to `/admin/register/{id}` (302).
+- [x] Console: `GET /admin/register/<id>` → sign-in if needed → confirmation
       page ("Add this device to your account?") → `POST` with CSRF →
       `hs.api("POST", "/auth/register", {"user": <session user>, "authId": id})`.
       Members register only to themselves; admins may pick the user (reuse
       `register_node` and `AUTH_ID_RE`).
-- [ ] Audit event `machine.register` and `device.registered` notification, as
+- [x] Audit event `machine.register` and `device.registered` notification, as
       today.
 - [ ] Check whether Headscale exposes anything about the pending request
-      (hostname, OS) to show on the confirmation page. Optional.
+      (hostname, OS) to show on the confirmation page. Optional; not found in
+      the 0.29 API so far.
 - [ ] Check that registering against a Headscale user created via OIDC works
-      (needed for the Authentik migration, phase 5).
+      (needed for the Authentik migration, phase 5). To verify in phase 5.
+
+**Status:** ✅ Done (PR #41, merged to `next`). Verified end to end with Headscale
+0.29.4, the console, Caddy and a Tailscale client in containers. The OIDC-user
+check moves to phase 5.
 
 **Done when** a fresh device runs `tailscale up --login-server`, opens the
 link, signs in to the console (API key for the spike) and joins the right user
