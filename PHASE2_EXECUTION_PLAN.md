@@ -48,41 +48,41 @@ Before starting:
 
 ---
 
-## Block 1: `aio/render.py` — config renderer (D6) (M, ~6-8h)
+## Block 1: `aio/render.py` — config renderer (D6) (M, ~6-8h) ✅ DONE
 
 ### 1.1 Port the generators
 **Files:** `aio/render.py`
 
-- [ ] Python port of `dns_block`, `key_expiry_block`, `database_block`,
+- [x] Python port of `dns_block`, `key_expiry_block`, `database_block`,
       `derp_paths_block`, `generate_headscale_config`, `generate_caddyfile`
       (`install.sh:919-1155`) over the existing `templates/*.tmpl`.
-- [ ] Minimal `envsubst` equivalent (only `${VAR}`).
-- [ ] Keep the marked blocks (dns, key expiry, derp map) of an existing config,
+- [x] Minimal `envsubst` equivalent (only `${VAR}`).
+- [x] Keep the marked blocks (dns, key expiry, derp map) of an existing config,
       including a `dns:` section without markers (reads `base_domain` / `magic_dns`).
 
 ### 1.2 Settings and targets
-- [ ] `load_settings()`: precedence **env > `/data/config/settings.json` > defaults**.
-- [ ] Env names: `HSE_PUBLIC_URL`, `HSE_TLS=auto|internal|off`, `ACME_EMAIL`,
+- [x] `load_settings()`: precedence **env > `/data/config/settings.json` > defaults**.
+- [x] Env names: `HSE_PUBLIC_URL`, `HSE_TLS=auto|internal|off`, `ACME_EMAIL`,
       `HSE_DERP_PORT`, `HSE_ADMIN_EMAIL`, `OIDC_ISSUER`/`OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET`,
       `HEADSCALE_DB_TYPE` + `HEADSCALE_PG_*`, `UI_LANG`, `TZ`, `TAILNET_NAME`,
       `NODE_KEY_EXPIRY`, `DERP_USE_PUBLIC`, `NETWORK_ISOLATION`, plus today's console knobs.
-- [ ] `HSE_TLS` mapping: auto → letsencrypt, internal → selfsigned, off → `:80`.
-- [ ] Target `compose`: 1.x paths and upstreams; output must be **byte-identical** to `install.sh`.
-- [ ] Target `aio`: upstreams on `127.0.0.1`, paths under `/data`,
+- [x] `HSE_TLS` mapping: auto → letsencrypt, internal → selfsigned, off → `:80`.
+- [x] Target `compose`: 1.x paths and upstreams; output must be **byte-identical** to `install.sh`.
+- [x] Target `aio`: upstreams on `127.0.0.1`, paths under `/data`,
       `trusted_proxies: 127.0.0.1/32`, no Authentik route, `/register/<id>` route
       on unless Headscale uses OIDC, Caddy logs in `/data/caddy/logs`.
-- [ ] Outputs: `/data/config/{config.yaml,Caddyfile,derp.yaml}` and `console_env()`
+- [x] Outputs: `/data/config/{config.yaml,Caddyfile,derp.yaml}` and `console_env()`
       (env dict for the console: `SESSIONS_DB`, `AUDIT_DB`, … under `/data/console/`).
-- [ ] `render_setup_caddyfile()`: `:80` → only the wizard on `127.0.0.1:8000`.
+- [x] `render_setup_caddyfile()`: `:80` → only the wizard on `127.0.0.1:8000`.
 
 ### 1.3 Tests
 **Files:** `tests/test_render.py`, `tests/fixtures/render/<case>/`
 
-- [ ] Golden files from `install.sh` for: sqlite + off, letsencrypt + OIDC,
+- [x] Golden files from `install.sh` for: sqlite + off, letsencrypt + OIDC,
       postgres + selfsigned, existing config with marked dns block.
-- [ ] Assertions for the `aio` target.
-- [ ] Precedence env / settings / defaults.
-- [ ] Reject values with newlines or quotes (parity with `validate_env_text`).
+- [x] Assertions for the `aio` target.
+- [x] Precedence env / settings / defaults.
+- [x] Reject values with newlines or quotes (parity with `validate_env_text`).
 
 **Verify:** `python3 -m unittest tests.test_render`
 
@@ -143,7 +143,7 @@ Before starting:
       and document the result.
 - [ ] `HEALTHCHECK` via `hse health`: healthy when the three processes run
       (setup mode: wizard + caddy).
-- [ ] `web/app.py`: `lac.configure(os.environ.get("ACCOUNTS_DB", "/data/console/accounts.db"))`.
+- [x] `web/app.py`: `lac.configure(os.environ.get("ACCOUNTS_DB", "/data/console/accounts.db"))`.
 - [ ] `web/status.py`: configurable disks by env.
 
 **Verify:** `docker build -f aio/Dockerfile -t hse-aio .` and `docker image inspect` < 250 MB.
@@ -247,15 +247,15 @@ Reuse `web/static`, `web/i18n.py`, `web/locales`, the TOTP code and `web/qr.py` 
 ### New files:
 - [ ] `aio/Dockerfile`
 - [ ] `aio/supervisor.py`
-- [ ] `aio/render.py`
+- [x] `aio/render.py`
 - [ ] `aio/wizard.py`
 - [ ] `aio/hse` (CLI: `reload`, `health`)
-- [ ] `tests/test_render.py`, `tests/test_supervisor.py`, `tests/test_wizard.py`
-- [ ] `tests/fixtures/render/*`
+- [ ] `tests/test_render.py` ✅, `tests/test_supervisor.py`, `tests/test_wizard.py`
+- [x] `tests/fixtures/render/*` (+ `scripts/gen_render_goldens.sh`)
 
 ### Modified files:
 - [ ] `helper/helper.py` (reusable handler with pluggable backends)
-- [ ] `web/app.py` (`ACCOUNTS_DB`)
+- [x] `web/app.py` (`ACCOUNTS_DB`)
 - [ ] `web/status.py` (configurable disks)
 - [ ] `web/locales/*` (wizard strings)
 - [ ] `tests/test_security.py`
