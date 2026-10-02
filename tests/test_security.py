@@ -1339,6 +1339,46 @@ class LocalAccountHeadscaleIntegration(unittest.TestCase):
         self.assertIsNone(user)
 
 
+class TwoFactorNudgeTest(unittest.TestCase):
+    """The popup suggesting two-factor to local accounts that have not enabled it."""
+
+    LOCAL = {"kind": "local", "sub": "local:1", "username": "ana", "csrf": "t", "role": "admin", "admin": True}
+
+    def test_shown_only_to_local_accounts_without_two_factor(self):
+        import ui
+        shown = ui.nudge_2fa(dict(self.LOCAL, totp_on=False), "machines")
+        self.assertIn('id="nudge-2fa"', shown)
+        self.assertIn(f"{B}/settings/account/totp/enroll", shown)
+        self.assertEqual(ui.nudge_2fa(dict(self.LOCAL, totp_on=True), "machines"), "")
+        self.assertEqual(ui.nudge_2fa(dict(ADMIN), "machines"), "")  # OIDC / API key sessions
+        self.assertEqual(ui.nudge_2fa(dict(self.LOCAL, totp_on=False), "settings"), "")  # not on the account pages
+
+    def test_layout_includes_it(self):
+        import ui
+        page = ui.layout("Machines", "machines", "<p>x</p>", dict(self.LOCAL, totp_on=False), app.CTX)
+        self.assertIn('data-nudge="2fa"', page)
+        page = ui.layout("Machines", "machines", "<p>x</p>", dict(self.LOCAL, totp_on=True), app.CTX)
+        self.assertNotIn("nudge-2fa", page)
+
+    def test_session_reflects_the_account_live(self):
+        import local_accounts as la
+        la.configure(":memory:")
+        account_id = la.create_account("ana", "ana@example.com", "-".join(["test", "pass", "n"]), role="admin")
+        data = dict(self.LOCAL, sub=f"local:{account_id}")
+        handler = app.Handler.__new__(app.Handler)
+        with mock.patch.object(app, "unsign", lambda _c: dict(data)), mock.patch.object(
+                app.sessions, "validate", lambda _d: True), mock.patch.object(app.Handler, "cookie", lambda *_a: "x"):
+            self.assertIs(handler.session()["totp_on"], False)
+            secret, _qr = la.enroll_totp(account_id)
+            self.assertTrue(la.confirm_totp(account_id, la.compute_totp(secret)))
+            self.assertIs(handler.session()["totp_on"], True)
+
+    def test_the_script_remembers_the_dismissal_per_browser_session(self):
+        js = open(os.path.join(WEB, "static", "app.js"), encoding="utf-8").read()
+        self.assertIn('getElementById("nudge-2fa")', js)
+        self.assertIn("sessionStorage", js)
+
+
 class SetupTakeoverTest(unittest.TestCase):
     """The first-run wizard (aio/wizard.py) is the only thing standing between a stranger and an admin
     account: nothing may happen before the one-time token, and nothing after setup ends."""
@@ -1356,7 +1396,7 @@ class SetupTakeoverTest(unittest.TestCase):
         form = {"email": "evil@example.com"}
         form["username"] = "evil"
         form["password"] = form["password2"] = "-".join(["test", "pass", "x"])
-        for step, data in (("admin", form), ("finish", {}), ("totp", {"code": "123456"})):
+        for step, data in (("admin", form), ("finish", {}), ("network", {"tailnet_name": "x"})):
             self.assertEqual(c.request("/admin/setup/" + step, data)[0], 403)
         # even with a valid CSRF token taken from the (public) token page
         _s, _h, html = c.request("/admin/setup")

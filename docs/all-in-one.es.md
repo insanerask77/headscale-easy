@@ -37,12 +37,12 @@ El modo configuración arranca cuando no existe `/data/config/settings.json` ni
 3. **URL pública y HTTPS**: automático (Let's Encrypt, requiere dominio y
    correo), interno (autofirmado) o ninguno (HTTP simple, o HTTPS en un proxy
    delante).
-4. **Administrador**: correo, usuario y contraseña.
-5. **Doble factor**: escanea el QR y confirma un código. Los códigos de
-   recuperación se muestran una sola vez.
-6. **Nombre del tailnet** y si se aísla a los usuarios (cada uno solo alcanza
+4. **Administrador**: correo, usuario y contraseña. El doble factor es
+   opcional aquí: la consola te sugiere activarlo (un aviso al iniciar sesión,
+   una vez por sesión del navegador) y se activa en **Ajustes → Cuenta**.
+5. **Nombre del tailnet** y si se aísla a los usuarios (cada uno solo alcanza
    sus propios dispositivos).
-7. **Copias**: la programación y la retención se guardan para las copias
+6. **Copias**: la programación y la retención se guardan para las copias
    integradas que llegarán en una versión posterior.
 
 Al terminar se crean la clave de API de Headscale, el usuario de Headscale del

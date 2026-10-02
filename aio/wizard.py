@@ -5,12 +5,12 @@ Started by the supervisor instead of the console while there is no
 behind the setup-mode Caddy (plain HTTP on :80) and answers only
 /admin/setup* and /admin/static/*; everything else redirects to /admin/setup.
 
-    token -> language -> server URL + TLS -> admin account -> two-factor ->
+    token -> language -> server URL + TLS -> admin account ->
     tailnet + isolation -> backups -> finish
 
 A one-time token (data/config/setup-token, also printed in the logs) gates
-every step. The wizard creates the admin account (accounts.db) and its TOTP as
-it goes; at the end it renders the config, briefly runs Headscale to create the
+every step. The wizard creates the admin account (accounts.db) as it goes (two-factor
+is optional; the console suggests it after sign-in); at the end it renders the config, briefly runs Headscale to create the
 API key, the admin's Headscale user and the isolation policy, writes
 settings.json (the marker that setup is done), deletes the token and exits 0.
 The supervisor then switches to run mode. Every step is safe to repeat.
@@ -44,8 +44,7 @@ sys.path.insert(0, os.environ.get("HSE_WEB_DIR") or os.path.join(ROOT, "web"))
 import local_accounts as lac  # noqa: E402
 import render  # noqa: E402
 from i18n import LANGUAGES, _, pick_lang, set_lang  # noqa: E402
-from qr import qr_figure  # noqa: E402
-from ui import BASE, LOGO, bare_page, esc, message_page  # noqa: E402
+from ui import BASE, LOGO, bare_page, esc, message_page, notice  # noqa: E402
 
 log = logging.getLogger("wizard")
 
@@ -61,7 +60,7 @@ EXIT_DELAY = float(os.environ.get("HSE_WIZARD_EXIT_DELAY", "3"))
 SESSION_TTL = 2 * 3600
 MAX_BODY = 16 * 1024
 
-STEPS = ("language", "server", "admin", "totp", "recovery", "network", "backups", "finish")
+STEPS = ("language", "server", "admin", "network", "backups", "finish")
 TLS_MODES = ("auto", "internal", "off")
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -366,53 +365,58 @@ class Finisher:
 
 
 # -----------------------------------------------------------------------------
-# Pages
+# Pages (the console's own components: card, field, btn, notice)
 # -----------------------------------------------------------------------------
 
 def _csrf(sess: dict) -> str:
     return f'<input type="hidden" name="csrf" value="{esc(sess["csrf"])}">'
 
 
-def _error(msg: str | None) -> str:
-    return f'<p class="error" role="alert">{esc(msg)}</p>' if msg else ""
+def _progress(step: str | None) -> str:
+    if step not in STEPS:
+        return ""
+    at = STEPS.index(step)
+    dots = "".join(f'<i class="{"done" if i < at else "now" if i == at else ""}"></i>' for i in range(len(STEPS)))
+    label = _("Step {n} of {total}", n=at + 1, total=len(STEPS))
+    return f'<div class="setup-steps" role="img" aria-label="{esc(label)}">{dots}</div><p class="muted small">{esc(label)}</p>'
 
 
 def _card(title: str, intro: str, form_inner: str, sess: dict, step: str | None = None, error: str | None = None,
-          submit: str | None = None) -> str:
-    progress = ""
-    if step in STEPS:
-        progress = (f'<p class="muted small">{esc(_("Step {n} of {total}", n=STEPS.index(step) + 1, total=len(STEPS)))}'
-                    "</p>")
+          submit: str | None = None, heading: str | None = None) -> str:
     action = SETUP + ("/" + step if step else "")
     return bare_page(title, f"""
-    <div class="login-container">
-      <div class="login-card">
-        {LOGO}
-        <h1>{esc(title)}</h1>
-        {progress}
-        <p>{esc(intro)}</p>
-        {_error(error)}
-        <form method="post" action="{action}">
-          {_csrf(sess)}
-          {form_inner}
-          <button type="submit" class="btn btn-primary">{esc(submit or _("Continue"))}</button>
-        </form>
-      </div>
-    </div>""")
+    <section class="card narrow center login setup">
+      <div class="big-logo">{LOGO}</div>
+      <h1>{esc(heading or title)}</h1>
+      {_progress(step)}
+      <p class="muted">{esc(intro)}</p>
+      {notice("error", error) if error else ""}
+      <form method="post" action="{action}" class="stack">
+        {_csrf(sess)}
+        {form_inner}
+        <button class="btn wide primary" type="submit">{esc(submit or _("Continue"))}</button>
+      </form>
+    </section>""")
+
+
+def _field(label: str, control: str, hint: str = "") -> str:
+    note = '<span class="muted">' + esc(hint) + "</span>" if hint else ""
+    return f'<label class="field">{esc(label)}{control}{note}</label>'
 
 
 def token_page(sess: dict, error: str | None = None) -> str:
     return _card(_("Set up Headscale Easy"),
                  _("Enter the setup token printed in the container logs (or stored in /data/config/setup-token)."),
-                 f'<label>{esc(_("Setup token"))}<input type="password" name="token" required autofocus '
-                 'autocomplete="off" spellcheck="false"></label>', sess, error=error, submit=_("Unlock"))
+                 _field(_("Setup token"), '<input type="password" name="token" required autofocus '
+                        'autocomplete="off" spellcheck="false">'), sess, error=error, submit=_("Unlock"),
+                 heading="Headscale Easy")
 
 
 def language_page(sess: dict, current: str) -> str:
     opts = "".join(f'<option value="{esc(k)}"{" selected" if k == current else ""}>{esc(v)}</option>'
                    for k, v in LANGUAGES.items())
     return _card(_("Language"), _("Choose the language of the web interface."),
-                 f'<label>{esc(_("Language"))}<select name="lang">{opts}</select></label>', sess, "language")
+                 _field(_("Language"), f'<select name="lang">{opts}</select>'), sess, "language")
 
 
 def server_page(sess: dict, v: dict, error: str | None = None) -> str:
@@ -421,68 +425,46 @@ def server_page(sess: dict, v: dict, error: str | None = None) -> str:
               "off": _("No HTTPS here (plain HTTP, or HTTPS handled in front)")}
     opts = "".join(f'<option value="{k}"{" selected" if k == tls else ""}>{esc(labels[k])}</option>'
                    for k in TLS_MODES)
-    acme_label = _("Email for Let's Encrypt (automatic certificates only)")
-    inner = (f'<label>{esc(_("Public URL"))}<input type="text" name="public_url" required autofocus '
-             f'value="{esc(v.get("public_url", ""))}" placeholder="https://hs.example.com"></label>'
-             f'<label>{esc(_("HTTPS certificates"))}<select name="tls">{opts}</select></label>'
-             f'<label>{esc(acme_label)}'
-             f'<input type="email" name="acme_email" value="{esc(v.get("acme_email", ""))}"></label>')
+    inner = (_field(_("Public URL"), f'<input type="text" name="public_url" required autofocus spellcheck="false" '
+                    f'value="{esc(v.get("public_url", ""))}" placeholder="https://hs.example.com">') +
+             _field(_("HTTPS certificates"), f'<select name="tls">{opts}</select>') +
+             _field(_("Email for Let's Encrypt (automatic certificates only)"),
+                    f'<input type="email" name="acme_email" value="{esc(v.get("acme_email", ""))}">'))
     return _card(_("Server address"), _("The address your devices and browsers will use to reach this server."),
                  inner, sess, "server", error)
 
 
 def admin_page(sess: dict, v: dict, error: str | None = None) -> str:
-    inner = (f'<label>{esc(_("Email"))}<input type="email" name="email" required autofocus '
-             f'value="{esc(v.get("email", ""))}" autocomplete="email"></label>'
-             f'<label>{esc(_("Username"))}<input type="text" name="username" required '
-             f'value="{esc(v.get("username", ""))}" pattern="[a-zA-Z0-9_-]{{3,32}}" autocomplete="username" '
-             f'title="{esc(_("3-32 characters: letters, numbers, - and _"))}"></label>'
-             f'<label>{esc(_("Password"))}<input type="password" name="password" required minlength="8" '
-             f'autocomplete="new-password" placeholder="{esc(_("At least 8 characters"))}"></label>'
-             f'<label>{esc(_("Confirm password"))}<input type="password" name="password2" required '
-             'autocomplete="new-password"></label>')
+    inner = (_field(_("Email"), f'<input type="email" name="email" required autofocus autocomplete="email" '
+                    f'value="{esc(v.get("email", ""))}">') +
+             _field(_("Username"), f'<input type="text" name="username" required autocomplete="username" '
+                    f'spellcheck="false" value="{esc(v.get("username", ""))}" pattern="[a-zA-Z0-9_-]{{3,32}}" '
+                    f'title="{esc(_("3-32 characters: letters, numbers, - and _"))}">') +
+             _field(_("Password"), f'<input type="password" name="password" required minlength="8" '
+                    f'autocomplete="new-password" placeholder="{esc(_("At least 8 characters"))}">') +
+             _field(_("Confirm password"), '<input type="password" name="password2" required '
+                    'autocomplete="new-password">') +
+             f'<p class="muted small">{esc(_("You can turn on two-factor authentication from the console after signing in."))}</p>')
     return _card(_("Administrator"), _("Create the first administrator account."), inner, sess, "admin", error)
-
-
-def totp_page(sess: dict, secret: str, qr_data: str, error: str | None = None) -> str:
-    grouped = " ".join(secret[i:i + 4] for i in range(0, len(secret), 4))
-    cant_scan = _("Can't scan the QR code?")
-    inner = (qr_figure(qr_data, _("authenticator app QR code")) +
-             f'<details><summary>{esc(cant_scan)}</summary>'
-             f'<p>{esc(_("Enter this code manually in your authenticator app:"))}</p><code>{esc(grouped)}</code>'
-             "</details>"
-             f'<label>{esc(_("Code"))}<input type="text" name="code" inputmode="numeric" pattern="[0-9]{{6}}" '
-             'autocomplete="one-time-code" required maxlength="6"></label>')
-    return _card(_("Two-factor authentication"),
-                 _("Scan the QR code with your authenticator app, then enter a code to confirm."),
-                 inner, sess, "totp", error)
-
-
-def recovery_page(sess: dict, codes: list[str]) -> str:
-    inner = ("<pre>" + esc("\n".join(codes)) + "</pre>")
-    return _card(_("Recovery codes"),
-                 _("Save these one-time codes somewhere safe. They are the only way in if you lose your "
-                   "authenticator, and they are not shown again."), inner, sess, "recovery",
-                 submit=_("I saved them"))
 
 
 def network_page(sess: dict, v: dict, error: str | None = None) -> str:
     name = v.get("tailnet_name", "myorg")
     iso = v.get("network_isolation", "true") == "true"
-    inner = (f'<label>{esc(_("Tailnet name"))}<input type="text" name="tailnet_name" required '
-             f'value="{esc(name)}" pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?" maxlength="32"></label>'
-             f'<p class="muted small">{esc(_("Devices get names like device.{name}.headscale.net.", name="<name>"))}</p>'
-             f'<label><input type="checkbox" name="isolation" value="1"{" checked" if iso else ""}> '
-             f'{esc(_("Isolate users: each user only reaches their own devices"))}</label>')
+    inner = (_field(_("Tailnet name"), f'<input type="text" name="tailnet_name" required maxlength="32" '
+                    f'spellcheck="false" value="{esc(name)}" pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?">',
+                    _("Devices get names like device.{name}.headscale.net.", name="<name>")) +
+             f'<label class="check"><input type="checkbox" name="isolation" value="1"{" checked" if iso else ""}>'
+             f'<span>{esc(_("Isolate users: each user only reaches their own devices"))}</span></label>')
     return _card(_("Network"), _("Name your tailnet and choose how users see each other."), inner, sess,
                  "network", error)
 
 
 def backups_page(sess: dict, v: dict, error: str | None = None) -> str:
-    inner = (f'<label>{esc(_("Backup schedule (cron)"))}<input type="text" name="backup_schedule" required '
-             f'value="{esc(v.get("backup_schedule", "0 3 * * *"))}"></label>'
-             f'<label>{esc(_("Days to keep backups"))}<input type="number" name="backup_keep_days" required '
-             f'min="1" max="3650" value="{esc(v.get("backup_keep_days", "14"))}"></label>')
+    inner = (_field(_("Backup schedule (cron)"), f'<input type="text" name="backup_schedule" required '
+                    f'spellcheck="false" value="{esc(v.get("backup_schedule", "0 3 * * *"))}">') +
+             _field(_("Days to keep backups"), f'<input type="number" name="backup_keep_days" required min="1" '
+                    f'max="3650" value="{esc(v.get("backup_keep_days", "14"))}">'))
     return _card(_("Backups"), _("Scheduled backups arrive in a later release; these values are stored for it."),
                  inner, sess, "backups", error)
 
@@ -491,24 +473,22 @@ def finish_page(sess: dict, data: dict, error: str | None = None) -> str:
     s = data["server"]
     rows = [(_("Public URL"), s["public_url"]), (_("HTTPS certificates"), s["tls"]),
             (_("Administrator"), data["admin"]["email"]), (_("Tailnet name"), data["network"]["tailnet_name"])]
-    summary = "".join(f"<tr><th>{esc(k)}</th><td>{esc(v)}</td></tr>" for k, v in rows)
+    summary = "".join(f'<div class="kv"><dt>{esc(k)}</dt><dd>{esc(v)}</dd></div>' for k, v in rows)
     return _card(_("Review and finish"), _("Everything is ready. Finishing starts the server; this can take a minute."),
-                 f"<table>{summary}</table>", sess, "finish", error,
+                 f'<dl class="kvs">{summary}</dl>', sess, "finish", error,
                  submit=_("Retry") if error else _("Finish setup"))
 
 
 def done_page(public_url: str) -> str:
     url = public_url + BASE + "/"
     return bare_page(_("Setup complete"), f"""
-    <div class="login-container">
-      <div class="login-card">
-        {LOGO}
-        <h1>{esc(_("Setup complete"))}</h1>
-        <p>{esc(_("Headscale Easy is starting. Sign in with the administrator account you just created."))}</p>
-        <p class="muted small">{esc(_("With automatic certificates the first load can take a few seconds."))}</p>
-        <a class="btn btn-primary" href="{esc(url)}">{esc(url)}</a>
-      </div>
-    </div>""")
+    <section class="card narrow center login setup">
+      <div class="big-logo">{LOGO}</div>
+      <h1>{esc(_("Setup complete"))}</h1>
+      <p class="muted">{esc(_("Headscale Easy is starting. Sign in with the administrator account you just created."))}</p>
+      <p class="muted small">{esc(_("With automatic certificates the first load can take a few seconds."))}</p>
+      <a class="btn wide primary" href="{esc(url)}">{esc(_("Open the console"))}</a>
+    </section>""")
 
 
 # -----------------------------------------------------------------------------
@@ -528,7 +508,7 @@ class Wizard:
 
     def next_step(self, data: dict) -> str:
         """First step that is not done yet."""
-        for step, key in (("language", "lang"), ("server", "server"), ("admin", "admin"), ("totp", "totp_done"),
+        for step, key in (("language", "lang"), ("server", "server"), ("admin", "admin"),
                           ("network", "network"), ("backups", "backups")):
             if not data.get(key):
                 return step
@@ -701,46 +681,11 @@ class Handler(BaseHTTPRequestHandler):
             account_id = create_admin(email, username, form.get("password", ""))
         except (SetupError, ValueError) as exc:
             return self.send(400, admin_page(sess, values, str(exc)))
-        if data.get("admin", {}).get("account_id") != account_id:
-            data.pop("totp_done", None)
-            data.pop("totp", None)
         data["admin"] = {"email": email, "username": username, "account_id": account_id}
-        return self.redirect(f"{SETUP}/totp")
-
-    def step_totp(self, method, sess, form, headers):
-        data = sess["data"]
-        account_id = data["admin"]["account_id"]
-        if data.get("totp_done"):
-            return self.redirect(f"{SETUP}/{'recovery' if data.get('recovery') else 'network'}")
-        account = lac.get_account(id=account_id)
-        if account and account.get("totp_confirmed"):  # resumed setup: already enrolled
-            data["totp_done"] = True
-            return self.redirect(f"{SETUP}/network")
-        if method == "GET" or "totp" not in data:
-            if "totp" not in data:
-                data["totp"] = lac.enroll_totp(account_id)
-            return self.send(200, totp_page(sess, *data["totp"]))
-        code = str(form.get("code", "")).strip()
-        if not lac.confirm_totp(account_id, code):
-            return self.send(400, totp_page(sess, *data["totp"], error=_("That code is not valid. Try the next one.")))
-        data["totp_done"] = True
-        data["recovery"] = lac.reset_recovery_codes(account_id)
-        data.pop("totp", None)
-        return self.redirect(f"{SETUP}/recovery")
-
-    def step_recovery(self, method, sess, form, headers):
-        data = sess["data"]
-        if method == "POST":
-            data.pop("recovery", None)
-            return self.redirect(f"{SETUP}/network")
-        if not data.get("recovery"):
-            return self.redirect(f"{SETUP}/{self.wizard.next_step(data)}")
-        return self.send(200, recovery_page(sess, data["recovery"]))
+        return self.redirect(f"{SETUP}/network")
 
     def step_network(self, method, sess, form, headers):
         data = sess["data"]
-        if data.get("recovery"):
-            return self.redirect(f"{SETUP}/recovery")
         if method == "GET":
             return self.send(200, network_page(sess, data.get("network", {})))
         try:
@@ -768,7 +713,8 @@ class Handler(BaseHTTPRequestHandler):
         if not wiz.finish_lock.acquire(blocking=False):
             return self.send(409, finish_page(sess, data, _("Setup is already running. Wait a moment.")))
         try:
-            stored = {"ui_lang": data["lang"], **data["server"], **data["network"], **data["backups"],
+            # two-factor is optional here: the console recommends it after the first sign-in
+            stored = {"ui_lang": data["lang"], "mfa_required": "optional", **data["server"], **data["network"], **data["backups"],
                       "admin_email": data["admin"]["email"]}
             try:
                 wiz.finisher.run({k: v for k, v in stored.items() if v != ""}, data["admin"]["username"])
