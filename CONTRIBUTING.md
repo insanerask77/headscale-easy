@@ -114,9 +114,60 @@ To add a language:
 (`web/locales/<code>.d/*.json`). The installer's messages use
 `t "English" "Español"`; supporting more languages there is welcome too.
 
+## Branches and releases
+
+Two long-lived branches, so the 2.0 work ([simplification plan](https://github.com/insanerask77/headscale-easy/blob/main/SIMPLIFICATION_PLAN.md))
+never breaks the installations running 1.x:
+
+| Branch | What it is | Receives | Releases | Images |
+|---|---|---|---|---|
+| `main` | Stable 1.x, always releasable | PRs from `fix/…`, `docs/…`, small `feat/…` for 1.x | `v1.x.y` tags | `:edge` on push, `:latest` + `:1.x.y` on tags |
+| `next` | Integration branch for 2.0 | PRs from 2.0 work branches, and merges of `main` | `v2.0.0-alpha.N`, `-beta.N`, `-rc.N` tags | `:next` on push, `:2.0.0-alpha.N` on tags (never `:latest`) |
+| `feat/…`, `fix/…`, `docs/…`, `chore/…`, `refactor/…`, `test/…` | Short-lived work branches | — | — | `:dev` and `:branch-<name>` on push |
+
+### Where does my branch start?
+
+- A fix or a feature for **1.x** (what users run today): branch from `main`, PR into `main`.
+- Work from the **simplification plan**: branch from `next`, PR into `next`.
+  Name it after the phase: `feat/2.0-p0-register-flow`, `feat/2.0-p1-local-accounts`.
+- A bug that exists in both: fix it on `main` first; it reaches `next` with the
+  next sync. Never fix it twice.
+
+### Rules
+
+- `main` and `next` only change through pull requests with green CI; no
+  force-push, no deletion.
+- Work branches into `main`/`next`: **squash merge**, with a Conventional
+  Commit title (it becomes the commit message).
+- **Sync `main` into `next`** with a merge commit (never rebase or squash it)
+  after every 1.x release and at least once a week, in a PR titled
+  `chore: sync main into next`. `next` is never merged into `main` until the
+  2.0 release.
+- Keep work branches small (one task of a plan phase) and rebase them on their
+  base branch freely while they are yours; once someone else uses one, merge
+  instead.
+- Every PR into `next` keeps `make lint`, `make test` and the current
+  `docker compose` stack working, until phase 5 of the plan deprecates pieces
+  on purpose. New 2.0 behaviour is opt-in until then.
+- `CHANGELOG.md`: `main` writes under `## [Unreleased]`; `next` writes under
+  `## [2.0.0] - Unreleased`. Sync conflicts there are resolved by keeping both.
+- `web/version.py`: `main` holds the last 1.x version; `next` holds
+  `2.0.0-dev` until a pre-release tag.
+
+### Releasing
+
+1. 1.x: on a `release/1.x.y` branch from `main`, bump `web/version.py`, move
+   `[Unreleased]` to `## [1.x.y] - YYYY-MM-DD` in `CHANGELOG.md`, PR into
+   `main`, then tag the merge commit `v1.x.y`. CI publishes the images and the
+   GitHub release.
+2. 2.0 pre-releases: the same on `next`, with `v2.0.0-alpha.N` tags.
+3. 2.0: PR `next` → `main` (merge commit), tag `v2.0.0`. At that moment a
+   `release/1.x` branch is cut from the last `v1.*` tag for security fixes
+   only, and `docker.yml` must stop moving `:latest` for `v1.*` tags.
+
 ## Pull requests
 
-1. Fork and create a branch from `main` (`feat/…`, `fix/…`, `docs/…`).
+1. Fork and create a branch from `main` or `next` (see [Branches and releases](#branches-and-releases)).
 2. Keep changes focused; update docs and translations in the same PR.
 3. Use [Conventional Commits](https://www.conventionalcommits.org/)
    (`feat: add tailnet lock page`, `fix(installer): …`).
