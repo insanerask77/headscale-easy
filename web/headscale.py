@@ -123,6 +123,22 @@ def all_users() -> list[dict]:
     return api("GET", "/user").get("users", [])
 
 
+def user_by_name(username: str) -> dict | None:
+    """Get a Headscale user by name. Returns None if not found."""
+    for user in all_users():
+        if user.get("name") == username:
+            return user
+    return None
+
+
+def create_user(username: str) -> dict:
+    """Create a new Headscale user. Returns the created user dict.
+
+    Raises an exception if the user already exists or creation fails.
+    """
+    return api("POST", "/user", {"name": username})
+
+
 def all_nodes() -> list[dict]:
     return api("GET", "/node").get("nodes", [])
 

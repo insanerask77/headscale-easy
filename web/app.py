@@ -175,8 +175,28 @@ def to_machines(nodes: list[dict]) -> list[pages.Machine]:
 
 
 def my_user(session: dict) -> dict | None:
-    """The session's Headscale user (None for API key sessions)."""
-    return hs.user_for_sub(session["sub"]) if session.get("sub") else None
+    """The session's Headscale user (None for API key sessions).
+
+    For OIDC sessions: looks up by providerId.
+    For local sessions: looks up by headscale_user from the local account.
+    """
+    sub = session.get("sub")
+    if not sub:
+        return None
+
+    # Local account session: sub format is "local:{account_id}"
+    if session.get("kind") == "local" and sub.startswith("local:"):
+        try:
+            account_id = int(sub.split(":", 1)[1])
+            account = lac.get_account(id=account_id)
+            if account and account.get("headscale_user"):
+                return hs.user_by_name(account["headscale_user"])
+        except (ValueError, IndexError):
+            pass
+        return None
+
+    # OIDC session: look up by providerId
+    return hs.user_for_sub(sub)
 
 
 def role_of(groups: list[str], email: str, email_verified: bool = True) -> str:
@@ -2030,10 +2050,73 @@ def _key_expiry_days(form: dict) -> int | None:
     return int(raw)
 
 
+def bootstrap_admin() -> None:
+    """Bootstrap the first admin account on first run.
+
+    If no accounts exist:
+    - If HSE_ADMIN_EMAIL and HSE_ADMIN_PASSWORD are set: create admin account
+    - If HSE_ADMIN_EMAIL is set but not password: create invitation token and log it
+    - Otherwise: do nothing (admin will be created via wizard in Phase 2)
+    """
+    accounts = lac.list_accounts()
+    if accounts:
+        return  # Accounts already exist, nothing to bootstrap
+
+    admin_email = os.environ.get("HSE_ADMIN_EMAIL", "").strip()
+    if not admin_email:
+        log.info("No accounts exist yet. Set HSE_ADMIN_EMAIL to bootstrap the first admin.")
+        return
+
+    admin_password = os.environ.get("HSE_ADMIN_PASSWORD", "").strip()
+
+    if admin_password:
+        # Create admin account with the given credentials
+        username = admin_email.split("@")[0]  # Use email prefix as username
+        try:
+            account_id = lac.create_account(
+                username=username,
+                email=admin_email,
+                password=admin_password,
+                role="admin",
+                headscale_user=username
+            )
+            log.info("✓ Bootstrap: Created admin account '%s' (%s)", username, admin_email)
+
+            # Create corresponding Headscale user
+            try:
+                hs.create_user(username)
+                log.info("✓ Bootstrap: Created Headscale user '%s'", username)
+            except Exception as e:
+                log.warning("Failed to create Headscale user '%s': %s (will retry on first login)", username, e)
+        except Exception as e:
+            log.error("Failed to create bootstrap admin account: %s", e)
+    else:
+        # Create invitation token and log it
+        try:
+            token = lac.create_invitation(email=admin_email, role="admin", expires_hours=168)
+            invite_url = f"{PUBLIC_URL}{BASE}/admin/accept/{token}"
+            log.info("=" * 80)
+            log.info("Bootstrap invitation created for admin: %s", admin_email)
+            log.info("Invitation URL (valid for 7 days):")
+            log.info("")
+            log.info("    %s", invite_url)
+            log.info("")
+            log.info("=" * 80)
+        except Exception as e:
+            log.error("Failed to create bootstrap invitation: %s", e)
+
+
 def main():
     port = int(os.environ.get("PORT", "8000"))
     log.info("Headscale Easy %s listening on :%d (public: %s%s, SSO=%s, API key sign-in=%s%s)",
              VERSION, port, PUBLIC_URL, BASE, SSO, API_KEY_LOGIN, ", DEMO MODE" if DEMO else "")
+
+    # Initialize local accounts database
+    lac.configure("/data/console/accounts.db")
+
+    # Bootstrap first admin if no accounts exist
+    bootstrap_admin()
+
     apikey.start()
     audit.start()
     naming.start()

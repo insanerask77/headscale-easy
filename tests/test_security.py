@@ -1171,5 +1171,115 @@ class SignInModes(unittest.TestCase):
         self.assertNotIn('<div class="sep">', html)
 
 
+class LocalAccountHeadscaleIntegration(unittest.TestCase):
+    """Test that local accounts are properly linked to Headscale users."""
+
+    def setUp(self):
+        """Configure local accounts database before each test."""
+        import local_accounts as lac
+        lac.configure(":memory:")
+        self.lac = lac
+
+    @mock.patch.object(hs, "api")
+    def test_accept_invitation_creates_headscale_user(self, mock_api):
+        """Accepting an invitation creates both a local account AND a Headscale user."""
+        # Create invitation
+        token = self.lac.create_invitation(email="alice@example.com", role="member")
+
+        # Mock Headscale API to succeed on user creation
+        mock_api.return_value = {"user": {"id": "42", "name": "alice"}}
+
+        # Accept invitation
+        status, headers, body = request("POST", f"{B}/accept/{token}",
+                                       form={"username": "alice", "password": "password123", "password2": "password123"})
+
+        # Should redirect to machines page (auto sign-in)
+        self.assertEqual(status, 303)
+        self.assertTrue(location(headers).endswith(f"{B}/machines"))
+
+        # Headscale user creation should have been called
+        mock_api.assert_called_with("POST", "/user", {"name": "alice"})
+
+        # Local account should exist with headscale_user set
+        account = self.lac.get_account(email="alice@example.com")
+        self.assertIsNotNone(account)
+        self.assertEqual(account["username"], "alice")
+        self.assertEqual(account["headscale_user"], "alice")
+        self.assertEqual(account["role"], "member")
+
+    @mock.patch.object(hs, "api")
+    def test_my_user_returns_headscale_user_for_local_session(self, mock_api):
+        """my_user() returns the correct Headscale user for local sessions."""
+        # Create a local account
+        account_id = self.lac.create_account("charlie", "charlie@example.com", "password123",
+                                             role="member", headscale_user="charlie")
+
+        # Mock Headscale to return the user
+        mock_api.return_value = {
+            "users": [
+                {"id": "1", "name": "alice"},
+                {"id": "2", "name": "charlie"},
+                {"id": "3", "name": "david"}
+            ]
+        }
+
+        # Create a local session
+        local_session = {
+            "kind": "local",
+            "sub": f"local:{account_id}",
+            "username": "charlie",
+            "email": "charlie@example.com",
+            "role": "member"
+        }
+
+        # Call my_user()
+        user = app.my_user(local_session)
+
+        # Should return the correct Headscale user
+        self.assertIsNotNone(user)
+        self.assertEqual(user["name"], "charlie")
+        self.assertEqual(user["id"], "2")
+
+    @mock.patch.object(hs, "api")
+    def test_my_user_returns_none_if_headscale_user_not_found(self, mock_api):
+        """my_user() returns None if the Headscale user doesn't exist yet."""
+        # Create a local account
+        account_id = self.lac.create_account("eve", "eve@example.com", "password123",
+                                             role="member", headscale_user="eve")
+
+        # Mock Headscale to return empty user list
+        mock_api.return_value = {"users": []}
+
+        # Create a local session
+        local_session = {
+            "kind": "local",
+            "sub": f"local:{account_id}",
+            "username": "eve",
+            "email": "eve@example.com",
+            "role": "member"
+        }
+
+        # Call my_user()
+        user = app.my_user(local_session)
+
+        # Should return None
+        self.assertIsNone(user)
+
+    def test_my_user_handles_invalid_local_session_sub(self):
+        """my_user() handles malformed local session subs gracefully."""
+        # Session with invalid sub format
+        bad_session = {
+            "kind": "local",
+            "sub": "local:not-a-number",
+            "username": "bad",
+            "email": "bad@example.com",
+            "role": "member"
+        }
+
+        # Should return None instead of crashing
+        user = app.my_user(bad_session)
+        self.assertIsNone(user)
+
+
 if __name__ == "__main__":
     unittest.main()
