@@ -613,5 +613,159 @@ class TOTPEnrollmentTests(unittest.TestCase):
             la.reset_recovery_codes(self.account_id)
 
 
+class TokenTests(unittest.TestCase):
+    """Test invitation and password reset tokens (Block 4.1)."""
+
+    def setUp(self):
+        """Create a fresh in-memory database with a test account."""
+        la.configure(":memory:")
+        self.account_id = la.create_account("testuser", "test@example.com", "password123")
+
+    def test_create_invitation(self):
+        """create_invitation() generates a token and stores it hashed."""
+        token = la.create_invitation("newuser@example.com", role='member', expires_hours=168)
+
+        # Token should be a non-empty string
+        self.assertIsInstance(token, str)
+        self.assertGreater(len(token), 32)  # urlsafe_b64(32 bytes) ≈ 43 chars
+
+        # Token should be stored (hashed) in database
+        invitations = la.list_active_invitations()
+        self.assertEqual(len(invitations), 1)
+        self.assertEqual(invitations[0]['email'], 'newuser@example.com')
+        self.assertEqual(invitations[0]['role'], 'member')
+
+    def test_verify_invitation_token(self):
+        """verify_token() returns invitation data for valid tokens."""
+        token = la.create_invitation("bob@example.com", role='admin', expires_hours=24)
+
+        # Verify the token
+        data = la.verify_token(token, kind='invite')
+
+        self.assertIsNotNone(data)
+        self.assertEqual(data['email'], 'bob@example.com')
+        self.assertEqual(data['role'], 'admin')
+        self.assertIn('token_hash', data)
+
+    def test_invitation_single_use(self):
+        """Invitation tokens can only be used once."""
+        token = la.create_invitation("alice@example.com", role='member')
+
+        # First use: should succeed
+        data1 = la.verify_token(token, kind='invite')
+        self.assertIsNotNone(data1)
+
+        # Second use: should fail (already used)
+        data2 = la.verify_token(token, kind='invite')
+        self.assertIsNone(data2)
+
+    def test_invitation_expires(self):
+        """Expired invitation tokens are rejected."""
+        import time
+        from datetime import datetime, timezone, timedelta
+
+        # Create an invitation that expires in 0.1 seconds
+        token = la.create_invitation("expiry@example.com", expires_hours=0.1/3600)
+
+        # Should work immediately
+        data1 = la.verify_token(token, kind='invite')
+        self.assertIsNotNone(data1)
+
+        # Create another token and manually set it to expired
+        token2 = la.create_invitation("expiry2@example.com", expires_hours=24)
+        token_hash = la._hash_token(token2)
+
+        # Manually set expiration to the past
+        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        with la._db() as db:
+            db.execute("UPDATE tokens SET expires = ?, used_at = NULL WHERE token_hash = ?",
+                      (past, token_hash))
+
+        # Should now be rejected as expired
+        data2 = la.verify_token(token2, kind='invite')
+        self.assertIsNone(data2)
+
+    def test_create_reset_token(self):
+        """create_reset_token() generates a token for an existing account."""
+        token = la.create_reset_token(self.account_id, expires_hours=24)
+
+        # Token should be a non-empty string
+        self.assertIsInstance(token, str)
+        self.assertGreater(len(token), 32)
+
+    def test_verify_reset_token(self):
+        """verify_token() returns account data for valid reset tokens."""
+        token = la.create_reset_token(self.account_id, expires_hours=24)
+
+        # Verify the token
+        data = la.verify_token(token, kind='reset')
+
+        self.assertIsNotNone(data)
+        self.assertEqual(data['account_id'], self.account_id)
+        self.assertEqual(data['email'], 'test@example.com')
+        self.assertIn('token_hash', data)
+
+    def test_reset_token_single_use(self):
+        """Password reset tokens can only be used once."""
+        token = la.create_reset_token(self.account_id)
+
+        # First use: should succeed
+        data1 = la.verify_token(token, kind='reset')
+        self.assertIsNotNone(data1)
+
+        # Second use: should fail (already used)
+        data2 = la.verify_token(token, kind='reset')
+        self.assertIsNone(data2)
+
+    def test_revoke_token(self):
+        """revoke_token() marks a token as used."""
+        token = la.create_invitation("revoke@example.com")
+
+        # Revoke it
+        la.revoke_token(token)
+
+        # Should now be invalid
+        data = la.verify_token(token, kind='invite')
+        self.assertIsNone(data)
+
+    def test_list_active_invitations(self):
+        """list_active_invitations() returns only unused, non-expired tokens."""
+        from datetime import datetime, timezone, timedelta
+
+        # Create 3 invitations
+        token1 = la.create_invitation("active@example.com", role='member')
+        token2 = la.create_invitation("used@example.com", role='admin')
+        token3 = la.create_invitation("expired@example.com", role='member')
+
+        # Use token2
+        la.verify_token(token2, kind='invite')
+
+        # Expire token3 manually
+        token_hash3 = la._hash_token(token3)
+        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        with la._db() as db:
+            db.execute("UPDATE tokens SET expires = ? WHERE token_hash = ?",
+                      (past, token_hash3))
+
+        # Only token1 should be active
+        active = la.list_active_invitations()
+        self.assertEqual(len(active), 1)
+        self.assertEqual(active[0]['email'], 'active@example.com')
+
+    def test_create_reset_token_nonexistent_account(self):
+        """create_reset_token() raises for nonexistent accounts."""
+        with self.assertRaises(ValueError):
+            la.create_reset_token(99999)
+
+    def test_verify_token_wrong_kind(self):
+        """verify_token() with wrong kind returns None."""
+        # Create an invitation
+        token = la.create_invitation("test@example.com")
+
+        # Try to verify as reset token
+        data = la.verify_token(token, kind='reset')
+        self.assertIsNone(data)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -614,25 +614,195 @@ def reset_recovery_codes(account_id: int) -> list[str]:
     return recovery_codes
 
 
-# Token functions (Block 4)
+# -----------------------------------------------------------------------------
+# Token functions (Block 4.1)
+# -----------------------------------------------------------------------------
+
+def _hash_token(token: str) -> str:
+    """Hash a token with SHA-256. Returns hex digest."""
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()
+
+
 def create_invitation(email: str, role: str = 'member', expires_hours: int = DEFAULT_INVITATION_HOURS) -> str:
-    raise NotImplementedError("Block 4")
+    """Create an invitation token for a new account.
+
+    Args:
+        email: Email address for the invitation
+        role: Role the account will have (default: 'member')
+        expires_hours: Hours until expiration (default: 168 = 7 days)
+
+    Returns:
+        Unhashed token (32 bytes urlsafe base64). Store this securely, as it
+        cannot be retrieved later (only the hash is stored).
+    """
+    # Validate inputs
+    email = email.strip().lower()
+    if not email:
+        raise ValueError("Email is required")
+
+    if role not in ('admin', 'network_admin', 'auditor', 'member'):
+        raise ValueError(f"Invalid role: {role}")
+
+    # Generate random token (32 bytes = 256 bits)
+    token = secrets.token_urlsafe(32)
+    token_hash = _hash_token(token)
+
+    # Calculate expiration
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(hours=expires_hours)
+
+    # Store in database
+    with _db() as db:
+        db.execute(
+            """INSERT INTO tokens (kind, token_hash, account_id, role, email, expires, created)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ('invite', token_hash, None, role, email, expires.isoformat(), now.isoformat())
+        )
+
+    log.info(f"Created invitation for {email} (role={role}, expires in {expires_hours}h)")
+    return token
 
 
 def create_reset_token(account_id: int, expires_hours: int = DEFAULT_RESET_HOURS) -> str:
-    raise NotImplementedError("Block 4")
+    """Create a password reset token for an existing account.
+
+    Args:
+        account_id: Account ID to reset password for
+        expires_hours: Hours until expiration (default: 24)
+
+    Returns:
+        Unhashed token (32 bytes urlsafe base64)
+    """
+    # Verify account exists
+    account = get_account(id=account_id)
+    if not account:
+        raise ValueError(f"Account {account_id} not found")
+
+    # Generate random token
+    token = secrets.token_urlsafe(32)
+    token_hash = _hash_token(token)
+
+    # Calculate expiration
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(hours=expires_hours)
+
+    # Store in database
+    with _db() as db:
+        db.execute(
+            """INSERT INTO tokens (kind, token_hash, account_id, role, email, expires, created)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ('reset', token_hash, account_id, None, account['email'], expires.isoformat(), now.isoformat())
+        )
+
+    log.info(f"Created reset token for account {account_id} ({account['username']})")
+    return token
 
 
 def verify_token(token: str, kind: str) -> dict | None:
-    raise NotImplementedError("Block 4")
+    """Verify and consume a token (invitation or reset).
+
+    Args:
+        token: Unhashed token string
+        kind: 'invite' or 'reset'
+
+    Returns:
+        Dict with token data if valid:
+            - For 'invite': {email, role, token_hash}
+            - For 'reset': {account_id, email, token_hash}
+        None if token is invalid, expired, or already used.
+
+    Side effect: Marks the token as used (single-use).
+    """
+    if kind not in ('invite', 'reset'):
+        raise ValueError(f"Invalid token kind: {kind}")
+
+    token_hash = _hash_token(token)
+    now = datetime.now(timezone.utc)
+
+    with _db() as db:
+        # Find the token
+        row = db.execute(
+            """SELECT * FROM tokens
+               WHERE token_hash = ? AND kind = ?""",
+            (token_hash, kind)
+        ).fetchone()
+
+        if not row:
+            return None
+
+        token_data = dict(row)
+
+        # Check if already used
+        if token_data['used_at'] is not None:
+            log.warning(f"Token already used: {token_hash[:16]}...")
+            return None
+
+        # Check if expired
+        expires = datetime.fromisoformat(token_data['expires'])
+        if now > expires:
+            log.warning(f"Token expired: {token_hash[:16]}...")
+            return None
+
+        # Mark as used
+        db.execute(
+            "UPDATE tokens SET used_at = ? WHERE token_hash = ?",
+            (now.isoformat(), token_hash)
+        )
+
+        # Return relevant fields
+        if kind == 'invite':
+            return {
+                'email': token_data['email'],
+                'role': token_data['role'],
+                'token_hash': token_hash
+            }
+        else:  # reset
+            return {
+                'account_id': token_data['account_id'],
+                'email': token_data['email'],
+                'token_hash': token_hash
+            }
 
 
 def revoke_token(token: str) -> None:
-    raise NotImplementedError("Block 4")
+    """Revoke a token by marking it as used.
+
+    Args:
+        token: Unhashed token string
+    """
+    token_hash = _hash_token(token)
+    now = _now()
+
+    with _db() as db:
+        result = db.execute(
+            "UPDATE tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL",
+            (now, token_hash)
+        )
+
+        if result.rowcount > 0:
+            log.info(f"Revoked token: {token_hash[:16]}...")
 
 
 def list_active_invitations() -> list[dict]:
-    raise NotImplementedError("Block 4")
+    """List all active (not used, not expired) invitations.
+
+    Returns:
+        List of dicts with: {id, email, role, expires, created}
+    """
+    now = datetime.now(timezone.utc).isoformat()
+
+    with _db() as db:
+        rows = db.execute(
+            """SELECT id, email, role, expires, created, token_hash
+               FROM tokens
+               WHERE kind = 'invite' AND used_at IS NULL AND expires > ?
+               ORDER BY created DESC""",
+            (now,)
+        ).fetchall()
+
+        return [dict(row) for row in rows]
 
 
 # Role functions (Block 5)
