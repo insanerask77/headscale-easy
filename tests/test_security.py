@@ -1339,5 +1339,77 @@ class LocalAccountHeadscaleIntegration(unittest.TestCase):
         self.assertIsNone(user)
 
 
+class SetupTakeoverTest(unittest.TestCase):
+    """The first-run wizard (aio/wizard.py) is the only thing standing between a stranger and an admin
+    account: nothing may happen before the one-time token, and nothing after setup ends."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import test_wizard
+        self.case = type("Case", (test_wizard.WizardTestBase,), {"runTest": lambda s: None})("runTest")
+        self.case.setUp()
+        self.addCleanup(self.case.doCleanups)
+
+    def test_no_account_is_created_without_the_token(self):
+        import local_accounts as lac
+        c = self.case.c
+        form = {"email": "evil@example.com"}
+        form["username"] = "evil"
+        form["password"] = form["password2"] = "-".join(["test", "pass", "x"])
+        for step, data in (("admin", form), ("finish", {}), ("totp", {"code": "123456"})):
+            self.assertEqual(c.request("/admin/setup/" + step, data)[0], 403)
+        # even with a valid CSRF token taken from the (public) token page
+        _s, _h, html = c.request("/admin/setup")
+        csrf = c.csrf(html)
+        self.assertEqual(c.request("/admin/setup/admin", dict(form, csrf=csrf))[0], 403)
+        self.assertEqual(lac.list_accounts(), [])
+        self.assertFalse(os.path.exists(os.path.join(self.case.data, "config", "settings.json")))
+
+    def test_a_session_does_not_authorise_another_client(self):
+        self.case.unlock()
+        other = type(self.case.c)(self.case.server.server_address[1])
+        self.assertEqual(other.request("/admin/setup/language")[0], 403)
+        self.assertEqual(other.request("/admin/setup/language", headers={"Cookie": "hse_setup=guess"})[0], 403)
+
+    def test_csrf_token_of_another_session_is_refused(self):
+        a, b = self.case.unlock(), type(self.case.c)(self.case.server.server_address[1])
+        _s, _h, html_b = b.request("/admin/setup")
+        self.assertEqual(a.request("/admin/setup/language", {"lang": "en", "csrf": b.csrf(html_b)})[0], 403)
+
+    def test_the_token_is_compared_in_constant_time(self):
+        import inspect
+        import wizard
+        self.assertIn("hmac.compare_digest", inspect.getsource(wizard.Handler.check_token))
+
+    def test_the_wizard_does_not_serve_the_console(self):
+        c = self.case.c
+        for path in ("/admin/machines", "/admin/login", "/admin/keys", "/admin/settings", "/api/v1/node",
+                     "/admin/healthz"):
+            status, headers, _b = c.request(path)
+            self.assertEqual((status, headers["Location"]), (302, "/admin/setup"), path)
+
+    def test_wrong_tokens_never_unlock_and_the_limit_applies_to_all_clients(self):
+        first = self.case.c
+        second = type(first)(self.case.server.server_address[1])
+        for client in (first, second):
+            _s, _h, html = client.request("/admin/setup")
+            for i in range(3):
+                client.request("/admin/setup", {"token": "wrong%d" % i, "csrf": client.csrf(html)})
+        _s, _h, html = first.request("/admin/setup")
+        self.assertEqual(first.request("/admin/setup", {"token": self.case.token, "csrf": first.csrf(html)})[0], 429)
+
+    def test_the_token_stops_working_when_setup_is_over(self):
+        os.unlink(os.path.join(self.case.data, "config", "setup-token"))
+        c = self.case.c
+        _s, _h, html = c.request("/admin/setup")
+        self.assertEqual(c.request("/admin/setup", {"token": self.case.token, "csrf": c.csrf(html)})[0], 403)
+        self.assertEqual(c.request("/admin/setup", {"token": "", "csrf": c.csrf(html)})[0], 403)
+
+    def test_responses_are_not_cacheable_and_framing_is_denied(self):
+        _s, headers, _b = self.case.c.request("/admin/setup")
+        self.assertEqual(headers["Cache-Control"], "no-store")
+        self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
+
+
 if __name__ == "__main__":
     unittest.main()

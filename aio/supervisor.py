@@ -332,6 +332,11 @@ class Supervisor:
 
     def wizard_prepare(self):
         env = base_env({"HSE_DATA_DIR": self.data_dir, "HSE_RUN_DIR": self.run_dir})
+        # the wizard runs Headscale briefly at the end and honours env-provided settings
+        for name in ["HSE_HEADSCALE_BIN", "HSE_WIZARD_PORT", "HSE_START_TIMEOUT",
+                     *(var for var, _default in render.SETTINGS.values())]:
+            if self.env.get(name):
+                env[name] = self.env[name]
         return WIZARD_CMD, env
 
     def start_children(self):
