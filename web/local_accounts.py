@@ -177,50 +177,158 @@ def _row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
 
 def hash_password(plain: str) -> str:
     """Hash a password with scrypt. Returns the hash in a format that includes
-    the salt and parameters."""
-    raise NotImplementedError("Block 2")
+    the salt and parameters: scrypt$salt$hash (both base64)."""
+    if len(plain) < MIN_PASSWORD_LENGTH:
+        raise ValueError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
+
+    # Generate a random 32-byte salt
+    salt = secrets.token_bytes(32)
+
+    # scrypt parameters: n=2^14 (16384), r=8, p=1, dklen=32
+    # n=2^14 is secure and compatible with OpenSSL default memory limits
+    hash_bytes = hashlib.scrypt(
+        plain.encode('utf-8'),
+        salt=salt,
+        n=2**14,
+        r=8,
+        p=1,
+        dklen=32
+    )
+
+    # Format: scrypt$base64(salt)$base64(hash)
+    import base64
+    salt_b64 = base64.b64encode(salt).decode('ascii')
+    hash_b64 = base64.b64encode(hash_bytes).decode('ascii')
+    return f"scrypt${salt_b64}${hash_b64}"
 
 
 def verify_password(plain: str, hash_str: str) -> bool:
     """Verify a password against a stored hash. Constant-time comparison."""
-    raise NotImplementedError("Block 2")
+    try:
+        # Parse the stored hash
+        parts = hash_str.split('$')
+        if len(parts) != 3 or parts[0] != 'scrypt':
+            return False
+
+        import base64
+        salt = base64.b64decode(parts[1])
+        stored_hash = base64.b64decode(parts[2])
+
+        # Hash the provided password with the same salt
+        computed_hash = hashlib.scrypt(
+            plain.encode('utf-8'),
+            salt=salt,
+            n=2**14,
+            r=8,
+            p=1,
+            dklen=32
+        )
+
+        # Constant-time comparison
+        return hmac.compare_digest(computed_hash, stored_hash)
+    except (ValueError, TypeError):
+        return False
 
 
 def create_account(username: str, email: str, password: str, role: str = 'member',
                    headscale_user: str | None = None) -> int:
-    """Create a new account. Returns the account ID."""
-    raise NotImplementedError("Block 2")
+    """Create a new account. Returns the account ID.
+
+    Raises:
+        ValueError: if username/email already exists or password is too short
+    """
+    # Validate inputs
+    username = username.strip()
+    email = email.strip().lower()
+
+    if not username or not email:
+        raise ValueError("Username and email are required")
+
+    if role not in ('admin', 'network_admin', 'auditor', 'member'):
+        raise ValueError(f"Invalid role: {role}")
+
+    # Hash the password (this validates length)
+    pw_hash = hash_password(password)
+
+    now = _now()
+
+    with _db() as db:
+        try:
+            cursor = db.execute(
+                """INSERT INTO accounts
+                   (username, email, headscale_user, role, pw_hash, created, updated)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (username, email, headscale_user, role, pw_hash, now, now)
+            )
+            return cursor.lastrowid
+        except sqlite3.IntegrityError as e:
+            if 'username' in str(e).lower():
+                raise ValueError(f"Username '{username}' already exists")
+            elif 'email' in str(e).lower():
+                raise ValueError(f"Email '{email}' already exists")
+            raise
 
 
 def get_account(username: str | None = None, email: str | None = None,
                 id: int | None = None) -> dict | None:
     """Get an account by username, email, or id. Returns None if not found."""
-    raise NotImplementedError("Block 2")
+    if not any([username, email, id]):
+        raise ValueError("Must provide username, email, or id")
+
+    with _db() as db:
+        if id is not None:
+            row = db.execute("SELECT * FROM accounts WHERE id = ?", (id,)).fetchone()
+        elif username is not None:
+            row = db.execute("SELECT * FROM accounts WHERE username = ?", (username.strip(),)).fetchone()
+        else:  # email
+            row = db.execute("SELECT * FROM accounts WHERE email = ?", (email.strip().lower(),)).fetchone()
+
+        return _row_to_dict(row)
 
 
 def list_accounts() -> list[dict]:
     """List all accounts."""
-    raise NotImplementedError("Block 2")
+    with _db() as db:
+        rows = db.execute("SELECT * FROM accounts ORDER BY created DESC").fetchall()
+        return [dict(row) for row in rows]
 
 
 def update_password(account_id: int, new_password: str) -> None:
     """Update an account's password."""
-    raise NotImplementedError("Block 2")
+    pw_hash = hash_password(new_password)
+    now = _now()
+
+    with _db() as db:
+        db.execute(
+            "UPDATE accounts SET pw_hash = ?, updated = ? WHERE id = ?",
+            (pw_hash, now, account_id)
+        )
 
 
 def disable_account(account_id: int) -> None:
     """Disable an account (cannot sign in)."""
-    raise NotImplementedError("Block 2")
+    now = _now()
+    with _db() as db:
+        db.execute(
+            "UPDATE accounts SET disabled = 1, updated = ? WHERE id = ?",
+            (now, account_id)
+        )
 
 
 def enable_account(account_id: int) -> None:
     """Enable a previously disabled account."""
-    raise NotImplementedError("Block 2")
+    now = _now()
+    with _db() as db:
+        db.execute(
+            "UPDATE accounts SET disabled = 0, updated = ? WHERE id = ?",
+            (now, account_id)
+        )
 
 
 def delete_account(account_id: int) -> None:
-    """Delete an account and all its tokens."""
-    raise NotImplementedError("Block 2")
+    """Delete an account and all its tokens (cascade)."""
+    with _db() as db:
+        db.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
 
 
 # TOTP functions (Block 3)
