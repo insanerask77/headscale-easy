@@ -4,6 +4,7 @@
 # with an unguarded main). Each case dir may hold env.sh (install.sh variables)
 # and existing-config.yaml (the config already on disk). Output is what
 # tests/test_render.py compares the Python port against.
+# shellcheck disable=SC2034  # the variables are read by the install.sh functions sourced below
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIX="$ROOT/tests/fixtures/render"

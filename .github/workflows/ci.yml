@@ -22,7 +22,7 @@ jobs:
           python-version: "3.13"
 
       - name: Python syntax
-        run: python -m py_compile web/*.py helper/*.py scripts/check_i18n.py
+        run: python -m py_compile web/*.py helper/*.py aio/*.py scripts/check_i18n.py
 
       - name: Translations
         run: python scripts/check_i18n.py
