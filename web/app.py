@@ -43,6 +43,7 @@ log = logging.getLogger("headscale-easy")
 
 import accounts  # noqa: E402  (after logging is configured)
 import admin_pages  # noqa: E402
+import local_accounts as lac  # noqa: E402
 import derp  # noqa: E402
 import derp_pages  # noqa: E402
 import status as server_status  # noqa: E402
@@ -484,6 +485,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == f"{BASE}/login/apikey" and API_KEY_LOGIN:
                 return self.apikey_login(self.form())
+            if path == f"{BASE}/login/local":
+                return self.local_login(self.form())
 
             session = self.session()
             if not session:
@@ -762,6 +765,69 @@ class Handler(BaseHTTPRequestHandler):
         log.info("sign-in with API key (%s…)", key[:14])
         self.start_session({"kind": "apikey", "sub": "", "username": "", "name": _("Administrator"),
                             "email": "", "groups": [], "admin": True, "role": "admin", "key": hs.api_key_prefix(key)})
+
+    def local_login(self, form: dict):
+        """Sign in with a local account (username + password)."""
+        wait = self.rate_limited("local")
+        if wait:
+            return self.too_many(wait, admin_pages.login_page(
+                SSO, API_KEY_LOGIN, _("Too many sign-in attempts. Try again in a few minutes.")))
+
+        username = str(form.get("username", "")).strip()
+        password = str(form.get("password", ""))
+
+        if not username or not password:
+            sessions.hit(f"local:{audit.client_ip(self)}")
+            return self.send(401, admin_pages.login_page(
+                SSO, API_KEY_LOGIN, _("Username and password are required.")))
+
+        # Get account
+        account = lac.get_account(username=username)
+        if not account:
+            sessions.hit(f"local:{audit.client_ip(self)}")
+            time.sleep(1)  # slow down enumeration
+            log.warning("Local sign-in rejected: unknown user '%s' from %s", username, self.address_string())
+            audit.request_event(self, None, "auth.signin_failed", "",
+                               {"method": "local", "username": username, "reason": "unknown_user"}, actor="")
+            return self.send(401, admin_pages.login_page(
+                SSO, API_KEY_LOGIN, _("Wrong username or password.")))
+
+        # Verify password
+        if not lac.verify_password(password, account['pw_hash']):
+            sessions.hit(f"local:{audit.client_ip(self)}")
+            time.sleep(1)  # slow down guessing
+            log.warning("Local sign-in rejected: wrong password for '%s' from %s", username, self.address_string())
+            audit.request_event(self, None, "auth.signin_failed", "",
+                               {"method": "local", "username": username, "reason": "wrong_password"}, actor="")
+            return self.send(401, admin_pages.login_page(
+                SSO, API_KEY_LOGIN, _("Wrong username or password.")))
+
+        # Check if account is disabled
+        if account['disabled']:
+            sessions.hit(f"local:{audit.client_ip(self)}")
+            log.warning("Local sign-in rejected: disabled account '%s' from %s", username, self.address_string())
+            audit.request_event(self, None, "auth.signin_failed", "",
+                               {"method": "local", "username": username, "reason": "disabled"}, actor="")
+            return self.send(403, admin_pages.login_page(
+                SSO, API_KEY_LOGIN, _("This account is disabled.")))
+
+        # TODO: Check TOTP if required (Block 3)
+
+        # Success
+        sessions.reset(f"local:{audit.client_ip(self)}")
+        log.info("Local sign-in: %s", username)
+
+        # Create session
+        self.start_session({
+            "kind": "local",
+            "sub": f"local:{account['id']}",
+            "username": username,
+            "name": account.get('email', username),
+            "email": account.get('email', ''),
+            "groups": [],
+            "admin": account['role'] == 'admin',
+            "role": account['role'],
+        })
 
     def start_session(self, data: dict):
         data.update(csrf=secrets.token_urlsafe(24), exp=time.time() + SESSION_TTL)

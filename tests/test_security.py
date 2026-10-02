@@ -382,5 +382,89 @@ class DeviceApproval(Base):
         self.api.assert_not_called()
 
 
+class LocalAccountSignin(Base):
+    """Local account sign-in with username + password."""
+
+    def setUp(self):
+        super().setUp()
+        # Reset sessions for each test
+        sessions.configure(":memory:")
+        # Clear the in-memory rate limiting dict
+        sessions._hits.clear()
+        # Configure local accounts and create a test account
+        import local_accounts as la
+        la.configure(":memory:")
+        # Create member account
+        la.create_account("alice", "alice@example.com", "password123", role="member", headscale_user="bob")
+        # Create admin account
+        la.create_account("admin", "admin@example.com", "adminpass", role="admin")
+        # Create disabled account
+        disabled_id = la.create_account("disabled", "disabled@example.com", "password123")
+        la.disable_account(disabled_id)
+
+    def test_local_signin_success(self):
+        """Local sign-in with correct credentials succeeds."""
+        status, headers, _ = request("POST", f"{B}/login/local", None,
+                                    {"username": "alice", "password": "password123"})
+        self.assertEqual(status, 303)
+        # Should redirect to /admin/machines
+        self.assertEqual(location(headers), f"{B}/machines")
+        # Session cookie should be set
+        self.assertIn("set-cookie", headers)
+
+    def test_local_signin_wrong_password(self):
+        """Local sign-in with wrong password fails."""
+        status, _, body = request("POST", f"{B}/login/local", None,
+                                 {"username": "alice", "password": "wrongpass"})
+        self.assertEqual(status, 401)
+        self.assertIn("wrong username or password", body.lower())
+
+    def test_local_signin_unknown_user(self):
+        """Local sign-in with unknown username fails."""
+        status, _, body = request("POST", f"{B}/login/local", None,
+                                 {"username": "nonexistent", "password": "password123"})
+        self.assertEqual(status, 401)
+        self.assertIn("wrong username or password", body.lower())
+
+    def test_local_signin_disabled_account(self):
+        """Local sign-in with disabled account fails."""
+        status, _, body = request("POST", f"{B}/login/local", None,
+                                 {"username": "disabled", "password": "password123"})
+        self.assertEqual(status, 403)
+        self.assertIn("disabled", body.lower())
+
+    def test_local_signin_rate_limited(self):
+        """Local sign-in is rate-limited after too many attempts."""
+        # Make several failed attempts
+        for _ in range(11):  # SIGNIN_RATE_LIMIT default is 10
+            request("POST", f"{B}/login/local", None,
+                   {"username": "alice", "password": "wrongpass"})
+
+        # Next attempt should be rate-limited
+        status, _, _ = request("POST", f"{B}/login/local", None,
+                              {"username": "alice", "password": "password123"})
+        self.assertEqual(status, 429)
+
+    def test_local_signin_empty_credentials(self):
+        """Local sign-in with empty credentials fails."""
+        status, _, _ = request("POST", f"{B}/login/local", None,
+                              {"username": "", "password": ""})
+        self.assertEqual(status, 401)
+
+    def test_local_signin_creates_session_with_role(self):
+        """Local sign-in creates a session with the correct role."""
+        # Admin sign-in
+        _, headers, _ = request("POST", f"{B}/login/local", None,
+                               {"username": "admin", "password": "adminpass"})
+        cookie = next(c for c in headers["set-cookie"] if c.startswith("hse_session="))
+        session_value = cookie.split(";")[0].split("=", 1)[1]
+        session = app.unsign(session_value)
+
+        self.assertEqual(session["kind"], "local")
+        self.assertEqual(session["username"], "admin")
+        self.assertEqual(session["role"], "admin")
+        self.assertTrue(session["admin"])
+
+
 if __name__ == "__main__":
     unittest.main()
