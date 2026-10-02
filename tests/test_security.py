@@ -275,7 +275,8 @@ class DemoMode(Base):
         for path in ("/keys", "/apikeys", "/apikeys/1/expire", "/machines/register", "/machines/remove-inactive",
                      "/machines/7/delete", "/machines/7/expire", "/settings/key-expiry", "/settings/mfa", "/users",
                      "/users/1/delete", "/invitations", "/accounts/1/recovery", "/dns", "/machines/bulk/expire",
-                     "/machines/bulk/remove", "/acl/rules", "/acl/ssh", "/acl/autoapprove/routes"):
+                     "/machines/bulk/remove", "/acl/rules", "/acl/ssh", "/acl/autoapprove/routes",
+                     "/register/hskey-authreq-abcdefgh"):
             status, _, body = request("POST", B + path, ADMIN, {"csrf": "tok"})
             self.assertEqual(status, 403, path)
         status, _, _ = request("POST", f"{B}/acl", ADMIN, {"csrf": "tok", "action": "save", "policy": "{}"})
@@ -293,6 +294,92 @@ class DemoMode(Base):
             self.assertIn("DEMO ENVIRONMENT", ui.bare_page("t", ""))
         with mock.patch.object(ui, "DEMO", False):
             self.assertNotIn("DEMO ENVIRONMENT", ui.bare_page("t", ""))
+
+
+class DeviceApproval(Base):
+    """/register/<auth id> (Headscale's link, sent here by Caddy without OIDC):
+    members add the device to their own user only, admins choose, auditors
+    cannot, and the page survives the sign-in round trip without becoming an
+    open redirect."""
+
+    AUTH = "hskey-authreq-test-device-0001"
+    PATH = f"{B}/register/{AUTH}"
+    USERS = [{"id": "1", "name": "root"}, BOB]
+
+    def setUp(self):
+        super().setUp()
+        p = mock.patch.object(hs, "all_users", lambda: self.USERS)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def registered(self, node_id: str = "9"):
+        self.api.side_effect = None
+        self.api.return_value = {"node": {"id": node_id}}
+
+    def test_signed_out_goes_to_sign_in_and_remembers_the_page(self):
+        status, headers, _ = request("GET", self.PATH)
+        self.assertEqual((status, location(headers)), (303, f"{B}/login"))
+        cookie = next(c for c in headers["set-cookie"] if c.startswith("hse_next="))
+        self.assertEqual(app.unsign(cookie.split(";")[0].split("=", 1)[1])["path"], self.PATH)
+
+    def test_sign_in_returns_to_the_approval_page(self):
+        h = app.Handler.__new__(app.Handler)
+        nxt = app.sign({"path": self.PATH, "exp": time.time() + 60})
+        for value, dest in ((nxt, self.PATH),
+                            (app.sign({"path": "https://evil.example/", "exp": time.time() + 60}), f"{B}/machines"),
+                            (app.sign({"path": f"{B}/users", "exp": time.time() + 60}), f"{B}/machines"),
+                            (app.sign({"path": self.PATH, "exp": time.time() - 1}), f"{B}/machines"),
+                            (nxt[:-1] + "0", f"{B}/machines")):
+            msg = email.message.Message()
+            msg["Cookie"] = f"hse_next={value}"
+            h.headers, h.client_address = msg, ("127.0.0.1", 1)
+            with mock.patch.object(h, "redirect") as redirect:
+                h.start_session(dict(MEMBER))
+            self.assertEqual(redirect.call_args[0][0], dest, value)
+
+    def test_member_sees_own_user_and_registers_to_it(self):
+        status, _, body = request("GET", self.PATH, MEMBER)
+        self.assertEqual(status, 200)
+        self.assertNotIn("<select", body)
+        self.registered("9")
+        # A forged owner in the form is ignored
+        _, headers, _ = request("POST", self.PATH, MEMBER, {"csrf": "tok", "user": "root"})
+        self.assertEqual(location(headers), f"{B}/machines/9?m=registered")
+        self.api.assert_called_once_with("POST", "/auth/register", {"user": "bob", "authId": self.AUTH})
+
+    def test_member_without_user_cannot_register(self):
+        nobody = dict(MEMBER, sub="z")
+        status, _, body = request("GET", self.PATH, nobody)
+        self.assertEqual(status, 200)
+        self.assertNotIn('method="post" action="' + self.PATH, body)
+        request("POST", self.PATH, nobody, {"csrf": "tok"})
+        self.api.assert_not_called()
+
+    def test_admin_chooses_an_existing_user(self):
+        status, _, body = request("GET", self.PATH, ADMIN)
+        self.assertEqual(status, 200)
+        self.assertIn("<select", body)
+        _, headers, _ = request("POST", self.PATH, ADMIN, {"csrf": "tok", "user": "mallory"})
+        self.assertEqual(location(headers), f"{B}/machines?m=failed")
+        self.api.assert_not_called()
+        self.registered("4")
+        request("POST", self.PATH, ADMIN, {"csrf": "tok", "user": "bob"})
+        self.api.assert_called_once_with("POST", "/auth/register", {"user": "bob", "authId": self.AUTH})
+
+    def test_auditor_cannot_register(self):
+        auditor = dict(MEMBER, role="auditor")
+        self.assertEqual(request("GET", self.PATH, auditor)[0], 403)
+        self.assertEqual(request("POST", self.PATH, auditor, {"csrf": "tok"})[0], 403)
+        self.api.assert_not_called()
+
+    def test_csrf_required(self):
+        self.assertEqual(request("POST", self.PATH, MEMBER, {"csrf": "bad"})[0], 403)
+        self.api.assert_not_called()
+
+    def test_invalid_auth_id_is_not_a_route(self):
+        for path in (f"{B}/register/short", f"{B}/register/{self.AUTH}/x", f"{B}/register/a%2Fb%2Fcdefgh"):
+            self.assertIn(request("POST", path, MEMBER, {"csrf": "tok"})[0], (403, 404), path)
+        self.api.assert_not_called()
 
 
 if __name__ == "__main__":

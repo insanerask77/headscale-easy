@@ -104,6 +104,8 @@ NODE_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 USER_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._@-]{0,62}$")
 TAG_RE = re.compile(r"^tag:[a-z0-9][a-z0-9-]{0,62}$")
 AUTH_ID_RE = re.compile(r"^[A-Za-z0-9_:-]{8,200}$")
+# Device approval page: Caddy sends Headscale's /register/<auth id> link here
+REGISTER_PATH_RE = re.compile(rf"{BASE}/register/([A-Za-z0-9_:-]{{8,200}})")
 KEY_DAYS = {"1", "7", "30", "90"}
 APIKEY_DAYS = {"30", "90", "365"}
 EXIT_ROUTES = ["0.0.0.0/0", "::/0"]
@@ -113,7 +115,7 @@ EXIT_ROUTES = ["0.0.0.0/0", "::/0"]
 # policy from the visual editor; saving it from Advanced is checked in do_POST)
 # or removes data.
 DEMO_BLOCKED = re.compile(
-    rf"{BASE}/(keys|apikeys(/\d+/expire)?|machines/(register|remove-inactive)|machines/\d+/(delete|expire)"
+    rf"{BASE}/(keys|apikeys(/\d+/expire)?|machines/(register|remove-inactive)|register/[^/]+|machines/\d+/(delete|expire)"
     rf"|machines/bulk/(expire|remove)|settings/(key-expiry|mfa|notify-test|sessions/revoke(-all)?)|users(/\d+/(rename|delete))?"
     rf"|invitations(/[0-9a-f-]+/revoke)?|accounts/\d+/recovery|dns|derp"
     rf"|acl/(rules|groups|tags|autoapprove/(routes|exit-node)|ssh))")
@@ -382,9 +384,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.callback(params)
 
             session = self.session()
+            register = REGISTER_PATH_RE.fullmatch(path)
             if not session:
-                return self.redirect(f"{BASE}/login")
+                # Come back to this device's approval page after signing in
+                after = [self.set_cookie("hse_next", sign({"path": path, "exp": time.time() + 600}), 600)] if register else None
+                return self.redirect(f"{BASE}/login", after)
             admin = session.get("admin")
+            if register:
+                return self.register_view(session, register.group(1))
 
             if path in (BASE, f"{BASE}/"):
                 return self.redirect(f"{BASE}/machines")
@@ -510,6 +517,9 @@ class Handler(BaseHTTPRequestHandler):
             m = re.fullmatch(rf"{BASE}/machines/(\d+)/(rename|delete|expire|expiry|routes|tags)", path)
             if m:
                 return self.machine_action(session, m.group(1), m.group(2), form)
+            m = REGISTER_PATH_RE.fullmatch(path)
+            if m:
+                return self.register_device(session, m.group(1), form)
 
             # --- ACL and DNS: admins and network admins (auditors: test/simulate only) ---
             if path == f"{BASE}/acl/test":
@@ -759,9 +769,13 @@ class Handler(BaseHTTPRequestHandler):
         data["sid"] = sessions.create(data, audit.client_ip(self), self.headers.get("User-Agent", ""), SESSION_TTL)
         audit.request_event(self, data, "auth.signin", "", {"method": data["kind"], "role": role})
         log.info("sign-in: %s (%s, %s)", data["username"] or data["name"], data["kind"], role)
-        self.redirect(f"{BASE}/machines", [
+        # Only a device approval page can be the destination (no open redirect)
+        nxt = unsign(self.cookie("hse_next")) or {}
+        dest = nxt.get("path", "") if REGISTER_PATH_RE.fullmatch(str(nxt.get("path", ""))) else f"{BASE}/machines"
+        self.redirect(dest, [
             self.set_cookie("hse_session", sign(data), SESSION_TTL),
             self.set_cookie("hse_oidc", "", 0),
+            self.set_cookie("hse_next", "", 0),
         ])
 
     def logout(self, session: dict):
@@ -894,14 +908,55 @@ class Handler(BaseHTTPRequestHandler):
         if not AUTH_ID_RE.fullmatch(auth_id) or user not in {u["name"] for u in hs.all_users()}:
             return self.redirect(f"{BASE}/machines?m=failed")
         try:
-            hs.api("POST", "/auth/register", {"user": user, "authId": auth_id})
+            self.register_auth_id(session, user, auth_id)
         except urllib.error.HTTPError as exc:
-            msg = hs.api_error(exc)
-            log.warning("Auth ID registration rejected: %s", msg)
             return self.send(400, pages.machines_page(session, CTX, to_machines(visible_nodes(session)), True, "",
-                                                      hs.all_users(), error=_("Could not register: {reason}", reason=msg)))
-        audit.request_event(self, session, "machine.register", user, {"user": user, "auth_id": audit.prefix(auth_id)})
+                                                      hs.all_users(), error=_("Could not register: {reason}",
+                                                                              reason=hs.api_error(exc))))
         return self.redirect(f"{BASE}/machines?m=registered")
+
+    def register_auth_id(self, session: dict, user: str, auth_id: str) -> dict:
+        """Register a pending 'tailscale up' (Auth ID) to user; the new node."""
+        try:
+            node = hs.api("POST", "/auth/register", {"user": user, "authId": auth_id}).get("node") or {}
+        except urllib.error.HTTPError as exc:
+            log.warning("Auth ID registration rejected: %s", hs.api_error(exc))
+            raise
+        audit.request_event(self, session, "machine.register", user, {"user": user, "auth_id": audit.prefix(auth_id)})
+        return node
+
+    def register_owner(self, session: dict) -> tuple[list[dict] | None, dict | None]:
+        """(users to choose from, default owner) on the approval page: admins
+        pick any user (their own preselected); members and network admins can
+        only add devices to their own user."""
+        own = my_user(session)
+        return (hs.all_users(), own) if session.get("admin") else (None, own)
+
+    def register_view(self, session: dict, auth_id: str):
+        if is_auditor(session):
+            return self.fail(403, _("No permission"), _("Auditors cannot add devices."))
+        users, owner = self.register_owner(session)
+        self.send(200, pages.register_page(session, CTX, auth_id, users, owner))
+
+    def register_device(self, session: dict, auth_id: str, form: dict):
+        if is_auditor(session):
+            return self.fail(403, _("No permission"), _("Auditors cannot add devices."))
+        users, owner = self.register_owner(session)
+        if users is not None:
+            user = str(form.get("user", ""))
+            if user not in {u["name"] for u in users}:
+                return self.redirect(f"{BASE}/machines?m=failed")
+        elif owner:
+            user = owner["name"]  # never from the form: a member only adds to themselves
+        else:
+            return self.redirect(f"{BASE}/register/{auth_id}")
+        try:
+            node = self.register_auth_id(session, user, auth_id)
+        except urllib.error.HTTPError as exc:
+            return self.send(400, pages.register_page(session, CTX, auth_id, users, owner,
+                                                      error=_("Could not register: {reason}", reason=hs.api_error(exc))))
+        dest = f"{BASE}/machines/{node['id']}" if str(node.get("id", "")).isdigit() else f"{BASE}/machines"
+        return self.redirect(f"{dest}?m=registered")
 
     def remove_inactive(self, session: dict, form: dict):
         """Admin: remove the ticked machines of "Remove inactive machines…".
