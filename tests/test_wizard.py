@@ -282,7 +282,9 @@ class FullFlowTest(WizardTestBase):
         self.assertFalse(os.path.exists(wizard.token_path(self.data)))
         # Headscale: user created, isolation policy applied (once)
         self.assertEqual(open(os.path.join(self.state, "users")).read().split(), ["admin"])
-        self.assertIn("autogroup:self", open(os.path.join(self.state, "policy")).read())
+        policy = open(os.path.join(self.state, "policy")).read()
+        self.assertIn("autogroup:self", policy)
+        self.assertIn("autogroup:internet", policy)  # without it an exit node forwards nothing
         # the account: admin, no two-factor yet (the console suggests it), mapped to the Headscale user
         account = lac.get_account(email="admin@example.com")
         self.assertEqual((account["role"], account["totp_confirmed"], account["headscale_user"]), ("admin", 0, "admin"))

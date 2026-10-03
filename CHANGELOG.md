@@ -33,6 +33,8 @@ Work in progress on the `next` branch: see `SIMPLIFICATION_PLAN.md`.
   - CI builds the image, smoke-tests both modes and fails above 250 MB or
     100 MB of idle RAM (about 55 MB and 65 MB today); the image is published
     next to the others.
+  - The wizard's isolation policy also allows `autogroup:internet`, so a user's exit nodes
+    work (the isolation-only policy let devices connect to an exit node but forwarded nothing).
   - `web/status.py` reads its disks from `STATUS_DISKS`.
   - See `docs/all-in-one.md`. The 1.x installer and the split compose are
     unchanged.

@@ -41,7 +41,9 @@ El modo configuración arranca cuando no existe `/data/config/settings.json` ni
    opcional aquí: la consola te sugiere activarlo (un aviso al iniciar sesión,
    una vez por sesión del navegador) y se activa en **Ajustes → Cuenta**.
 5. **Nombre del tailnet** y si se aísla a los usuarios (cada uno solo alcanza
-   sus propios dispositivos).
+   sus propios dispositivos). La política de aislamiento
+   también permite `autogroup:internet`, para que los usuarios puedan salir a
+   internet por sus exit nodes.
 6. **Copias**: la programación y la retención se guardan para las copias
    integradas que llegarán en una versión posterior.
 
