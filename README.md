@@ -155,21 +155,6 @@ socket, secrets, off-site backups and updates.
 | 80 / 443 | TCP | Web console, control plane, Let's Encrypt |
 | 3478 | UDP | STUN for the embedded DERP relay (must be reachable) |
 
-## 🧪 Try the all-in-one image (preview)
-
-Headscale 2.0 ships as one container: Headscale + Caddy + the console, set up
-from your browser, no Docker socket and no installer. It is a preview; the
-installer above is still the supported way to run it.
-
-```bash
-docker run -d --name headscale-easy -p 80:80 -p 443:443 -p 3478:3478/udp \
-  -v hse:/data ghcr.io/insanerask77/headscale-easy-aio
-docker logs headscale-easy      # the one-time setup token
-```
-
-Then open `http://<your-server>/admin/setup`. Details, env vars for a headless
-start and limits: [all-in-one image](https://insanerask77.github.io/headscale-easy/all-in-one/).
-
 ## 🧩 How it works
 
 ```

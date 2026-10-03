@@ -217,39 +217,22 @@ def acl_page(session: dict, ctx: dict, policy_data: dict, nodes: list[dict], use
 # Sign in
 # -----------------------------------------------------------------------------
 
-def login_page(sso: bool, apikey: bool, error: str = "", info: str = "", local: bool = True) -> str:
-    # Local account sign-in (username + password)
-    local_html = ""
-    if local:
-        local_html = f"""
-      <form method="post" action="{BASE}/login/local" class="stack">
-        <label class="field">{esc(_("Username"))}<input name="username" type="text" required
-          autocomplete="username" spellcheck="false" autofocus></label>
-        <label class="field">{esc(_("Password"))}<input name="password" type="password" required
-          autocomplete="current-password"></label>
-        <button class="btn wide primary" type="submit">{esc(_("Sign in"))}</button>
-      </form>"""
-
-    sso_html = f'<a class="btn wide" href="{BASE}/login/sso">{esc(_("Sign in with SSO"))}</a>' if sso else ""
-
-    # Separators
-    sep1 = f'<div class="sep"><span>{esc(_("or"))}</span></div>' if local and (sso or apikey) else ""
-    sep2 = f'<div class="sep"><span>{esc(_("or"))}</span></div>' if sso and apikey else ""
-
+def login_page(sso: bool, apikey: bool, error: str = "", info: str = "") -> str:
+    sso_html = f'<a class="btn primary wide" href="{BASE}/login/sso">{esc(_("Sign in"))}</a>' if sso else ""
+    sep = f'<div class="sep"><span>{esc(_("or"))}</span></div>' if sso and apikey else ""
     key_html = ""
     if apikey:
         key_html = f"""
       <form method="post" action="{BASE}/login/apikey" class="stack">
         <label class="field">{esc(_("Headscale API key"))}<input name="api_key" type="password" required
           placeholder="hskey-api-…" autocomplete="off" spellcheck="false"></label>
-        <button class="btn wide" type="submit">{esc(_("Sign in with API key"))}</button>
+        <button class="btn wide {"" if sso else "primary"}" type="submit">{esc(_("Sign in with API key"))}</button>
         <p class="muted small">{esc(_("Gives admin access. Create one with:"))} <code>docker exec headscale headscale apikeys create</code></p>
       </form>"""
-
     return bare_page(_("Sign in"), f"""
     <section class="card narrow center login">
       <div class="big-logo">{LOGO}</div>
       <h1>Headscale Easy</h1>
       <p class="muted">{esc(_("Sign in to manage your tailnet."))}</p>
-      {notice("error", error) if error else ""}{notice("ok", info) if info else ""}{local_html}{sep1}{sso_html}{sep2}{key_html}
+      {notice("error", error) if error else ""}{notice("ok", info) if info else ""}{sso_html}{sep}{key_html}
     </section>""")
