@@ -225,13 +225,17 @@ the first time:
 ```jsonc
 {
   "acls": [
-    {"action": "accept", "src": ["autogroup:member"], "dst": ["autogroup:self:*"]}
+    {"action": "accept", "src": ["autogroup:member"], "dst": ["autogroup:self:*"]},
+    {"action": "accept", "src": ["autogroup:member"], "dst": ["autogroup:internet:*"]}
   ]
 }
 ```
 
-Each user reaches only their own devices — admins included. An existing policy
-is never overwritten. Edit it in **Access controls**; the syntax is
+Each user reaches only their own devices — admins included — and can send
+internet traffic through exit nodes (without the `autogroup:internet` rule an
+exit node accepts connections but forwards nothing). An existing policy is
+never overwritten: if you installed before this rule was added and exit nodes
+have no internet, add the second line in **Access controls**. Edit it in **Access controls**; the syntax is
 [Tailscale's](https://tailscale.com/kb/1337/policy-syntax).
 
 **Access controls** has six tabs:

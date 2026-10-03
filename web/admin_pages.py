@@ -112,9 +112,10 @@ def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], f
 # -----------------------------------------------------------------------------
 
 ISOLATION = """{
-  // Each user can only reach their own machines
+  // Each user can only reach their own machines, and may use exit nodes
   "acls": [
-    {"action": "accept", "src": ["autogroup:member"], "dst": ["autogroup:self:*"]}
+    {"action": "accept", "src": ["autogroup:member"], "dst": ["autogroup:self:*"]},
+    {"action": "accept", "src": ["autogroup:member"], "dst": ["autogroup:internet:*"]}
   ]
 }"""
 

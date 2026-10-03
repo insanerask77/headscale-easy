@@ -41,6 +41,12 @@ Work in progress on the `next` branch: see `SIMPLIFICATION_PLAN.md`.
 
 ## [Unreleased]
 
+### Fixed
+- Exit nodes had no internet with `NETWORK_ISOLATION=true`: the policy the installer applies only
+  allowed `autogroup:self`, so an exit node accepted connections but forwarded nothing. It now also
+  allows `autogroup:member` -> `autogroup:internet:*`. Existing installs keep their policy; add the rule
+  in Access controls (see the configuration docs).
+
 ### Added
 - The console is now available in French, German and Portuguese (Brazilian),
   next to English and Spanish: full catalogs in `web/locales/{fr,de,pt}.json`
