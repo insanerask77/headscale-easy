@@ -41,7 +41,8 @@ Setup mode starts when there is no `/data/config/settings.json` and no
    here: the console suggests turning it on (a popup after you sign in, once
    per browser session) and you enable it in **Settings → Account**.
 5. **Tailnet name** and whether users are isolated (each user only reaches
-   their own devices).
+   their own devices). The isolation policy also allows
+   `autogroup:internet`, so users can route their traffic through exit nodes.
 6. **Backups**: schedule and retention are stored for the built-in backups
    that arrive in a later release.
 

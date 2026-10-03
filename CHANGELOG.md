@@ -33,11 +33,19 @@ Work in progress on the `next` branch: see `SIMPLIFICATION_PLAN.md`.
   - CI builds the image, smoke-tests both modes and fails above 250 MB or
     100 MB of idle RAM (about 55 MB and 65 MB today); the image is published
     next to the others.
+  - The wizard's isolation policy also allows `autogroup:internet`, so a user's exit nodes
+    work (the isolation-only policy let devices connect to an exit node but forwarded nothing).
   - `web/status.py` reads its disks from `STATUS_DISKS`.
   - See `docs/all-in-one.md`. The 1.x installer and the split compose are
     unchanged.
 
 ## [Unreleased]
+
+### Fixed
+- Exit nodes had no internet with `NETWORK_ISOLATION=true`: the policy the installer applies only
+  allowed `autogroup:self`, so an exit node accepted connections but forwarded nothing. It now also
+  allows `autogroup:member` -> `autogroup:internet:*`. Existing installs keep their policy; add the rule
+  in Access controls (see the configuration docs).
 
 ### Added
 - The console is now available in French, German and Portuguese (Brazilian),
