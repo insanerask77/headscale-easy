@@ -41,11 +41,36 @@ Work in progress on the `next` branch: see `SIMPLIFICATION_PLAN.md`.
 
 ## [Unreleased]
 
-### Fixed
-- Exit nodes had no internet with `NETWORK_ISOLATION=true`: the policy the installer applies only
-  allowed `autogroup:self`, so an exit node accepted connections but forwarded nothing. It now also
-  allows `autogroup:member` -> `autogroup:internet:*`. Existing installs keep their policy; add the rule
-  in Access controls (see the configuration docs).
+## [1.5.0] - 2026-10-03
+
+Upgrade: run `./install.sh` again to pick up the new settings and the `hs-helper` service.
+An older `docker-compose.yml` that still mounts the Docker socket in `web` keeps working,
+with a warning in the logs. Existing installs keep their ACL policy: see *Fixed*.
+
+### Security
+- Sessions are now revocable: the signed cookie carries a session id that must
+  exist, unrevoked, in `data/web/sessions.db` (`600`). New **Settings →
+  Sessions** page: your sessions (admins and auditors: everybody's) with
+  *Log out*, *Sign out everywhere* and, for admins, *Sign out everyone else*.
+  Deleting a user, or a role change seen at their next sign-in, revokes their
+  older sessions. Cookies issued before this change have no session id: users
+  sign in again once.
+- Sign-in rate limiting per client IP (`SIGNIN_RATE_LIMIT`, default 10, per
+  `SIGNIN_RATE_WINDOW`, default 600 seconds) on the API key sign-in and the
+  OIDC sign-in: `429` with `Retry-After` and an `auth.rate_limited` activity
+  event. New activity events: `auth.session_revoked`,
+  `auth.sessions_revoked_all`.
+- The web UI no longer mounts the Docker socket (equivalent to root on the
+  host) and is no longer in the Docker group. A new `hs-helper` service
+  (`helper/`, image `ghcr.io/insanerask77/headscale-easy-helper`) is the only
+  container with the socket. It has no network and answers the web UI over a
+  `660` Unix socket in the `hse-helper` volume with exactly three fixed
+  operations on the `headscale` container: `POST /configtest`,
+  `POST /restart` and `GET /status` (container health and Headscale's
+  version). It takes no parameters; anything else is refused before Docker is
+  contacted. Installations with an older `docker-compose.yml` that still
+  mounts the socket in `web` keep working, with a warning in the logs.
+  `make validate` fails if any other service mounts the socket.
 
 ### Added
 - The console is now available in French, German and Portuguese (Brazilian),
@@ -53,11 +78,6 @@ Work in progress on the `next` branch: see `SIMPLIFICATION_PLAN.md`.
   and `{fr,de,pt}.d/`, offered in the language selector in Settings. `UI_LANG`
   accepts `fr`, `de` and `pt`; the installer lets you choose them and keeps its
   own messages in English for those languages.
-### Changed
-- Machines that register as `localhost` are now renamed within about 5 seconds
-  (was 30). Each pass is one node-list call; host details are only fetched when
-  something needs renaming. Tune it with `RENAME_INTERVAL` (seconds, minimum 1).
-### Added
 - PostgreSQL support for Headscale's database (roadmap item 17). The installer
   asks: SQLite (default, recommended), PostgreSQL in the stack (new
   `headscale-postgresql` container, `postgres` Compose profile, volume
@@ -110,30 +130,17 @@ Work in progress on the `next` branch: see `SIMPLIFICATION_PLAN.md`.
   never slows down or breaks the web UI. **Settings -> General ->
   Notifications** lists the destinations and has a "Send a test" button
   (admins; blocked in the demo).
-### Security
-- Sessions are now revocable: the signed cookie carries a session id that must
-  exist, unrevoked, in `data/web/sessions.db` (`600`). New **Settings →
-  Sessions** page: your sessions (admins and auditors: everybody's) with
-  *Log out*, *Sign out everywhere* and, for admins, *Sign out everyone else*.
-  Deleting a user, or a role change seen at their next sign-in, revokes their
-  older sessions. Cookies issued before this change have no session id: users
-  sign in again once.
-- Sign-in rate limiting per client IP (`SIGNIN_RATE_LIMIT`, default 10, per
-  `SIGNIN_RATE_WINDOW`, default 600 seconds) on the API key sign-in and the
-  OIDC sign-in: `429` with `Retry-After` and an `auth.rate_limited` activity
-  event. New activity events: `auth.session_revoked`,
-  `auth.sessions_revoked_all`.
-- The web UI no longer mounts the Docker socket (equivalent to root on the
-  host) and is no longer in the Docker group. A new `hs-helper` service
-  (`helper/`, image `ghcr.io/insanerask77/headscale-easy-helper`) is the only
-  container with the socket. It has no network and answers the web UI over a
-  `660` Unix socket in the `hse-helper` volume with exactly three fixed
-  operations on the `headscale` container: `POST /configtest`,
-  `POST /restart` and `GET /status` (container health and Headscale's
-  version). It takes no parameters; anything else is refused before Docker is
-  contacted. Installations with an older `docker-compose.yml` that still
-  mounts the socket in `web` keep working, with a warning in the logs.
-  `make validate` fails if any other service mounts the socket.
+
+### Changed
+- Machines that register as `localhost` are now renamed within about 5 seconds
+  (was 30). Each pass is one node-list call; host details are only fetched when
+  something needs renaming. Tune it with `RENAME_INTERVAL` (seconds, minimum 1).
+
+### Fixed
+- Exit nodes had no internet with `NETWORK_ISOLATION=true`: the policy the installer applies only
+  allowed `autogroup:self`, so an exit node accepted connections but forwarded nothing. It now also
+  allows `autogroup:member` -> `autogroup:internet:*`. Existing installs keep their policy; add the rule
+  in Access controls (see the configuration docs).
 
 ## [1.4.0] - 2026-09-30
 
@@ -379,6 +386,7 @@ First release as **Headscale Easy**.
 - Documentation site on GitHub Pages, in English and Spanish:
   https://insanerask77.github.io/headscale-easy/
 
+[1.5.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.5.0
 [1.4.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.4.0
 [1.3.1]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.3.1
 [1.3.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.3.0
