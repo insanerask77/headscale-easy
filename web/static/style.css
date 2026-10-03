@@ -616,13 +616,6 @@ body.bare { background: var(--side); }
 .card.login { display: grid; gap: 0.9rem; padding: 2rem; }
 .card.login h1 { font-size: 1.5rem; }
 .card.login .stack { text-align: left; }
-/* First-run wizard (aio/wizard.py): progress dots */
-.setup-steps { display: flex; justify-content: center; gap: 0.4rem; margin: -0.2rem 0 -0.4rem; }
-.setup-steps i { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--line-strong); }
-.setup-steps i.done { background: var(--blue); opacity: 0.55; }
-.setup-steps i.now { background: var(--blue); }
-.card.setup .kvs { text-align: left; }
-.card.setup .check { text-align: left; }
 .sep { display: flex; align-items: center; gap: 0.75rem; color: var(--faint); font-size: 0.8125rem; }
 .sep::before, .sep::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
 .bare-foot { text-align: center; font-size: 0.75rem; color: var(--faint); }

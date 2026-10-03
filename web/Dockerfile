@@ -22,11 +22,6 @@ COPY . /app
 # mode as in helper/Dockerfile, whichever container creates the volume first.
 RUN mkdir -p /run/hse-helper && chmod 1777 /run/hse-helper
 
-# Data directory (accounts, sessions, audit log, API key). docker-compose.yml
-# bind-mounts ./data/web over it; without a mount the unprivileged user can
-# still write here.
-RUN mkdir -p /data && chown 1000:1000 /data
-
 # Runs as an unprivileged user; docker-compose.yml may override the uid/gid
 # so it can write headscale-config.yaml (DNS editing).
 USER 1000:1000

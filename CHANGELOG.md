@@ -4,41 +4,6 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [2.0.0] - Unreleased
-
-Work in progress on the `next` branch: see `SIMPLIFICATION_PLAN.md`.
-
-### Added
-- Device sign-in without OIDC (plan phase 0). With `AUTH_PROVIDER=none` the
-  link `tailscale up` prints (`<url>/register/<auth id>`) now opens an approval
-  page in the console instead of Headscale's "run this command" page: Caddy
-  redirects it to `/admin/register/<auth id>`, the console asks the person to
-  sign in (and comes back to the page afterwards), and approving registers the
-  device through Headscale's API. Members and network admins can only add
-  devices to their own user, admins choose the owner, auditors cannot approve.
-  Re-run `./install.sh` once to regenerate the Caddyfile.
-- All-in-one image, preview (plan phase 2): `ghcr.io/insanerask77/headscale-easy-aio`
-  runs Headscale, Caddy and the console in one non-root container under a small
-  Python supervisor (restart with backoff, ordered shutdown, the hs-helper
-  protocol on a local socket, `hse health` / `hse reload`). No Docker socket.
-  State lives in one `/data` volume.
-  - First-run wizard (styled like the console): a one-time token in the logs, then
-    language, public URL and HTTPS, administrator, tailnet and isolation, backup
-    settings. Two-factor is optional there; local accounts without it get a
-    popup in the console (once per browser session) suggesting to enable it. It creates the API key, the Headscale user and the isolation
-    policy, and can be retried safely. With `HSE_PUBLIC_URL` set the container
-    starts without the wizard (headless).
-  - `aio/render.py` ports the installer's config generators (output verified
-    against `install.sh`).
-  - CI builds the image, smoke-tests both modes and fails above 250 MB or
-    100 MB of idle RAM (about 55 MB and 65 MB today); the image is published
-    next to the others.
-  - The wizard's isolation policy also allows `autogroup:internet`, so a user's exit nodes
-    work (the isolation-only policy let devices connect to an exit node but forwarded nothing).
-  - `web/status.py` reads its disks from `STATUS_DISKS`.
-  - See `docs/all-in-one.md`. The 1.x installer and the split compose are
-    unchanged.
-
 ## [Unreleased]
 
 ### Fixed

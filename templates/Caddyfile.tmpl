@@ -24,8 +24,6 @@ ${CADDY_DOMAIN} {
 
 ${AUTHENTIK_ROUTE}
 
-${REGISTER_ROUTE}
-
     # Headscale Easy web UI at /admin (the same path as Tailscale's console)
     handle /admin* {
         reverse_proxy headscale-easy:8000 {

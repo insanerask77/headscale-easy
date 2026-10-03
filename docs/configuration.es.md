@@ -238,8 +238,8 @@ política la primera vez:
 Cada usuario sólo alcanza sus dispositivos, admins incluidos, y puede sacar
 tráfico a internet por exit nodes (sin la regla `autogroup:internet` un exit
 node acepta conexiones pero no reenvía nada). Una política existente nunca se
-sobrescribe: si instalaste antes de que existiera esta regla y los exit nodes no
-tienen internet, añade la segunda línea en **Control de acceso**. Edítala en **Control de acceso**; la sintaxis
+sobrescribe: si instalaste antes de que existiera esta regla y los exit nodes
+no tienen internet, añade la segunda línea en **Control de acceso**. Edítala en **Control de acceso**; la sintaxis
 es la [de Tailscale](https://tailscale.com/kb/1337/policy-syntax).
 
 **Control de acceso** tiene seis pestañas:

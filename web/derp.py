@@ -22,7 +22,7 @@ from i18n import _
 log = logging.getLogger("headscale-easy")
 
 DERP_FILE = os.environ.get("HEADSCALE_DERP_FILE", "/etc/headscale/derp.yaml")
-DERP_FILE_IN_CONFIG = os.environ.get("HEADSCALE_DERP_FILE_IN_CONFIG", "/etc/headscale/derp.yaml")  # where Headscale sees it
+DERP_FILE_IN_CONFIG = "/etc/headscale/derp.yaml"  # where Headscale sees it
 BEGIN = "  # >>> derp map: managed by Headscale Easy (do not edit between these markers)"
 END = "  # <<< derp map"
 MIN_REGION, MAX_REGION = 900, 998  # 900-999 are for own relays; 999 is the embedded one

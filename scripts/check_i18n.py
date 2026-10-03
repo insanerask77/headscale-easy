@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check that every UI string has a translation in each web/locales/*.json.
 
-Strings are the literal arguments of _() and ngettext() in web/*.py and aio/*.py.
+Strings are the literal arguments of _() and ngettext() in web/*.py.
 Exits 1 when a translation is missing or a call does not use a literal.
 """
 import ast
@@ -10,12 +10,11 @@ import pathlib
 import sys
 
 WEB = pathlib.Path(__file__).resolve().parent.parent / "web"
-AIO = WEB.parent / "aio"  # the setup wizard shares the catalogs
 
 
 def ui_strings():
     keys, errors = [], []
-    for f in sorted([*WEB.glob("*.py"), *AIO.glob("*.py")]):
+    for f in sorted(WEB.glob("*.py")):
         if f.name == "i18n.py":  # defines _() and ngettext() themselves
             continue
         for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):

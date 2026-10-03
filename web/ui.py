@@ -323,22 +323,6 @@ def _head(title: str) -> str:
 </head>"""
 
 
-def nudge_2fa(session: dict, active: str) -> str:
-    """A popup (once per browser session, see app.js) suggesting two-factor to a
-    local account that has not enabled it. Not shown on the account pages."""
-    if session.get("kind") != "local" or session.get("totp_on", True) or active == "settings":
-        return ""
-    return f"""
-  <dialog id="nudge-2fa" data-nudge="2fa">
-    <h3>{esc(_("Protect your account with two-factor authentication"))}</h3>
-    <p class="muted">{esc(_("Two-factor authentication is not enabled on your account. It takes a minute and keeps your tailnet safe even if your password leaks."))}</p>
-    <div class="dialog-actions">
-      <button type="button" class="btn" data-close>{esc(_("Remind me later"))}</button>
-      <a class="btn primary" href="{BASE}/settings/account/totp/enroll">{esc(_("Enable 2FA"))}</a>
-    </div>
-  </dialog>"""
-
-
 def layout(title: str, active: str, body: str, session: dict, ctx: dict) -> str:
     return f"""{_head(title)}
 <body data-copied="{esc(_("Copied"))}" data-working="{esc(_("Working"))}">
@@ -353,7 +337,7 @@ def layout(title: str, active: str, body: str, session: dict, ctx: dict) -> str:
     <main class="content">
 {demo_banner()}{body}
     </main>
-  </div>{nudge_2fa(session, active)}
+  </div>
   <script src="{BASE}/static/app.js?v={V}" defer></script>
 </body>
 </html>"""
