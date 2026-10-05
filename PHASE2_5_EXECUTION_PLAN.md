@@ -66,22 +66,26 @@ phase 3 (built-in backups) starts.
 ## Block 1: Language selector in the console (S, ~2-3h)
 
 ### 1.1 Reproduce and fix
+
+> **Root cause:** with five languages the `.lang-switch` flex row in the user menu
+> overflowed the popover; Deutsch/Português sat outside it, so the click hit the
+> page behind. The handler, cookie and `pick_lang` were fine. Fixed with a grid.
 **Files:** `web/ui.py`, `web/i18n.py`, `web/app.py` (the `/settings/language`
 handler), `web/static/app.js`
 
-- [ ] Reproduce in a real browser against `hse-aio` (the wizard's selector is
+- [x] Reproduce in a real browser against `hse-aio` (the wizard's selector is
       fine; only the console's is broken): which language, which page, what
       happens (no change, wrong language, error, layout)
-- [ ] Find the root cause (handler, cookie/session storage, `get_lang()`
+- [x] Find the root cause (handler, cookie/session storage, `get_lang()`
       resolution order, redirect target, CSS of `.lang-switch`)
-- [ ] Fix it
+- [x] Fix it
 
 ### 1.2 Regression test
 **Files:** `tests/test_languages.py`
 
-- [ ] Test that posting each supported language changes the rendered page and
+- [x] Test that posting each supported language changes the rendered page and
       survives the next request
-- [ ] `python3 scripts/check_i18n.py` stays green
+- [x] `python3 scripts/check_i18n.py` stays green
 
 **Done when:** every language can be selected from any console page and sticks.
 

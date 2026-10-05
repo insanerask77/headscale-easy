@@ -361,8 +361,8 @@ details.dropdown.up .dropdown-body { top: auto; bottom: calc(100% + 0.35rem); le
 .menu-rich > a, .menu-rich > button { display: grid; gap: 0.1rem; padding: 0.55rem 0.7rem; }
 .menu-rich span { font-size: 0.8125rem; color: var(--muted); }
 
-.lang-switch { display: flex; gap: 0.25rem; padding: 0.2rem 0.3rem; }
-.lang-switch button { flex: 1; text-align: center !important; font-size: 0.8125rem !important; color: var(--muted) !important; }
+.lang-switch { display: grid; grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr)); gap: 0.25rem; padding: 0.2rem 0.3rem; }
+.lang-switch button { text-align: center !important; font-size: 0.8125rem !important; color: var(--muted) !important; }
 .lang-switch button.active { color: var(--ink) !important; background: var(--active) !important; }
 
 .addr summary {
