@@ -25,8 +25,11 @@ from unittest import mock
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tests"))
+from aio import restore as aio_restore  # noqa: E402
 from aio import supervisor as sup  # noqa: E402
 from test_docker_helper import call  # noqa: E402
+import backup_fixtures as fx  # noqa: E402
+from test_restore import FakeBackup  # noqa: E402
 
 SHORT_TMP = "/tmp" if os.path.isdir("/tmp") else None
 
@@ -631,6 +634,152 @@ class ProcessTest(FakeCase):
         res = wait_for(lambda: (lambda r: r if r.returncode == 0 else None)(
             subprocess.run([sys.executable, hse, "health"], env=env, capture_output=True, text=True)))
         self.assertIn("healthy (setup mode): caddy, wizard", res.stdout)
+        proc.send_signal(signal.SIGTERM)
+        self.assertEqual(proc.wait(10), 0)
+
+
+# --- Online restore (SIGUSR1) ------------------------------------------------------------
+
+class OnlineRestoreTest(SupervisorMixin, FakeCase):
+    """``hse restore`` on a running container: the supervisor stops the stack, restores, starts it again."""
+
+    def setUp(self):
+        super().setUp()
+        self.backup = FakeBackup()
+        p = mock.patch.object(sup.restore_mod, "_backup", lambda: self.backup)
+        p.start()
+        self.addCleanup(p.stop)
+        fx.write_data(self.fakes.data, fx.data_tree("b"))
+        self.s = self.make()
+        self.s.start_children()
+        self.assertTrue(wait_for(lambda: self.s.children["headscale"].running and
+                                 self.fakes.lines("console_starts") and self.fakes.lines("caddy_starts")))
+        self.archive = os.path.join(self.tmp.name, "a.tar.gz")
+        fx.build_aio_archive(self.archive, fx.data_tree("a"))
+
+    def request(self, archive=None, **extra):
+        doc = {"archive": archive or self.archive, "requested": time.time(), **extra}
+        with open(os.path.join(self.fakes.run, "restore.json"), "w") as fh:
+            json.dump(doc, fh)
+        self.s.online_restore()
+        with open(os.path.join(self.fakes.run, "restore-result.json")) as fh:
+            return json.load(fh), doc
+
+    def marker(self):
+        with open(os.path.join(self.fakes.data, "config", "settings.json")) as fh:
+            return json.load(fh)["marker"]
+
+    def running(self):
+        return all(c.running for c in self.s.children.values()) and len(self.s.children) == 3
+
+    def test_restores_and_starts_the_stack_again(self):
+        serves = len(self.fakes.lines("serves"))
+        consoles = len(self.fakes.lines("console_starts"))
+        result, doc = self.request()
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["requested"], doc["requested"])
+        self.assertEqual(self.marker(), "a")
+        self.assertTrue(wait_for(lambda: len(self.fakes.lines("serves")) == serves + 1 and
+                                 len(self.fakes.lines("console_starts")) == consoles + 1 and self.running()))
+        self.assertFalse(os.path.exists(os.path.join(self.fakes.run, "restore.json")))
+        self.assertEqual(os.stat(os.path.join(self.fakes.run, "restore-result.json")).st_mode & 0o777, 0o600)
+
+    def test_stops_in_order_restores_then_starts(self):
+        self.fakes.flag("up", True)
+        self.request()
+        self.assertEqual(self.fakes.lines("stops")[:3], ["console", "caddy", "headscale"])
+        stopped = [i for i, ln in enumerate(self.s.lines) if ln.endswith(" stopped")]
+        done = [i for i, ln in enumerate(self.s.lines) if "restore: done" in ln]
+        self.assertEqual(len(stopped), 3)
+        self.assertTrue(done and max(stopped) < done[0], self.s.lines)
+
+    def test_holds_the_backup_lock_and_takes_a_safety_copy(self):
+        result, _ = self.request()
+        self.assertEqual(self.backup.locks, 1)
+        self.assertIn("-pre-restore-", os.path.basename(result["safety_copy"]))
+
+    def test_failed_restore_reports_the_error_and_starts_the_stack_again(self):
+        bad = os.path.join(self.tmp.name, "bad.tar.gz")
+        fx.build_aio_archive(bad, fx.data_tree("a"), hashes={"config/Caddyfile": "0" * 64})
+        serves = len(self.fakes.lines("serves"))
+        result, _ = self.request(bad)
+        self.assertFalse(result["ok"])
+        self.assertIn("checksum", result["error"])
+        self.assertEqual(self.marker(), "b")  # nothing changed
+        self.assertTrue(wait_for(lambda: len(self.fakes.lines("serves")) == serves + 1 and self.running()))
+
+    def test_unexpected_exception_still_starts_the_stack(self):
+        with mock.patch.object(sup.restore_mod, "restore", side_effect=RuntimeError("boom")):
+            result, _ = self.request()
+        self.assertFalse(result["ok"])
+        self.assertIn("boom", result["error"])
+        self.assertTrue(wait_for(self.running))
+
+    def test_refused_in_setup_mode(self):
+        for name in list(self.s.children):
+            self.s.children[name].stop()
+        os.unlink(os.path.join(self.fakes.data, "config", "settings.json"))
+        s = self.make(HSE_PUBLIC_URL="")
+        s.start_children()
+        self.assertEqual(s.mode, "setup")
+        self.assertTrue(wait_for(lambda: s.children["wizard"].running))
+        with open(os.path.join(self.fakes.run, "restore.json"), "w") as fh:
+            json.dump({"archive": self.archive, "requested": 1.5}, fh)
+        s.online_restore()
+        with open(os.path.join(self.fakes.run, "restore-result.json")) as fh:
+            result = json.load(fh)
+        self.assertFalse(result["ok"])
+        self.assertIn("setup mode", result["error"])
+        self.assertTrue(s.children["wizard"].running)  # nothing was stopped
+        self.assertFalse(os.path.exists(os.path.join(self.fakes.data, "config", "settings.json")))
+
+    def test_unusable_request_is_ignored(self):
+        result_path = os.path.join(self.fakes.run, "restore-result.json")
+        for body in ("not json", json.dumps({"requested": 1}), json.dumps({"archive": 5})):
+            with open(os.path.join(self.fakes.run, "restore.json"), "w") as fh:
+                fh.write(body)
+            self.s.online_restore()
+            self.assertFalse(os.path.exists(result_path), body)
+            self.assertEqual(self.marker(), "b")
+        self.assertTrue(self.running())
+
+    def test_postgres_flag_is_passed_through(self):
+        with mock.patch.object(sup.restore_mod, "restore", return_value={"ok": True, "files": 1}) as fn:
+            self.request(with_postgres=True)
+        self.assertTrue(fn.call_args.kwargs["with_postgres"])
+        self.assertTrue(fn.call_args.kwargs["offline"])
+
+
+class OnlineRestoreProcessTest(FakeCase):
+    """The real supervisor process, a real SIGUSR1 and aio.restore.request_online (what ``hse restore`` runs)."""
+
+    def setUp(self):
+        super().setUp()
+        # a stand-in for aio/backup.py when it is not merged yet (the real one wins once it is: aio/ is first on the path)
+        self.libs = os.path.join(self.tmp.name, "libs")
+        os.makedirs(self.libs)
+        with open(os.path.join(self.libs, "backup.py"), "w") as fh:
+            fh.write("import contextlib\n@contextlib.contextmanager\ndef lock(out_dir):\n    yield\n")
+        self.archive = os.path.join(self.tmp.name, "a.tar.gz")
+        fx.build_aio_archive(self.archive, fx.data_tree("a"))
+
+    def test_hse_restore_flow(self):
+        env = self.fakes.env(HSE_PUBLIC_URL="http://localhost", HSE_TLS="off", PYTHONPATH=self.libs)
+        proc = subprocess.Popen([sys.executable, os.path.join(ROOT, "aio", "supervisor.py")], env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        self.addCleanup(lambda: proc.poll() is None and proc.kill())
+        out = []
+        threading.Thread(target=lambda: [out.append(ln.rstrip()) for ln in proc.stdout], daemon=True).start()
+        self.assertTrue(wait_for(lambda: self.fakes.lines("console_starts") and self.fakes.lines("caddy_starts"),
+                                 timeout=15))
+        serves = len(self.fakes.lines("serves"))
+        result = aio_restore.request_online(self.archive, self.fakes.run, timeout=30)
+        self.assertTrue(result["ok"], (result, out))
+        with open(os.path.join(self.fakes.data, "config", "settings.json")) as fh:
+            self.assertEqual(json.load(fh)["marker"], "a")
+        self.assertTrue(wait_for(lambda: len(self.fakes.lines("serves")) == serves + 1))
+        self.assertEqual(self.fakes.lines("stops")[:3], ["console", "caddy", "headscale"])
+        self.assertTrue(wait_for(lambda: len(self.fakes.lines("console_starts")) == 2, timeout=15))
         proc.send_signal(signal.SIGTERM)
         self.assertEqual(proc.wait(10), 0)
 

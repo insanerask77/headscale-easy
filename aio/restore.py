@@ -54,13 +54,18 @@ def _run_dir(run_dir=None):
     return run_dir or os.environ.get("HSE_RUN_DIR", "/run/hse")
 
 
+def _sibling(name: str):
+    """A module of aio/, whether we were imported as ``aio.restore`` (tests) or from aio/ on sys.path (image)."""
+    import importlib  # noqa: PLC0415
+    try:
+        return importlib.import_module("aio." + name)
+    except ImportError:
+        return importlib.import_module(name)
+
+
 def _backup():
     """aio/backup.py, imported lazily (it is only needed for the safety copy and the lock)."""
-    try:
-        from aio import backup  # noqa: PLC0415
-    except ImportError:  # run as a script from aio/
-        import backup  # type: ignore  # noqa: PLC0415
-    return backup
+    return _sibling("backup")
 
 
 # -- reading an archive -------------------------------------------------------------------
@@ -253,7 +258,7 @@ def _safety_copy(data_dir: str, out_dir: str) -> str | None:
 
 
 def _psql_env(data_dir: str) -> dict:
-    from aio import render  # noqa: PLC0415
+    render = _sibling("render")
     s = render.load_settings(os.environ, render.settings_file(data_dir))
     env = {k: os.environ[k] for k in ("PATH", "HOME", "LANG") if k in os.environ}
     env.update(PGHOST=s.get("pg_host") or "", PGPORT=str(s.get("pg_port") or "5432"),
