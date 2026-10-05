@@ -44,10 +44,14 @@ El modo configuración arranca cuando no existe `/data/config/settings.json` ni
    sus propios dispositivos). La política de aislamiento
    también permite `autogroup:internet`, para que los usuarios puedan salir a
    internet por sus exit nodes.
-6. **Relés (DERP)**: *este servidor* (por defecto: DERP y STUN corren en el
+6. **Registro**: quién puede crear una cuenta desde la página de inicio de
+   sesión: nadie (por defecto), quien tenga una clave de invitación, o cualquiera.
+   Con claves, la configuración puede crear la primera y la muestra una sola vez
+   al terminar.
+7. **Relés (DERP)**: *este servidor* (por defecto: DERP y STUN corren en el
    contenedor, UDP 3478, nada de terceros), también los relés públicos de
    Tailscale, o tu propio mapa DERP.
-7. **Copias**: la programación y la retención se guardan para las copias
+8. **Copias**: la programación y la retención se guardan para las copias
    integradas que llegarán en una versión posterior.
 
 Al terminar se crean la clave de API de Headscale, el usuario de Headscale del
@@ -76,7 +80,7 @@ docker run -d --name headscale-easy \
 ```
 
 La precedencia es **entorno > `/data/config/settings.json` > valores por
-defecto**. Las variables (`HSE_TLS`, `TAILNET_NAME`, `HSE_BASE_DOMAIN` (dominio base de MagicDNS, por defecto `hse.net`), `HSE_DERP_MODE` (`embedded` por defecto: DERP y STUN propios del contenedor, publica `3478/udp`; `public` añade los relés públicos de Tailscale; `custom` usa tu mapa con `HSE_DERP_URL`), `NETWORK_ISOLATION`,
+defecto**. Las variables (`HSE_TLS`, `TAILNET_NAME`, `HSE_BASE_DOMAIN` (dominio base de MagicDNS, por defecto `hse.net`), `HSE_SIGNUP` (`off` por defecto; `invite` exige clave de invitación; `open` permite a cualquiera; se cambia después en Ajustes → General), `HSE_DERP_MODE` (`embedded` por defecto: DERP y STUN propios del contenedor, publica `3478/udp`; `public` añade los relés públicos de Tailscale; `custom` usa tu mapa con `HSE_DERP_URL`), `NETWORK_ISOLATION`,
 `NODE_KEY_EXPIRY`, `UI_LANG`, `TZ`, `OIDC_*`, `HEADSCALE_DB_TYPE` y
 `HEADSCALE_PG_*`, entre otras) están en la
 [versión en inglés](all-in-one.md#headless-start-no-wizard).
@@ -126,3 +130,20 @@ usa unos 65 MB de RAM. CI falla por encima de 250 MB y 100 MB.
 - Sin Authentik integrado: cuentas locales (con doble factor) u OIDC externo.
 - Las copias programadas aún no están integradas; copia el volumen `/data`.
 - La migración de una instalación 1.x todavía no está automatizada.
+
+## Usuarios y registro
+
+- **Usuarios → Crear usuario local**: solo con un nombre es un usuario de
+  Headscale sin inicio de sesión (para servidores). Con correo, contraseña y rol
+  es una cuenta con la que la persona puede entrar. Por defecto debe elegir otra
+  contraseña en su primer inicio de sesión (la tuya es temporal).
+- **Usuarios → ⋯ → Establecer contraseña**: para personas con cuenta. Cierra sus
+  sesiones abiertas.
+- **Registro** (Ajustes → General): `off` oculta el enlace y `/admin/signup`
+  responde 404. Con `invite` el formulario pide una clave de invitación; con
+  `open`, no. Quien se registra es siempre **Miembro**, nunca administrador.
+- **Claves de invitación** (página Usuarios): de uno o varios usos, con caducidad
+  opcional y revocables. La clave se muestra una vez al crearla; solo se guarda su
+  hash. Una clave incorrecta, caducada, agotada o revocada da el mismo error. Los
+  intentos de registro tienen límite de frecuencia, como el inicio de sesión.
+- No se envía correo y la dirección no se verifica.

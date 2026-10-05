@@ -868,7 +868,7 @@ def notify_section(session: dict) -> str:
 
 
 def general_page(session: dict, ctx: dict, flash: str = "", key_expiry: int | None = None,
-                 error: str = "", mfa: dict | None = None) -> str:
+                 error: str = "", mfa: dict | None = None, extra: str = "") -> str:
     role = _("Admin") if session.get("admin") else _("Member")
     if session.get("kind") == "apikey":
         role = _("Admin (Headscale API key session)")
@@ -910,6 +910,7 @@ def general_page(session: dict, ctx: dict, flash: str = "", key_expiry: int | No
     {devices}
     {notifications}
     {mfa_section(session, mfa) if session.get("admin") and mfa is not None else ""}
+    {extra}
     <section class="card">
       <h2>{esc(_("Appearance"))}</h2>
       <p class="muted">{esc(_("Saved in this browser."))}</p>

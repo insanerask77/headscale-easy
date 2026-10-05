@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     totp_last_step INTEGER,  -- replay protection: last TOTP step used
     recovery_codes TEXT,  -- newline-separated hashed codes
     disabled INTEGER NOT NULL DEFAULT 0,
+    must_change INTEGER NOT NULL DEFAULT 0,  -- 1 = choose a new password at the next sign-in
     created TEXT NOT NULL,  -- ISO8601 UTC
     updated TEXT NOT NULL   -- ISO8601 UTC
 );
@@ -84,10 +85,29 @@ CREATE INDEX IF NOT EXISTS idx_tokens_hash ON tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_tokens_kind ON tokens(kind);
 CREATE INDEX IF NOT EXISTS idx_tokens_account_id ON tokens(account_id);
 
+-- Keys that allow self-registration when the sign-up mode is "invite"
+CREATE TABLE IF NOT EXISTS signup_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key_hash TEXT NOT NULL UNIQUE,  -- SHA-256 hex; the key itself is shown once
+    label TEXT NOT NULL DEFAULT '',
+    max_uses INTEGER NOT NULL DEFAULT 1,  -- 0 = unlimited
+    uses INTEGER NOT NULL DEFAULT 0,
+    expires TEXT,  -- ISO8601 UTC, NULL = never
+    revoked INTEGER NOT NULL DEFAULT 0,
+    created TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER NOT NULL
 );
 """
+
+
+def _migrate(conn) -> None:
+    """Columns added after the first release (CREATE IF NOT EXISTS skips them)."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(accounts)")}
+    if "must_change" not in cols:  # 1 = must choose a new password at the next sign-in
+        conn.execute("ALTER TABLE accounts ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0")
 
 
 def configure(path: str = "/data/console/accounts.db") -> None:
@@ -102,6 +122,7 @@ def configure(path: str = "/data/console/accounts.db") -> None:
         _memory_conn.row_factory = sqlite3.Row
         _memory_conn.execute("PRAGMA foreign_keys = ON")
         _memory_conn.executescript(SCHEMA)
+        _migrate(_memory_conn)
         version = _memory_conn.execute("SELECT version FROM schema_version").fetchone()
         if version is None:
             _memory_conn.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
@@ -121,6 +142,7 @@ def configure(path: str = "/data/console/accounts.db") -> None:
     # Create tables
     with _db() as db:
         db.executescript(SCHEMA)
+        _migrate(db)
         # Schema version tracking
         version = db.execute("SELECT version FROM schema_version").fetchone()
         if version is None:
@@ -231,7 +253,7 @@ def verify_password(plain: str, hash_str: str) -> bool:
 
 
 def create_account(username: str, email: str, password: str, role: str = 'member',
-                   headscale_user: str | None = None) -> int:
+                   headscale_user: str | None = None, must_change: bool = False) -> int:
     """Create a new account. Returns the account ID.
 
     Raises:
@@ -256,9 +278,9 @@ def create_account(username: str, email: str, password: str, role: str = 'member
         try:
             cursor = db.execute(
                 """INSERT INTO accounts
-                   (username, email, headscale_user, role, pw_hash, created, updated)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (username, email, headscale_user, role, pw_hash, now, now)
+                   (username, email, headscale_user, role, pw_hash, must_change, created, updated)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (username, email, headscale_user, role, pw_hash, 1 if must_change else 0, now, now)
             )
             return cursor.lastrowid
         except sqlite3.IntegrityError as e:
@@ -293,16 +315,24 @@ def list_accounts() -> list[dict]:
         return [dict(row) for row in rows]
 
 
-def update_password(account_id: int, new_password: str) -> None:
-    """Update an account's password."""
+def update_password(account_id: int, new_password: str, must_change: bool = False) -> None:
+    """Update an account's password. must_change=True makes the person choose
+    another one at their next sign-in (a temporary password set by an admin)."""
     pw_hash = hash_password(new_password)
     now = _now()
 
     with _db() as db:
         db.execute(
-            "UPDATE accounts SET pw_hash = ?, updated = ? WHERE id = ?",
-            (pw_hash, now, account_id)
+            "UPDATE accounts SET pw_hash = ?, must_change = ?, updated = ? WHERE id = ?",
+            (pw_hash, 1 if must_change else 0, now, account_id)
         )
+
+
+def get_account_by_headscale_user(name: str) -> dict | None:
+    """The account linked to a Headscale user name, or None."""
+    with _db() as db:
+        row = db.execute("SELECT * FROM accounts WHERE headscale_user = ?", (name,)).fetchone()
+        return _row_to_dict(row)
 
 
 def disable_account(account_id: int) -> None:
@@ -880,6 +910,69 @@ def list_active_invitations() -> list[dict]:
         ).fetchall()
 
         return [dict(row) for row in rows]
+
+
+# -----------------------------------------------------------------------------
+# Sign-up keys (self-registration in "invite" mode)
+# -----------------------------------------------------------------------------
+
+def create_signup_key(label: str = "", max_uses: int = 1, expires_hours: int | None = None) -> str:
+    """Create a sign-up key. max_uses 0 = unlimited; expires_hours None = never.
+    Returns the key; only its hash is stored, so it cannot be shown again."""
+    if max_uses < 0 or (expires_hours is not None and expires_hours <= 0):
+        raise ValueError("Invalid key limits")
+    from datetime import timedelta
+    key = "hse-" + secrets.token_urlsafe(24)
+    now = datetime.now(timezone.utc)
+    expires = (now + timedelta(hours=expires_hours)).isoformat() if expires_hours else None
+    with _db() as db:
+        db.execute(
+            "INSERT INTO signup_keys (key_hash, label, max_uses, expires, created) VALUES (?, ?, ?, ?, ?)",
+            (_hash_token(key), label.strip()[:60], max_uses, expires, now.isoformat()))
+    return key
+
+
+def use_signup_key(key: str) -> int | None:
+    """Spend one use of a key. Returns its id, or None if it is unknown,
+    revoked, expired or used up (the caller cannot tell which: one error)."""
+    now = _now()
+    with _db() as db:
+        # one statement: check and spend together, so two requests cannot both take the last use
+        cur = db.execute(
+            """UPDATE signup_keys SET uses = uses + 1
+               WHERE key_hash = ? AND revoked = 0 AND (expires IS NULL OR expires > ?)
+                 AND (max_uses = 0 OR uses < max_uses)""",
+            (_hash_token(key or ""), now))
+        if cur.rowcount != 1:
+            return None
+        row = db.execute("SELECT id FROM signup_keys WHERE key_hash = ?", (_hash_token(key),)).fetchone()
+        return row["id"]
+
+
+def release_signup_key(key_id: int) -> None:
+    """Give a use back (the account could not be created after all)."""
+    with _db() as db:
+        db.execute("UPDATE signup_keys SET uses = MAX(uses - 1, 0) WHERE id = ?", (key_id,))
+
+
+def list_signup_keys() -> list[dict]:
+    """All keys, newest first, with an `active` flag. Never includes the key."""
+    now = _now()
+    with _db() as db:
+        rows = db.execute(
+            "SELECT id, label, max_uses, uses, expires, revoked, created FROM signup_keys ORDER BY id DESC").fetchall()
+    out = []
+    for row in rows:
+        d = dict(row)
+        d["active"] = (not d["revoked"] and (d["expires"] is None or d["expires"] > now)
+                       and (d["max_uses"] == 0 or d["uses"] < d["max_uses"]))
+        out.append(d)
+    return out
+
+
+def revoke_signup_key(key_id: int) -> bool:
+    with _db() as db:
+        return db.execute("UPDATE signup_keys SET revoked = 1 WHERE id = ? AND revoked = 0", (key_id,)).rowcount > 0
 
 
 # -----------------------------------------------------------------------------

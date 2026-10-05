@@ -162,7 +162,7 @@ class TokenAndRoutingTest(WizardTestBase):
 
     def test_csrf_is_enforced_on_every_post(self):
         self.unlock()
-        for step in ("language", "server", "admin", "network", "derp", "backups", "finish"):
+        for step in ("language", "server", "admin", "signup", "network", "derp", "backups", "finish"):
             self.assertEqual(self.c.request("/admin/setup/" + step, {"x": "1"})[0], 403, step)
             self.assertEqual(self.c.request("/admin/setup/" + step, {"csrf": "wrong"})[0], 403, step)
         status, _h, _b = self.c.request("/admin/setup", {"token": self.token})
@@ -263,7 +263,8 @@ class FullFlowTest(WizardTestBase):
         self.assertEqual(c.post("/admin/setup/language", {"lang": "es"})[0], 303)
         self.assertEqual(c.post("/admin/setup/server", {"public_url": url, "tls": tls, "acme_email": ""})[0], 303)
         status, headers, _b = c.post("/admin/setup/admin", admin_form("Admin@Example.com", PW1, PW1))
-        self.assertEqual((status, headers["Location"]), (303, "/admin/setup/network"))
+        self.assertEqual((status, headers["Location"]), (303, "/admin/setup/signup"))
+        self.assertEqual(c.post("/admin/setup/signup", {"mode": "off"})[0], 303)
         return c
 
     def test_full_flow(self):
@@ -327,6 +328,40 @@ class FullFlowTest(WizardTestBase):
         self.assertEqual(json.load(open(os.path.join(self.data, "config", "settings.json")))["network_isolation"],
                          "false")
 
+    def test_signup_step(self):
+        self.assertEqual(wizard.check_signup("off"), {"signup_mode": "off", "first_key": False})
+        self.assertEqual(wizard.check_signup("invite", True), {"signup_mode": "invite", "first_key": True})
+        self.assertFalse(wizard.check_signup("open", True)["first_key"])  # a key only matters with invitations
+        for bad in ("", "everyone"):
+            with self.assertRaises(wizard.SetupError):
+                wizard.check_signup(bad)
+
+    def test_signup_defaults_to_off(self):
+        c = self.go_to_network()
+        self.assertEqual(self.finish_all(c)[0], 200)
+        saved = json.load(open(os.path.join(self.data, "config", "settings.json")))
+        self.assertEqual(saved["signup_mode"], "off")
+        self.assertEqual(render.console_env(render.load_settings({}, os.path.join(self.data, "config", "settings.json")),
+                                            self.data)["HSE_SIGNUP"], "off")
+
+    def test_invite_mode_with_a_first_key_shown_once(self):
+        c = self.go_to_network()
+        self.assertEqual(c.post("/admin/setup/signup", {"mode": "invite", "first_key": "1"})[0], 303)
+        status, _h, done = self.finish_all(c)
+        self.assertEqual(status, 200)
+        key = re.search(r"<code>(hse-[\w-]+)</code>", done).group(1)
+        saved = json.load(open(os.path.join(self.data, "config", "settings.json")))
+        self.assertEqual(saved["signup_mode"], "invite")
+        self.assertNotIn(key, json.dumps(saved))
+        self.assertIsNotNone(lac.use_signup_key(key))  # works once
+        self.assertIsNone(lac.use_signup_key(key))
+
+    def test_invite_mode_without_a_first_key(self):
+        c = self.go_to_network()
+        c.post("/admin/setup/signup", {"mode": "invite"})
+        self.assertNotIn("hse-", self.finish_all(c)[2])
+        self.assertEqual(lac.list_signup_keys(), [])
+
     def test_existing_policy_is_not_replaced(self):
         with open(os.path.join(self.state, "policy"), "w") as fh:
             fh.write("custom")
@@ -360,7 +395,7 @@ class FullFlowTest(WizardTestBase):
         c2.post("/admin/setup/language", {"lang": "en"})
         c2.post("/admin/setup/server", {"public_url": "http://localhost:8080", "tls": "off", "acme_email": ""})
         status, headers, _b = c2.post("/admin/setup/admin", admin_form("admin@example.com", PW2, PW2))
-        self.assertEqual((status, headers["Location"]), (303, "/admin/setup/network"))
+        self.assertEqual((status, headers["Location"]), (303, "/admin/setup/signup"))
         self.assertEqual(len(lac.list_accounts()), 1)
         self.assertTrue(lac.verify_password(PW2, lac.get_account(email="admin@example.com")["pw_hash"]))
 

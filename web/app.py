@@ -58,6 +58,7 @@ import notify  # noqa: E402
 import pages  # noqa: E402
 import policy  # noqa: E402
 import sessions  # noqa: E402
+import signup  # noqa: E402
 from i18n import LANGUAGES, _, pick_lang, set_lang  # noqa: E402
 from ui import BASE, DEMO, esc, message_page  # noqa: E402
 from version import VERSION  # noqa: E402
@@ -103,6 +104,8 @@ STATIC_DIR = Path(__file__).parent / "static"
 REDIRECT_URI = f"{PUBLIC_URL}{BASE}/callback"
 SERVER_HOST = urllib.parse.urlparse(PUBLIC_URL).hostname or ""
 CTX = {"public_url": PUBLIC_URL, "tailnet": TAILNET_NAME, "authentik": AUTHENTIK, "server_host": SERVER_HOST}
+# The sign-in page shows its "Create an account" link when sign-up is on (local accounts only)
+admin_pages.signup_open = lambda: not AUTHENTIK and signup.mode() != "off"
 
 # Valid names: node given name (DNS label) and Headscale user name
 NODE_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
@@ -360,6 +363,7 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, TypeError):
                 account = None
             data["totp_on"] = bool(account and account.get("totp_confirmed"))
+            data["must_change"] = bool(account and account.get("must_change"))
         return data
 
     def rate_limited(self, bucket: str) -> int:
@@ -408,9 +412,13 @@ class Handler(BaseHTTPRequestHandler):
                 # After signing out, say so instead of starting a new sign-in
                 if params.get("m") == "signed-out":
                     return self.send(200, admin_pages.login_page(SSO, API_KEY_LOGIN, info=_("You have signed out.")))
+                if params.get("m") == "signed-up":
+                    return self.send(200, admin_pages.login_page(SSO, API_KEY_LOGIN, info=_("Account created. Sign in.")))
                 if SSO and not API_KEY_LOGIN:
                     return self.start_sso()
                 return self.send(200, admin_pages.login_page(SSO, API_KEY_LOGIN))
+            if path == f"{BASE}/signup":
+                return self.signup_form()
             if path == f"{BASE}/login/sso" and SSO:
                 return self.start_sso()
             if path == f"{BASE}/login/totp":
@@ -432,6 +440,8 @@ class Handler(BaseHTTPRequestHandler):
                 after = [self.set_cookie("hse_next", sign({"path": path, "exp": time.time() + 600}), 600)] if register else None
                 return self.redirect(f"{BASE}/login", after)
             admin = session.get("admin")
+            if session.get("must_change") and path not in (f"{BASE}/settings/account", f"{BASE}/logout"):
+                return self.redirect(f"{BASE}/settings/account?m=must-change")
             if register:
                 return self.register_view(session, register.group(1))
 
@@ -463,7 +473,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == f"{BASE}/settings/general":
                 return self.send(200, pages.general_page(session, CTX, flash,
                                                          key_expiry=hs.key_expiry_days() if admin else None,
-                                                         mfa=mfa_state() if admin else None))
+                                                         mfa=mfa_state() if admin else None,
+                                                         extra=signup.mode_card(session, signup.mode())
+                                                         if admin and not AUTHENTIK else ""))
             if path == f"{BASE}/settings/keys":
                 return self.keys_view(session, flash, preselect=params.get("user", ""))
             if path == f"{BASE}/settings/sessions":
@@ -550,6 +562,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.apikey_login(self.form())
             if path == f"{BASE}/login/local":
                 return self.local_login(self.form())
+            if path == f"{BASE}/signup":
+                return self.signup_submit(self.form())
             if path == f"{BASE}/login/totp":
                 return self.verify_totp_login(self.form())
             # Invitation and password reset (public routes)
@@ -567,6 +581,9 @@ class Handler(BaseHTTPRequestHandler):
             # CSRF: the form token must match the session's
             if not hmac.compare_digest(str(form.get("csrf", "")), session["csrf"]):
                 return self.fail(403, _("Session expired"), _("Reload the page and try again."))
+            if session.get("must_change") and path not in (
+                    f"{BASE}/logout", f"{BASE}/settings/account/password", f"{BASE}/settings/language"):
+                return self.redirect(f"{BASE}/settings/account?m=must-change")
             if DEMO and (DEMO_BLOCKED.fullmatch(path) or (path == f"{BASE}/acl" and form.get("action") == "save")):
                 return self.fail(403, _("Not available in the demo"),
                                  _("This action is disabled in the demo environment."))
@@ -639,6 +656,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.save_derp(session, form)
             if path == f"{BASE}/settings/mfa":
                 return self.save_mfa(session, form)
+            if path == f"{BASE}/settings/signup" and not AUTHENTIK:
+                return self.save_signup_mode(session, form)
+            if path == f"{BASE}/signup/keys" and not AUTHENTIK:
+                return self.create_signup_key(session, form)
+            m = re.fullmatch(rf"{BASE}/signup/keys/(\d+)/revoke", path)
+            if m and not AUTHENTIK:
+                return self.revoke_signup_key(session, int(m.group(1)))
+            m = re.fullmatch(rf"{BASE}/users/(\d+)/password", path)
+            if m and not AUTHENTIK:
+                return self.set_user_password(session, m.group(1), form)
             if path == f"{BASE}/settings/notify-test":
                 return self.notify_test(session)
             if path == f"{BASE}/users":
@@ -1553,14 +1580,19 @@ class Handler(BaseHTTPRequestHandler):
 
     # --- users ---
     def users_view(self, session: dict, status: int = 200, flash: str = "", error: str = "",
-                   result: dict | None = None):
+                   result: dict | None = None, new_key: tuple | None = None):
         users = hs.all_users()
         # Invitations and accounts data
         # For now, only show Authentik invitations in the users page
         # Local accounts invitations will be shown in a separate management page (Phase 1 Block 5)
         data = accounts.page_data(users) if AUTHENTIK else None
+        extra, signins = "", {}
+        if not AUTHENTIK:
+            signins = {a["headscale_user"]: a for a in lac.list_accounts() if a["headscale_user"]}
+            extra = (signup.key_result_box(*new_key) if new_key else "") + \
+                signup.keys_section(session, lac.list_signup_keys(), signup.mode())
         return self.send(status, admin_pages.users_page(session, CTX, users, hs.all_nodes(), flash, error=error,
-                                                        accounts=data, result=result))
+                                                        accounts=data, result=result, signins=signins, extra=extra))
 
     def users_error(self, session: dict, msg: str):
         return self.users_view(session, 400, error=msg)
@@ -1572,13 +1604,155 @@ class Handler(BaseHTTPRequestHandler):
         body = {"name": name}
         if form.get("display_name"):
             body["displayName"] = str(form["display_name"]).strip()[:100]
+        password = str(form.get("password", ""))
+        email = str(form.get("email", "")).strip().lower()
+        role = str(form.get("role", "member"))
+        must_change = form.get("must_change") == "1"
+        with_account = bool(password) and not AUTHENTIK
+        if with_account:  # a person who can sign in, not only a Headscale user
+            if not signup.USERNAME_RE.fullmatch(name):
+                return self.users_error(session, _("The user name of an account has 3-32 characters: lowercase letters, numbers, - and _"))
+            if not signup.EMAIL_RE.fullmatch(email):
+                return self.users_error(session, _("Enter a valid email address."))
+            if role not in ("admin", "network_admin", "auditor", "member"):
+                return self.users_error(session, _("Choose one of the options."))
+            if len(password) < lac.MIN_PASSWORD_LENGTH:
+                return self.users_error(session, _("The password must have at least {n} characters.", n=lac.MIN_PASSWORD_LENGTH))
+            if lac.get_account(username=name) or lac.get_account(email=email):
+                return self.users_error(session, _("That user name or email is already in use."))
         try:
             hs.api("POST", "/user", body)
         except urllib.error.HTTPError as exc:
             return self.users_error(session, _("Could not create it: {reason}", reason=hs.api_error(exc)))
-        log.info("%s created local user %s", session["username"], name)
-        audit.request_event(self, session, "user.create", name, {"display_name": body.get("displayName", "")})
+        if with_account:
+            try:
+                lac.create_account(name, email, password, role=role, headscale_user=name, must_change=must_change)
+            except ValueError as exc:
+                self.drop_headscale_user(name)
+                return self.users_error(session, str(exc))
+        log.info("%s created %s %s", session["username"], "account" if with_account else "local user", name)
+        # Never the password
+        audit.request_event(self, session, "user.create", name, {
+            "display_name": body.get("displayName", ""), **({"account": True, "role": role, "must_change": must_change} if with_account else {})})
         return self.redirect(f"{BASE}/users?m=user-created")
+
+    def drop_headscale_user(self, name: str):
+        """Undo a Headscale user created a moment ago (the account behind it failed)."""
+        try:
+            user = next((u for u in hs.all_users() if u.get("name") == name), None)
+            if user:
+                hs.api("DELETE", f"/user/{user['id']}")
+        except Exception:  # noqa: BLE001
+            log.warning("could not remove the Headscale user %s after a failed account", name)
+
+    def set_user_password(self, session: dict, user_id: str, form: dict):
+        user = next((u for u in hs.all_users() if str(u["id"]) == user_id), None)
+        account = lac.get_account_by_headscale_user(user["name"]) if user else None
+        if not account:
+            return self.redirect(f"{BASE}/users?m=not-found")
+        password = str(form.get("password", ""))
+        if len(password) < lac.MIN_PASSWORD_LENGTH:
+            return self.users_error(session, _("The password must have at least {n} characters.", n=lac.MIN_PASSWORD_LENGTH))
+        lac.update_password(account["id"], password, must_change=form.get("must_change") == "1")
+        # Their open sessions end: whoever had the old password is signed out
+        sessions.revoke_user(f"local:{account['id']}", keep=session.get("sid", ""))
+        audit.request_event(self, session, "user.password_set", account["username"],
+                            {"must_change": form.get("must_change") == "1"}, f"user:{user_id}")
+        return self.redirect(f"{BASE}/users?m=password-set")
+
+    # --- self-registration ---
+    def signup_open(self) -> str:
+        """The active sign-up mode ('off' when local accounts are not in use)."""
+        return "off" if AUTHENTIK else signup.mode()
+
+    def signup_form(self):
+        mode = self.signup_open()
+        if mode == "off":
+            return self.send(404, "Not found", "text/plain")
+        token = secrets.token_urlsafe(24)
+        return self.send(200, signup.signup_page(mode, token),
+                         headers=[self.set_cookie("hse_signup", token, 3600)])
+
+    def signup_submit(self, form: dict):
+        mode = self.signup_open()
+        if mode == "off":
+            return self.send(404, "Not found", "text/plain")
+        ip = audit.client_ip(self)
+        wait = self.rate_limited("signup")
+        if wait:
+            return self.too_many(wait)
+        token = self.cookie("hse_signup") or ""
+        if not token or not hmac.compare_digest(str(form.get("csrf", "")), token):
+            return self.fail(403, _("Session expired"), _("Reload the page and try again."))
+        sessions.hit(f"signup:{ip}")  # every attempt counts, successful or not
+        username = str(form.get("username", "")).strip().lower()
+        email = str(form.get("email", "")).strip().lower()
+        password, password2 = str(form.get("password", "")), str(form.get("password2", ""))
+        values = {"username": username, "email": email}
+
+        def again(message: str, status: int = 400):
+            return self.send(status, signup.signup_page(mode, token, message, values))
+
+        if not signup.USERNAME_RE.fullmatch(username):
+            return again(_("The user name has 3-32 characters: lowercase letters, numbers, - and _"))
+        if not signup.EMAIL_RE.fullmatch(email):
+            return again(_("Enter a valid email address."))
+        if len(password) < lac.MIN_PASSWORD_LENGTH:
+            return again(_("The password must have at least {n} characters.", n=lac.MIN_PASSWORD_LENGTH))
+        if password != password2:
+            return again(_("Passwords do not match."))
+        key_id = None
+        if mode == "invite":
+            key_id = lac.use_signup_key(str(form.get("key", "")).strip())
+            if key_id is None:  # wrong, expired, revoked or used up: one message for all
+                audit.request_event(self, None, "signup.rejected", "", {"reason": "key"}, actor="")
+                return again(_("The invitation key is not valid."))
+
+        def give_back():
+            if key_id is not None:
+                lac.release_signup_key(key_id)
+
+        if lac.get_account(username=username) or lac.get_account(email=email):
+            give_back()
+            return again(_("That user name or email is already in use."))
+        try:
+            hs.api("POST", "/user", {"name": username})
+        except Exception:  # noqa: BLE001
+            give_back()
+            return again(_("That user name or email is already in use."))
+        try:
+            lac.create_account(username, email, password, role="member", headscale_user=username)
+        except ValueError:
+            give_back()
+            self.drop_headscale_user(username)
+            return again(_("That user name or email is already in use."))
+        log.info("sign-up: %s (%s)", username, mode)
+        audit.request_event(self, None, "signup.create", username, {"mode": mode}, actor=username)
+        return self.redirect(f"{BASE}/login?m=signed-up", [self.set_cookie("hse_signup", "", 0)])
+
+    def save_signup_mode(self, session: dict, form: dict):
+        value = str(form.get("mode", ""))
+        if value not in signup.MODES:
+            return self.redirect(f"{BASE}/settings/general?m=bad-signup")
+        if signup.set_mode(value):
+            audit.request_event(self, session, "settings.signup", _("Sign-up"), {"to": value})
+        return self.redirect(f"{BASE}/settings/general?m=signup-saved")
+
+    def create_signup_key(self, session: dict, form: dict):
+        uses, days = str(form.get("uses", "1")), str(form.get("days", "7"))
+        if uses not in signup.KEY_USES or days not in signup.KEY_DAYS:
+            return self.users_error(session, _("Choose one of the options."))
+        label = str(form.get("label", "")).strip()[:60]
+        key = lac.create_signup_key(label, int(uses), int(days) * 24 if days != "0" else None)
+        # Never the key
+        audit.request_event(self, session, "signup_key.create", label, {"uses": uses, "days": days})
+        return self.users_view(session, new_key=(key, label))
+
+    def revoke_signup_key(self, session: dict, key_id: int):
+        if lac.revoke_signup_key(key_id):
+            audit.request_event(self, session, "signup_key.revoke", str(key_id))
+            return self.redirect(f"{BASE}/users?m=signup-key-revoked")
+        return self.redirect(f"{BASE}/users?m=not-found")
 
     def user_action(self, session: dict, user_id: str, action: str, form: dict):
         user = next((u for u in hs.all_users() if str(u["id"]) == user_id), None)

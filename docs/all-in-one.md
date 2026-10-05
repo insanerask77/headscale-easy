@@ -44,10 +44,13 @@ Setup mode starts when there is no `/data/config/settings.json` and no
    their own devices). The isolation policy also allows
    `autogroup:internet`, so users can route their traffic through exit nodes.
    You can also set the MagicDNS base domain (default `hse.net`).
-6. **Relays (DERP)**: *this server* (default: DERP and STUN run in the
+6. **Sign-up**: who can create an account from the sign-in page: nobody (default),
+   people with an invitation key, or anyone. With keys, setup can create the
+   first one and shows it once when it ends.
+7. **Relays (DERP)**: *this server* (default: DERP and STUN run in the
    container, UDP 3478, nothing third-party), Tailscale's public relays too,
    or your own DERP map.
-7. **Backups**: schedule and retention are stored for the built-in backups
+8. **Backups**: schedule and retention are stored for the built-in backups
    that arrive in a later release.
 
 Finishing creates the Headscale API key, the administrator's Headscale user and
@@ -88,6 +91,7 @@ Precedence is **environment > `/data/config/settings.json` > defaults**.
 | `HSE_BASE_DOMAIN` | `hse.net` | MagicDNS base domain: devices are `<device>.<base domain>`. Must differ from the server's own domain. Set at first run; later edit it on the DNS page |
 | `NETWORK_ISOLATION` | `true` | Each user only reaches their own devices |
 | `NODE_KEY_EXPIRY` | `180d` | Device key lifetime |
+| `HSE_SIGNUP` | `off` | Self-registration: `off`, `invite` (needs an invitation key) or `open`. Admins change it later in **Settings → General** |
 | `HSE_DERP_MODE` | `embedded` | `embedded` (this container's own DERP + STUN, nothing third-party), `public` (also Tailscale's public map) or `custom` |
 | `HSE_DERP_URL` | | DERP map URL, with `HSE_DERP_MODE=custom` (you can also upload a map in the console) |
 | `DERP_USE_PUBLIC` | | Legacy alias: `true` = `public`, `false` = `embedded`; `HSE_DERP_MODE` wins |
@@ -141,3 +145,20 @@ uses about 65 MB of RAM. CI fails above 250 MB and 100 MB.
   OIDC provider.
 - Scheduled backups are not built in yet; copy the `/data` volume for now.
 - Migrating an existing 1.x install is not automated yet.
+
+## Users and sign-up
+
+- **Users → Create local user**: with only a name it is a Headscale user without
+  sign-in (for servers). Add an email, a password and a role and it is an
+  account the person can sign in with. By default they must choose another
+  password at their first sign-in (a temporary one).
+- **Users → ⋯ → Set password**: for people with an account. It signs out their
+  open sessions.
+- **Sign-up** (Settings → General): `off` hides the link and `/admin/signup`
+  answers 404. With `invite` the form asks for an invitation key; `open` needs
+  none. Self-registered people are always **Members**, never admins.
+- **Invitation keys** (Users page): single or multi use, optional expiry, and
+  revocable. A key is shown once when created; only its hash is stored. A wrong,
+  expired, used-up or revoked key gets the same error. Sign-up attempts are
+  rate limited like sign-in.
+- No mail is sent and the email address is not verified.

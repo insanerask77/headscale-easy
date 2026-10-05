@@ -290,6 +290,14 @@ class SettingsTest(unittest.TestCase):
         self.assertIn("urls:\n    - https://derp.example.com/map.json", text)
         self.assertIn("urls: []", self.derp_config(derp_mode="custom"))  # uploaded derp.yaml only
 
+    def test_signup_mode_default_env_and_validation(self):
+        base = {"public_url": "http://localhost", "tls": "off"}
+        self.assertEqual(render.to_vars(base)["SIGNUP_MODE"], "off")
+        self.assertEqual(render.load_settings({"HSE_SIGNUP": "invite"}, self.path)["signup_mode"], "invite")
+        self.assertEqual(render.console_env(dict(base, signup_mode="open"), "/data")["HSE_SIGNUP"], "open")
+        with self.assertRaises(ValueError):
+            render.to_vars(dict(base, signup_mode="everyone"))
+
     def test_derp_validation_and_env(self):
         for extra in ({"derp_mode": "nope"}, {"derp_mode": "custom", "derp_url": "ftp://x"},
                       {"derp_mode": "custom", "derp_url": "https://a b"}):

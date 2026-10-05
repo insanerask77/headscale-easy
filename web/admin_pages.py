@@ -17,8 +17,30 @@ from ui import (BASE, LOGO, badge, bare_page, csrf_input, esc, flash_html, icon,
 # Users
 # -----------------------------------------------------------------------------
 
+signup_open = lambda: False  # noqa: E731 - app.py replaces it: is self-registration on?
+
+def _password_fields() -> str:
+    return (f'<label class="field">{esc(_("New password"))}<input name="password" type="password" required minlength="8" '
+            f'autocomplete="new-password"></label>'
+            f'<label class="check"><input type="checkbox" name="must_change" value="1" checked>'
+            f'<span>{esc(_("They must choose another password when they sign in"))}</span></label>')
+
+
+def _account_fields() -> str:
+    roles = (("member", _("Member")), ("auditor", _("Auditor")), ("network_admin", _("Network admin")), ("admin", _("Admin")))
+    options = "".join(f'<option value="{k}">{esc(v)}</option>' for k, v in roles)
+    return (f'<p class="muted small">{esc(_("To let this person sign in, fill in the rest:"))}</p>'
+            f'<label class="field">{esc(_("Email"))}<input name="email" type="email" autocomplete="off"></label>'
+            f'<label class="field">{esc(_("Password"))}<input name="password" type="password" minlength="8" '
+            f'autocomplete="new-password"></label>'
+            f'<label class="field">{esc(_("Role"))}<select name="role">{options}</select></label>'
+            f'<label class="check"><input type="checkbox" name="must_change" value="1" checked>'
+            f'<span>{esc(_("They must choose another password when they sign in"))}</span></label>')
+
+
 def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], flash: str, error: str = "",
-               accounts: dict | None = None, result: dict | None = None) -> str:
+               accounts: dict | None = None, result: dict | None = None, signins: dict | None = None,
+               extra: str = "") -> str:
     # accounts: Authentik data for invitations and reset links (accounts.page_data)
     linked = (accounts or {}).get("linked") or {}
     counts: dict[str, int] = {}
@@ -53,6 +75,7 @@ def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], f
                 <a href="{BASE}/machines?owner={uid}">{esc(_("View machines"))}</a>
                 <a href="{BASE}/settings/keys?user={uid}#new">{esc(_("Generate auth key for this user"))}</a>
                 <button type="button" data-open="ren-user-{uid}">{esc(_("Rename…"))}</button>
+                {f'<button type="button" data-open="pw-user-{uid}">{esc(_("Set password…"))}</button>' if u.get("name") in (signins or {}) else ""}
                 {acc.reset_item(linked.get(str(u["id"])))}
                 <hr>{delete}
               </div>
@@ -65,6 +88,11 @@ def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], f
                               f"{BASE}/users/{uid}/rename", session, submit=_("Save"),
                               fields=f'<label class="field">{esc(_("Name"))}<input name="name" value="{esc(u.get("name"))}" '
                                      f'required autocomplete="off" spellcheck="false"></label>'))
+        if u.get("name") in (signins or {}):
+            dialogs.append(dialog(f"pw-user-{uid}", _("Set the password of {name}", name=u.get("name")),
+                                  esc(_("Their open sessions are signed out.")),
+                                  f"{BASE}/users/{uid}/password", session, submit=_("Set password"),
+                                  fields=_password_fields()))
         dialogs.append(dialog(f"del-user-{uid}", _("Delete {name}?", name=u.get("name")),
                               esc(_("The user is deleted from Headscale. Their sign-in account is not touched: "
                                     "if they sign in again, the user is created again.")),
@@ -96,15 +124,17 @@ def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], f
     </div>
     <p class="no-results muted" hidden>{esc(_("No users match the search."))}</p>
     {dialog("new-user", _("Create local user"),
-            esc(_("A Headscale user without sign-in, for servers or devices that connect with auth keys. For people, create an account instead.")),
+            esc(_("Without a password: a Headscale user without sign-in, for servers or devices that connect with auth keys. "
+                  "With a password: an account the person can sign in with.")),
             f"{BASE}/users", session, submit=_("Create"),
             fields=f'<label class="field">{esc(_("Name"))}<input name="name" required placeholder="servers" autocomplete="off" spellcheck="false"></label>'
-                   f'<label class="field">{esc(_("Display name (optional)"))}<input name="display_name" autocomplete="off"></label>')}
+                   f'<label class="field">{esc(_("Display name (optional)"))}<input name="display_name" autocomplete="off"></label>'
+                   + ("" if ctx.get("authentik") else _account_fields()))}
     <div data-live="dialogs">{"".join(dialogs)}</div>"""
     if accounts is not None:
         body += acc.sections(session, accounts) + acc.invite_dialog(session) + "".join(
             acc.reset_dialog(session, a) for a in linked.values() if acc.reset_item(a))
-    return layout(_("Users"), "users", body, session, ctx)
+    return layout(_("Users"), "users", body + extra, session, ctx)
 
 
 # -----------------------------------------------------------------------------
@@ -230,6 +260,8 @@ def login_page(sso: bool, apikey: bool, error: str = "", info: str = "", local: 
         <button class="btn wide primary" type="submit">{esc(_("Sign in"))}</button>
       </form>"""
 
+    signup_html = (f'<p class="muted small"><a href="{BASE}/signup">{esc(_("Create an account"))}</a></p>'
+                   if local and signup_open() else "")
     sso_html = f'<a class="btn wide" href="{BASE}/login/sso">{esc(_("Sign in with SSO"))}</a>' if sso else ""
 
     # Separators
@@ -251,5 +283,5 @@ def login_page(sso: bool, apikey: bool, error: str = "", info: str = "", local: 
       <div class="big-logo">{LOGO}</div>
       <h1>Headscale Easy</h1>
       <p class="muted">{esc(_("Sign in to manage your tailnet."))}</p>
-      {notice("error", error) if error else ""}{notice("ok", info) if info else ""}{local_html}{sep1}{sso_html}{sep2}{key_html}
+      {notice("error", error) if error else ""}{notice("ok", info) if info else ""}{local_html}{signup_html}{sep1}{sso_html}{sep2}{key_html}
     </section>""")
