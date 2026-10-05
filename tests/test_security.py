@@ -49,7 +49,10 @@ def request(method: str, path: str, session: dict | None = None, form: dict | No
         msg["Cookie"] = f"hse_session={app.sign(session)}"
     msg["Content-Length"] = str(len(body))
     for k, v in (headers or {}).items():
-        msg[k] = v
+        if k.lower() == "cookie" and "Cookie" in msg:
+            msg.replace_header("Cookie", f"{msg['Cookie']}; {v}")  # one Cookie header, as a browser sends
+        else:
+            msg[k] = v
     h = app.Handler.__new__(app.Handler)
     h.rfile, h.wfile = io.BytesIO(body), io.BytesIO()
     h.headers, h.command, h.path = msg, method, path
@@ -258,6 +261,16 @@ class StaticAndRedirects(Base):
             _, headers, _ = request("POST", f"{B}/settings/language", MEMBER, {"csrf": "tok", "lang": "es"},
                                     {"Referer": referer})
             self.assertTrue(location(headers).startswith(f"{B}/"), (referer, location(headers)))
+
+    def test_language_switch_sticks_on_every_language(self):
+        for lang in app.LANGUAGES:
+            status, headers, _ = request("POST", f"{B}/settings/language", MEMBER, {"csrf": "tok", "lang": lang},
+                                         {"Referer": f"https://vpn.example.com{B}/machines"})
+            self.assertEqual((status, location(headers)), (303, f"{B}/machines"), lang)
+            cookie = headers["set-cookie"][0].split(";")[0]
+            self.assertEqual(cookie, f"hse_lang={lang}")
+            status, _, body = request("GET", f"{B}/settings/general", MEMBER, headers={"Cookie": cookie})
+            self.assertIn(f'<html lang="{lang}"', body, lang)
 
     def test_machine_action_back_parameter(self):
         self.api.side_effect = None
