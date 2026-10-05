@@ -95,7 +95,7 @@ class CreateTest(Base):
     def test_optional_files_skipped_required_missing_fails(self):
         self.assertTrue(self.create().ok)  # no derp.yaml here: optional
         os.unlink(os.path.join(self.data, "config", "settings.json"))
-        res = self.create()
+        res = self.create(settings={})  # setup mode: no settings at all, nothing to back up
         self.assertFalse(res.ok)
         self.assertIn("settings.json", res.error)
         write(os.path.join(self.data, "config", "settings.json"), "{}")
@@ -103,6 +103,16 @@ class CreateTest(Base):
         res = self.create()
         self.assertFalse(res.ok)
         self.assertIn("db.sqlite", res.error)
+
+    def test_headless_start_archives_the_effective_settings(self):
+        os.unlink(os.path.join(self.data, "config", "settings.json"))
+        res = self.create(settings={"public_url": "http://localhost", "tz": "UTC"})
+        self.assertTrue(res.ok, res.error)
+        with tarfile.open(res.path) as tar:
+            member = [m for m in tar.getmembers() if m.name.endswith("config/settings.json")]
+            self.assertEqual(len(member), 1)
+            self.assertEqual(member[0].mode & 0o777, 0o600)
+            self.assertEqual(json.load(tar.extractfile(member[0]))["public_url"], "http://localhost")
 
     def test_no_sessions_db_and_permissions(self):
         res = self.create()

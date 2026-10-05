@@ -48,7 +48,7 @@ PART_MAX_AGE = 3600.0
 
 # (source relative to /data, archive path, kind, required)
 _FILES = (
-    ("config/settings.json", "config/settings.json", "file", True),
+    ("config/settings.json", "config/settings.json", "file", False),
     ("config/config.yaml", "config/config.yaml", "file", False),
     ("config/Caddyfile", "config/Caddyfile", "file", False),
     ("config/derp.yaml", "config/derp.yaml", "file", False),
@@ -231,12 +231,25 @@ def _headscale_version() -> str | None:
     return match.group(0) if match else None
 
 
+def _settings_snapshot(settings: dict, dst: str):
+    """Headless start (env vars, no wizard): there is no settings.json on disk, so the archive
+    carries the effective settings instead. A restore then starts in run mode on an empty volume."""
+    if not settings.get("public_url"):
+        raise BackupError("missing config/settings.json")  # setup mode: nothing to back up yet
+    os.makedirs(os.path.dirname(dst), mode=0o700, exist_ok=True)
+    with open(dst, "w", encoding="utf-8") as fh:
+        json.dump(settings, fh, indent=2, sort_keys=True)
+    os.chmod(dst, 0o600)
+
+
 def _collect(data_dir: str, root: str, settings: dict):
     """Fill ``root`` (the archive's top directory); returns the db type."""
     for rel, dest, kind, required in _FILES:
         src = os.path.join(data_dir, rel)
         if not os.path.isfile(src):
-            if required:
+            if rel == "config/settings.json":
+                _settings_snapshot(settings, os.path.join(root, dest))
+            elif required:
                 raise BackupError("missing %s" % rel)
             continue
         (_sqlite_copy if kind == "sqlite" else _file_copy)(src, os.path.join(root, dest))
