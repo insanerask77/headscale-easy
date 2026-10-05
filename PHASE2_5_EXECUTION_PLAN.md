@@ -276,38 +276,38 @@ seconds with no page refresh.
 **Files:** `web/pages.py` (`add_page`: the `panels` dict and tab bar),
 `web/app.py` (pre-auth key creation), `web/locales/*`
 
-- [ ] New **Docker** tab next to Linux / Windows / macOS / iOS / Android, with
+- [x] New **Docker** tab next to Linux / Windows / macOS / iOS / Android, with
       the same look (steps + copyable `code()` blocks)
-- [ ] Two ready-to-copy snippets pointing at this server's `public_url`:
+- [x] Two ready-to-copy snippets pointing at this server's `public_url`:
       a `docker run` command and a `docker-compose.yml`, both using the official
       `tailscale/tailscale` image, `TS_AUTHKEY`, `TS_EXTRA_ARGS=--login-server=<url>`,
       `TS_STATE_DIR=/var/lib/tailscale` on a named volume, `TS_HOSTNAME`,
       `/dev/net/tun` + `NET_ADMIN` (or `--cap-add` variants), and
       `restart: unless-stopped`
-- [ ] A small form above the snippets: hostname, optional extras (advertise as
+- [x] A small form above the snippets: hostname, optional extras (advertise as
       **exit node**, **subnet routes** `--advertise-routes`, userspace
       networking without `/dev/net/tun`, accept DNS) that rewrite the snippet
-- [ ] Auth key: a **"Generate key"** button creates a pre-auth key (reusing
+- [x] Auth key: a **"Generate key"** button creates a pre-auth key (reusing
       the Settings → Keys code; expiry short by default, single use, tagged to
       the signed-in user) and fills it into the snippet; shown once, never
       stored in the page. Without it the snippet keeps `<auth-key>` and links
       to Settings → Keys, like the headless-devices card
-- [ ] Alternative without a key: the container prints a login URL in its logs
+- [x] Alternative without a key: the container prints a login URL in its logs
       (`docker logs`); show that as step 3 for interactive sign-in
-- [ ] Works for members too (their own user), admins can pick the user
+- [x] Works for members too (their own user), admins can pick the user
 
 ### 6.2 Safety and tests
-- [ ] Escape everything that goes into the snippets (hostname, routes) and
+- [x] Escape everything that goes into the snippets (hostname, routes) and
       validate them (hostname label, CIDR list); no shell injection when a
       user copies the command
-- [ ] Key generation requires the same permissions and CSRF as Settings → Keys
-- [ ] Tests: the tab renders with the right `login-server`, options change the
+- [x] Key generation requires the same permissions and CSRF as Settings → Keys
+- [x] Tests: the tab renders with the right `login-server`, options change the
       snippet, invalid hostname/routes are rejected, member vs admin
-- [ ] Manual check on `hse-aio`: run the snippet, the container appears in
+- [x] Manual check on `hse-aio`: run the snippet, the container appears in
       the machines list (also exercises Block 5)
 
 ### 6.3 Docs
-- [ ] Mention the Docker tab in `docs/all-in-one.md` / `.es.md`
+- [x] Mention the Docker tab in `docs/all-in-one.md` / `.es.md`
 
 **Done when:** from Add device → Docker an admin or member can copy a command
 or compose file that starts a Tailscale container registered on this tailnet.

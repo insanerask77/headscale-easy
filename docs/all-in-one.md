@@ -162,3 +162,15 @@ uses about 65 MB of RAM. CI fails above 250 MB and 100 MB.
   expired, used-up or revoked key gets the same error. Sign-up attempts are
   rate limited like sign-in.
 - No mail is sent and the email address is not verified.
+
+## Add device → Docker
+
+**Add device** has a **Docker** tab: a small form (host name, exit node, subnet
+routes, userspace networking, DNS) and two snippets you can copy, a `docker run`
+command and a `docker-compose.yml`, both using the official `tailscale/tailscale`
+image pointed at this server. **Generate a single-use auth key** creates a key
+(1 or 7 days) for you, or for the owner an admin picks, and puts it in the
+snippets; it is shown once and never stored. Without a key, leave `TS_AUTHKEY`
+out and read the sign-in link with `docker logs`. Exit-node and subnet-route
+options add the forwarding settings they need; the routes still have to be
+approved in the console. Auditors cannot generate keys.

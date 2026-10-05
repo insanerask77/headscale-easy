@@ -1,0 +1,21 @@
+{
+  "There is no Headscale user to own the key.": "Não há nenhum utilizador do Headscale para ser dono da chave.",
+  "Invalid host name: lowercase letters, digits and dashes only (max. 63).": "Nome de anfitrião inválido: apenas minúsculas, dígitos e hífenes (máx. 63).",
+  "“{route}” is not a valid route. Use networks like 192.168.1.0/24.": "«{route}» não é uma rota válida. Use redes como 192.168.1.0/24.",
+  "At most {n} routes.": "No máximo {n} rotas.",
+  "Auth key generated. It is in the snippets below and is not shown again: copy them now.": "Chave de autenticação gerada. Está nos excertos abaixo e não volta a ser mostrada: copie-os agora.",
+  "Without an auth key, leave TS_AUTHKEY out and run {cmd}: it prints a link to sign in.": "Sem chave de autenticação, retire TS_AUTHKEY e execute {cmd}: mostra uma ligação para iniciar sessão.",
+  "Host name": "Nome de anfitrião",
+  "Offer to be an exit node": "Oferecer-se como nó de saída",
+  "Subnet routes to advertise (optional)": "Rotas de sub-rede a anunciar (opcional)",
+  "Userspace networking (no /dev/net/tun, no extra permissions)": "Rede em espaço de utilizador (sem /dev/net/tun nem permissões extra)",
+  "Use this tailnet's DNS settings": "Usar as definições de DNS desta tailnet",
+  "Generate a single-use auth key": "Gerar uma chave de autenticação de uso único",
+  "The key is valid for": "A chave é válida por",
+  "Update the snippets": "Atualizar os excertos",
+  "Replace {placeholder} with an auth key from {link}, or generate one above.": "Substitua {placeholder} por uma chave de autenticação de {link}, ou gere uma acima.",
+  "Set it up:": "Configure-o:",
+  "Start it with Docker:": "Inicie-o com Docker:",
+  "Or save this as docker-compose.yml and run docker compose up -d:": "Ou guarde isto como docker-compose.yml e execute docker compose up -d:",
+  "Owner of the device": "Dono do dispositivo"
+}
