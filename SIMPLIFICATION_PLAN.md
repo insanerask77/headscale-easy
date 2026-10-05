@@ -340,11 +340,28 @@ Detailed plan: `PHASE3_EXECUTION_PLAN.md`.
       Docker volumes): it refuses an AIO archive and points to `hse restore`,
       which in turn refuses a 1.x archive (phase 5 migrates those).
 - [x] `docker exec <c> hse backup` / `hse restore <file>` subcommands.
-- [x] Status page: last backup, size, "Back up now" button.
+- [x] A **Backups** menu in the console (administrators): last backup, size,
+      "Back up now", schedule and retention editable, the list with Download and
+      Restore, and Upload / Upload and restore for a backup that comes from
+      elsewhere.
 - [x] Remote copies stay in the advanced edition (current `backup` image as a
-      sidecar reading `/data/backups`).
+      sidecar reading `/data/backups`; `BACKUP_MODE=sync`, the compose profile
+      that wires it up is phase 4).
+
+**Status:** ✅ Done (`PHASE3_EXECUTION_PLAN.md`, PR #68). Image 219 MB (limit 250) and 71 MB RSS idle
+and during a backup (limit 100), both checked by `scripts/aio-smoke.sh`. Verified in containers: backup,
+offline and online restore, scheduled run, download byte for byte, a 400 MB upload (peak 76 MB of RAM)
+and upload-and-restore in one step. Beyond the plan: the Backups menu above and a redirect to the sign-in
+page when the wizard ends. Left over for phase 4: the PostgreSQL client is not in the image, so a backup
+with an external PostgreSQL fails with a clear message (see `PHASE4_EXECUTION_PLAN.md`, block 5).
 
 ### Phase 4 — Advanced edition · M
+
+Detailed plan: `PHASE4_EXECUTION_PLAN.md`. It adjusts three lines below: the Authentik files are
+**copied**, not moved (the 1.x compose still mounts them until phase 6); the zero-change Authentik path
+needs the AIO to route `/authentik` to the existing Authentik (the issuer URL is part of every
+Headscale user's identity); and the old `install.sh` moves to `legacy/install-1x.sh` instead of being
+rewritten in place.
 
 - [ ] `deploy/compose/docker-compose.yml`: the AIO image + optional profiles:
       `backup-remote` (sidecar), and examples that live outside the main file.
