@@ -253,6 +253,28 @@ class ValidationTest(unittest.TestCase):
             with self.assertRaises(wizard.SetupError, msg=(sched, days)):
                 wizard.check_backups(sched, days)
 
+    def test_backups_off_and_toggle(self):
+        self.assertEqual(wizard.check_backups("off", "14")["backup_schedule"], "off")
+        self.assertEqual(wizard.check_backups("", "14")["backup_schedule"], "off")
+        # turned off: whatever is in the schedule box is ignored, retention is still checked
+        self.assertEqual(wizard.check_backups("not a cron", "14", enabled=False)["backup_schedule"], "off")
+        with self.assertRaises(wizard.SetupError):
+            wizard.check_backups("off", "0", enabled=False)
+        self.assertEqual(wizard.check_backups("*/5 * * * *", "3", enabled=True),
+                         {"backup_schedule": "*/5 * * * *", "backup_keep_days": "3"})
+
+    def test_backups_page_defaults_and_next_run(self):
+        page = wizard.backups_page({"csrf": "t"}, {})
+        self.assertIn('value="0 3 * * *"', page)
+        self.assertIn('<option value="on" selected>', page)  # on by default
+        self.assertIn("Next run: ", page)
+        self.assertIn("/data/backups", page)
+        off = wizard.backups_page({"csrf": "t"}, {"backup_schedule": "off", "backup_keep_days": "7"})
+        self.assertIn('<option value="off" selected>', off)
+        self.assertNotIn("Next run: ", off)
+        self.assertIn('value="0 3 * * *"', off)  # what turning them back on would use
+        self.assertIn('value="7"', off)
+
     def test_server_step_rejects_bad_url_over_http(self):
         pass  # covered end to end in FullFlowTest.test_invalid_input_keeps_the_step
 
@@ -266,6 +288,24 @@ class FullFlowTest(WizardTestBase):
         self.assertEqual((status, headers["Location"]), (303, "/admin/setup/signup"))
         self.assertEqual(c.post("/admin/setup/signup", {"mode": "off"})[0], 303)
         return c
+
+    def test_backups_step_off_and_invalid(self):
+        c = self.go_to_network()
+        c.post("/admin/setup/network", {"tailnet_name": "acme", "isolation": "1"})
+        c.post("/admin/setup/derp", {"derp_mode": "embedded"})
+        for bad in ("0 3 * *", "0 3 * * $(x)", "99 3 * * *"):
+            status, _h, html = c.post("/admin/setup/backups", {"backup_schedule": bad, "backup_keep_days": "14"})
+            self.assertEqual(status, 400, bad)
+            self.assertIn('class="notice error"', html)
+            self.assertIn('name="backup_schedule"', html)  # the step is shown again
+        self.assertEqual(c.post("/admin/setup/backups", {"backup_enabled": "off", "backup_schedule": "0 3 * * *",
+                                                         "backup_keep_days": "14"})[0], 303)
+        _s, _h, review = c.request("/admin/setup/finish")
+        self.assertIn("<dt>Copias de seguridad</dt><dd>Desactivada</dd>", review)  # the flow runs in Spanish
+        status, _h, done = c.post("/admin/setup/finish", {}, page=review)
+        self.assertEqual(status, 200, done[:300])
+        saved = json.load(open(os.path.join(self.data, "config", "settings.json")))
+        self.assertEqual(saved["backup_schedule"], "off")
 
     def test_full_flow(self):
         c = self.go_to_network()

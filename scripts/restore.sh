@@ -56,6 +56,12 @@ ARCHIVE="$(cd "$(dirname "$ARCHIVE")" && pwd)/$(basename "$ARCHIVE")"
 mkdir -p "$WORK/x"
 tar -xzf "$ARCHIVE" -C "$WORK/x"
 B="$WORK/x/$(ls "$WORK/x" | head -1)"
+# Archives of the all-in-one image carry a meta.json and a different layout:
+# they are restored with `hse restore` inside the image, not by this script.
+if [[ -f "$B/meta.json" ]] && grep -Eq '"edition"[[:space:]]*:[[:space:]]*"aio"' "$B/meta.json"; then
+    die "$(t "This backup comes from the all-in-one image. Restore it with: docker run --rm -v <volume>:/data --entrypoint hse <image> restore <file> (or docker exec <container> hse restore <file>)." \
+             "Esta copia es de la imagen todo en uno. Restáurala con: docker run --rm -v <volumen>:/data --entrypoint hse <imagen> restore <archivo> (o docker exec <contenedor> hse restore <archivo>).")"
+fi
 # Headscale on SQLite (db.sqlite) or on PostgreSQL (headscale.sql, pg_dump)
 if [[ -f "$B/headscale/db.sqlite" ]]; then
     hs_db="db.sqlite"
