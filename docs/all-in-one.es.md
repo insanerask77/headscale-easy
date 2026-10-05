@@ -44,7 +44,10 @@ El modo configuración arranca cuando no existe `/data/config/settings.json` ni
    sus propios dispositivos). La política de aislamiento
    también permite `autogroup:internet`, para que los usuarios puedan salir a
    internet por sus exit nodes.
-6. **Copias**: la programación y la retención se guardan para las copias
+6. **Relés (DERP)**: *este servidor* (por defecto: DERP y STUN corren en el
+   contenedor, UDP 3478, nada de terceros), también los relés públicos de
+   Tailscale, o tu propio mapa DERP.
+7. **Copias**: la programación y la retención se guardan para las copias
    integradas que llegarán en una versión posterior.
 
 Al terminar se crean la clave de API de Headscale, el usuario de Headscale del
@@ -73,7 +76,7 @@ docker run -d --name headscale-easy \
 ```
 
 La precedencia es **entorno > `/data/config/settings.json` > valores por
-defecto**. Las variables (`HSE_TLS`, `TAILNET_NAME`, `HSE_BASE_DOMAIN` (dominio base de MagicDNS, por defecto `hse.net`), `NETWORK_ISOLATION`,
+defecto**. Las variables (`HSE_TLS`, `TAILNET_NAME`, `HSE_BASE_DOMAIN` (dominio base de MagicDNS, por defecto `hse.net`), `HSE_DERP_MODE` (`embedded` por defecto: DERP y STUN propios del contenedor, publica `3478/udp`; `public` añade los relés públicos de Tailscale; `custom` usa tu mapa con `HSE_DERP_URL`), `NETWORK_ISOLATION`,
 `NODE_KEY_EXPIRY`, `UI_LANG`, `TZ`, `OIDC_*`, `HEADSCALE_DB_TYPE` y
 `HEADSCALE_PG_*`, entre otras) están en la
 [versión en inglés](all-in-one.md#headless-start-no-wizard).

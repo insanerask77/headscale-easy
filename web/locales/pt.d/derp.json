@@ -43,5 +43,6 @@
   "DERP latency": "Latência DERP",
   "In use": "Em uso",
   "DERP map saved. Headscale restarted with the new relays.": "Mapa DERP salvo. O Headscale reiniciou com os novos relays.",
-  "Headscale Easy has no access to Docker to restart Headscale.": "O Headscale Easy não tem acesso ao Docker para reiniciar o Headscale."
+  "Headscale Easy has no access to Docker to restart Headscale.": "O Headscale Easy não tem acesso ao Docker para reiniciar o Headscale.",
+  "Mode in use: {mode}": "Modo em uso: {mode}"
 }

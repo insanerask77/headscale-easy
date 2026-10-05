@@ -265,6 +265,39 @@ class SettingsTest(unittest.TestCase):
             with self.assertRaises(ValueError, msg=bad):
                 render.to_vars({"public_url": "https://vpn.example.com", "acme_email": "a@example.com", "base_domain": bad})
 
+    def derp_config(self, **extra):
+        settings = {"public_url": "http://localhost", "tls": "off", **extra}
+        with tempfile.TemporaryDirectory() as d:
+            return read(render.render_all(settings, d)["config"])
+
+    def test_derp_defaults_to_embedded(self):
+        text = self.derp_config()
+        self.assertIn("derp:\n  urls: []\n  server:\n    enabled: true", text)
+        self.assertIn("  auto_update_enabled: false", text)
+        self.assertNotIn("controlplane.tailscale.com", text)
+
+    def test_derp_public_and_legacy_alias(self):
+        for extra in ({"derp_mode": "public"}, {"derp_use_public": "true"}):
+            text = self.derp_config(**extra)
+            self.assertIn("controlplane.tailscale.com/derpmap/default", text, extra)
+            self.assertIn("  auto_update_enabled: true", text)
+        self.assertIn("urls: []", self.derp_config(derp_use_public="false"))
+        # an explicit mode wins over the alias
+        self.assertIn("urls: []", self.derp_config(derp_mode="embedded", derp_use_public="true"))
+
+    def test_derp_custom(self):
+        text = self.derp_config(derp_mode="custom", derp_url="https://derp.example.com/map.json")
+        self.assertIn("urls:\n    - https://derp.example.com/map.json", text)
+        self.assertIn("urls: []", self.derp_config(derp_mode="custom"))  # uploaded derp.yaml only
+
+    def test_derp_validation_and_env(self):
+        for extra in ({"derp_mode": "nope"}, {"derp_mode": "custom", "derp_url": "ftp://x"},
+                      {"derp_mode": "custom", "derp_url": "https://a b"}):
+            with self.assertRaises(ValueError, msg=extra):
+                self.derp_config(**extra)
+        self.assertEqual(render.load_settings({"HSE_DERP_MODE": "public"}, self.path)["derp_mode"], "public")
+        self.assertNotIn("derp_mode", render.load_settings({}, self.path))
+
     def test_missing_or_corrupt_file_is_ignored(self):
         self.assertEqual(render.load_settings({}, self.path)["tailnet_name"], "myorg")
         with open(self.path, "w") as fh:

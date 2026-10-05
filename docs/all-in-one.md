@@ -43,7 +43,11 @@ Setup mode starts when there is no `/data/config/settings.json` and no
 5. **Tailnet name** and whether users are isolated (each user only reaches
    their own devices). The isolation policy also allows
    `autogroup:internet`, so users can route their traffic through exit nodes.
-6. **Backups**: schedule and retention are stored for the built-in backups
+   You can also set the MagicDNS base domain (default `hse.net`).
+6. **Relays (DERP)**: *this server* (default: DERP and STUN run in the
+   container, UDP 3478, nothing third-party), Tailscale's public relays too,
+   or your own DERP map.
+7. **Backups**: schedule and retention are stored for the built-in backups
    that arrive in a later release.
 
 Finishing creates the Headscale API key, the administrator's Headscale user and
@@ -79,12 +83,14 @@ Precedence is **environment > `/data/config/settings.json` > defaults**.
 | `HSE_TLS` | `auto` for https, `off` for http | `auto` (Let's Encrypt), `internal` (self-signed) or `off` |
 | `ACME_EMAIL` | | Required with `HSE_TLS=auto` |
 | `HSE_ADMIN_EMAIL`, `HSE_ADMIN_PASSWORD` | | First administrator, created on first start if no account exists |
-| `HSE_DERP_PORT` | `3478` | STUN port of the embedded DERP relay |
+| `HSE_DERP_PORT` | `3478` | STUN port of the embedded DERP relay (publish it as `-p 3478:3478/udp`) |
 | `TAILNET_NAME` | `myorg` | Label of the tailnet |
 | `HSE_BASE_DOMAIN` | `hse.net` | MagicDNS base domain: devices are `<device>.<base domain>`. Must differ from the server's own domain. Set at first run; later edit it on the DNS page |
 | `NETWORK_ISOLATION` | `true` | Each user only reaches their own devices |
 | `NODE_KEY_EXPIRY` | `180d` | Device key lifetime |
-| `DERP_USE_PUBLIC` | `true` | Also use Tailscale's public DERP map |
+| `HSE_DERP_MODE` | `embedded` | `embedded` (this container's own DERP + STUN, nothing third-party), `public` (also Tailscale's public map) or `custom` |
+| `HSE_DERP_URL` | | DERP map URL, with `HSE_DERP_MODE=custom` (you can also upload a map in the console) |
+| `DERP_USE_PUBLIC` | | Legacy alias: `true` = `public`, `false` = `embedded`; `HSE_DERP_MODE` wins |
 | `UI_LANG`, `TZ` | `en`, `UTC` | Console language and time zone |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | | Sign in with an external OIDC provider |
 | `HEADSCALE_DB_TYPE`, `HEADSCALE_PG_*` | `sqlite` | Use an external PostgreSQL |

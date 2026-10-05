@@ -162,7 +162,7 @@ class TokenAndRoutingTest(WizardTestBase):
 
     def test_csrf_is_enforced_on_every_post(self):
         self.unlock()
-        for step in ("language", "server", "admin", "network", "backups", "finish"):
+        for step in ("language", "server", "admin", "network", "derp", "backups", "finish"):
             self.assertEqual(self.c.request("/admin/setup/" + step, {"x": "1"})[0], 403, step)
             self.assertEqual(self.c.request("/admin/setup/" + step, {"csrf": "wrong"})[0], 403, step)
         status, _h, _b = self.c.request("/admin/setup", {"token": self.token})
@@ -225,6 +225,15 @@ class ValidationTest(unittest.TestCase):
             with self.assertRaises(wizard.SetupError, msg=str(args)):
                 wizard.check_server(*args)
 
+    def test_derp_step(self):
+        self.assertEqual(wizard.check_derp("embedded", "https://ignored"), {"derp_mode": "embedded", "derp_url": ""})
+        self.assertEqual(wizard.check_derp("public"), {"derp_mode": "public", "derp_url": ""})
+        self.assertEqual(wizard.check_derp("custom", "https://d.example/map.json")["derp_url"], "https://d.example/map.json")
+        self.assertEqual(wizard.check_derp("custom")["derp_url"], "")
+        for mode, url in (("", ""), ("nope", ""), ("custom", "ftp://x"), ("custom", "a b")):
+            with self.assertRaises(wizard.SetupError, msg=(mode, url)):
+                wizard.check_derp(mode, url)
+
     def test_network_and_backups(self):
         self.assertEqual(wizard.check_network("My-Org", True)["tailnet_name"], "my-org")
         self.assertEqual(wizard.check_network("acme", True)["base_domain"], "")
@@ -261,6 +270,7 @@ class FullFlowTest(WizardTestBase):
         c = self.go_to_network()
         self.assertIn("es", [ck.value for ck in c.jar if ck.name == "hse_lang"])
         self.assertEqual(c.post("/admin/setup/network", {"tailnet_name": "acme", "isolation": "1"})[0], 303)
+        self.assertEqual(c.post("/admin/setup/derp", {"derp_mode": "embedded"})[0], 303)
         self.assertEqual(c.post("/admin/setup/backups", {"backup_schedule": "30 2 * * *", "backup_keep_days": "7"})[0], 303)
         _s, _h, review = c.request("/admin/setup/finish")
         self.assertIn("admin@example.com", review)
@@ -306,6 +316,7 @@ class FullFlowTest(WizardTestBase):
 
     def finish_all(self, c, isolation="1"):
         c.post("/admin/setup/network", {"tailnet_name": "acme", **({"isolation": "1"} if isolation else {})})
+        c.post("/admin/setup/derp", {"derp_mode": "embedded"})
         c.post("/admin/setup/backups", {"backup_schedule": "0 3 * * *", "backup_keep_days": "14"})
         return c.post("/admin/setup/finish", {})
 
