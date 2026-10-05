@@ -147,6 +147,9 @@ saltos de versión mayor.
 
 ## Copias de seguridad { #backups }
 
+!!! note "¿Usas la imagen todo en uno?"
+    Se copia a sí misma, sin contenedor extra: mira [Todo en uno → Copias de seguridad](all-in-one.md#backups). Esta sección describe el `docker-compose.yml` dividido de 1.x.
+
 Las copias diarias son **opcionales**: el instalador lo pregunta (desactivadas
 por defecto, porque añaden un contenedor pequeño y ocupan disco, pero
 recomendadas). Si las activas, el contenedor `backup` hace una copia cada día a

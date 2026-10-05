@@ -105,6 +105,13 @@ LAN or tailnet in Caddy or your front proxy — see the
   are created readable only by the owner of the project files. The backup
   container runs as root (Headscale's keys are root-only) with only the
   capabilities to read files, change their owner and run its schedule.
+- **Backups of the all-in-one image** (`/data/backups`) hold password hashes,
+  two-factor secrets, the OIDC client secret and Headscale's private keys. The
+  directory is `700` and each archive `600`, owned by the container's
+  unprivileged user. Console sessions are never included (a restored session
+  would revive revoked logins), the console shows the state of the backups but
+  offers no download, and a restore checks the format and a SHA-256 of every
+  file before it changes anything.
 - **Secrets** (`.env`, generated configuration, backups) never belong in git;
   they are all in `.gitignore`.
 

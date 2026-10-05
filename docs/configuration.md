@@ -377,6 +377,19 @@ browser asks for a language the console does not have.
 
 All of them are in `.gitignore`. Do not edit them by hand: re-run the installer.
 
+## All-in-one backups { #all-in-one-backups }
+
+Settings of the built-in backups of the [all-in-one image](all-in-one.md#backups)
+(environment or `settings.json`; they are not read by the split compose):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BACKUP_SCHEDULE` | `0 3 * * *` | Cron syntax, in the time zone `TZ`; `off` disables scheduled backups. An invalid value stops the container at start |
+| `BACKUP_KEEP_DAYS` | `14` | Older backups are deleted; the newest successful one is never deleted |
+| `TZ` | `UTC` | Time zone of the schedule |
+| `BACKUP_MODE` | `create` | Only for the `backup` image used as a sidecar: `sync` uploads the archives the all-in-one image wrote instead of making its own |
+| `BACKUP_SYNC_INTERVAL` | `900` | Seconds between two uploads in `sync` mode |
+
 ## `.env` reference
 
 See [`.env.example`](https://github.com/insanerask77/headscale-easy/blob/main/.env.example): every variable, documented.
