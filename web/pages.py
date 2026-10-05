@@ -15,8 +15,8 @@ import expiry
 import notify
 from i18n import LANGUAGES, _, get_lang, ngettext
 from qr import qr_figure
-from ui import (BASE, LOGO, badge, bare_page, copy_btn, csrf_input, docs_url, esc, flash_html, icon, initials, layout, notice,
-                page_head, parse_time, relative, time_tag, user_label)
+from ui import (BASE, LOGO, badge, bare_page, copy_btn, csrf_input, docs_url, esc, flash_html, icon, initials, layout, live_indicator,
+                notice, page_head, parse_time, relative, time_tag, user_label)
 
 OS_NAMES = {"linux": "Linux", "windows": "Windows", "macos": "macOS", "ios": "iOS",
             "android": "Android", "freebsd": "FreeBSD", "openbsd": "OpenBSD", "tvos": "tvOS"}
@@ -352,7 +352,7 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
           <th class="hide-sm">{esc(_("Version"))}</th>
           <th class="hide-sm"><span title="{esc(_("The DERP relay the machine prefers and its latency"))}">{esc(_("Relay"))} {icon("info", "i-xs")}</span></th>
           <th>{esc(_("Last seen"))}</th><th></th></tr></thead>
-        <tbody data-live="rows">{"".join(rows)}
+        <tbody data-live="rows" data-stream="{BASE}/events">{"".join(rows)}
         </tbody>
       </table>
     </div>
@@ -388,7 +388,7 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
       <span class="spacer"></span>
       <a class="icon-btn boxed" href="{BASE}/machines.csv" title="{esc(_("Export to CSV"))}" aria-label="{esc(_("Export to CSV"))}">{icon("download")}</a>
     </div>
-    <span class="pill" data-count data-one="{esc(_("1 machine"))}" data-many="{esc(_("{n} machines"))}">{esc(ngettext("{n} machine", "{n} machines", len(machines)))}</span>
+    <span class="pill" data-count data-one="{esc(_("1 machine"))}" data-many="{esc(_("{n} machines"))}">{esc(ngettext("{n} machine", "{n} machines", len(machines)))}</span> {live_indicator()}
     {table}
     <div data-live="dialogs">{"".join(dialogs)}</div>
     {f'<div data-live="inactive">{expiry.remove_inactive_dialog(machines, session)}</div>' if admin else ""}"""
@@ -516,7 +516,7 @@ def machine_page(session: dict, ctx: dict, m: Machine, flash: str, error: str = 
     <div class="page-head">
       <div>
         <h1 data-live="title">{esc(m.name)}</h1>
-        <div class="meta" data-live="meta">{status_html(m)}<span class="muted">{esc(m.owner_label)}</span>{m.badges()}</div>
+        <div class="meta" data-live="meta" data-stream="{BASE}/events">{status_html(m)}<span class="muted">{esc(m.owner_label)}</span>{m.badges()}</div>
       </div>
       <div class="head-actions">
         <button class="btn" type="button" data-open="rename-{m.id}">{esc(_("Edit machine name"))}</button>

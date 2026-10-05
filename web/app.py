@@ -30,6 +30,7 @@ import mimetypes
 import os
 import re
 import secrets
+import signal
 import time
 import urllib.error
 import urllib.parse
@@ -49,6 +50,7 @@ import derp_pages  # noqa: E402
 import status as server_status  # noqa: E402
 import status_pages  # noqa: E402
 import headscale as hs  # noqa: E402
+import live  # noqa: E402
 import apikey  # noqa: E402
 import expiry  # noqa: E402
 import audit  # noqa: E402
@@ -105,6 +107,7 @@ REDIRECT_URI = f"{PUBLIC_URL}{BASE}/callback"
 SERVER_HOST = urllib.parse.urlparse(PUBLIC_URL).hostname or ""
 CTX = {"public_url": PUBLIC_URL, "tailnet": TAILNET_NAME, "authentik": AUTHENTIK, "server_host": SERVER_HOST}
 # The sign-in page shows its "Create an account" link when sign-up is on (local accounts only)
+HUB = live.Hub(lambda: hs.all_nodes())  # one poller for every open stream
 admin_pages.signup_open = lambda: not AUTHENTIK and signup.mode() != "off"
 
 # Valid names: node given name (DNS label) and Headscale user name
@@ -433,6 +436,9 @@ class Handler(BaseHTTPRequestHandler):
             if reset_match:
                 return self.reset_password_page(reset_match.group(1))
 
+            if path == f"{BASE}/events":
+                return self.events_stream()
+
             session = self.session()
             register = REGISTER_PATH_RE.fullmatch(path)
             if not session:
@@ -541,6 +547,57 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:  # noqa: BLE001 - never show tracebacks in the UI
             log.exception("error on GET %s", path)
             self.fail(500, _("Something went wrong"), _("The operation could not be completed. Try again in a few seconds."))
+
+    def events_stream(self):
+        """Server-Sent Events: one message per device change this session may see.
+        The page re-fetches its own (already filtered) HTML when one arrives."""
+        session = self.session()
+        if not session:
+            return self.send(401, "Unauthorized", "text/plain")
+        if session.get("must_change"):
+            return self.send(403, "Forbidden", "text/plain")
+        origin = self.headers.get("Origin")
+        if origin and urllib.parse.urlparse(origin).netloc != self.headers.get("Host", ""):
+            return self.send(403, "Forbidden", "text/plain")  # a page on another site
+        everyone = session.get("admin") or is_auditor(session)
+
+        def own_user() -> str:
+            user = None if everyone else my_user(session)
+            return str(user["id"]) if user else ""
+
+        try:
+            sub = HUB.subscribe(session.get("sid", ""), None if everyone else own_user())
+        except live.TooMany:
+            return self.send(429, "Too many open streams", "text/plain", [("Retry-After", "30")])
+        self.close_connection = True
+        try:
+            self.send_response(200)
+            for k, v in (("Content-Type", "text/event-stream"), ("Cache-Control", "no-store"),
+                         ("X-Accel-Buffering", "no"), ("X-Content-Type-Options", "nosniff"),
+                         ("Referrer-Policy", "same-origin")):
+                self.send_header(k, v)
+            self.end_headers()
+            self.wfile.write(b"retry: 3000\n: connected\n\n")
+            self.wfile.flush()
+            while not sub.closed.is_set():
+                event = sub.get(live.HEARTBEAT)
+                if sub.closed.is_set():
+                    break
+                if event is None:
+                    if not sessions.validate(session):  # signed out or revoked meanwhile
+                        break
+                    if not everyone and not sub.user:  # a member who had no devices yet
+                        sub.user = own_user()
+                        if sub.user:
+                            self.wfile.write(live.format_event({"type": "added"}))
+                    self.wfile.write(b": ping\n\n")
+                else:
+                    self.wfile.write(live.format_event(event))
+                self.wfile.flush()
+        except OSError:  # the browser went away
+            pass
+        finally:
+            HUB.unsubscribe(sub)
 
     def keys_view(self, session: dict, flash: str, new_key: dict | None = None, new_apikey: str = "",
                   preselect: str = ""):
@@ -2303,6 +2360,12 @@ def main():
     audit.start()
     naming.start()
     notify.start()
+
+    def stop(*_):  # end the open event streams, then exit like the default SIGTERM would
+        HUB.close_all()
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, stop)
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 
