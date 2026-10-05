@@ -124,7 +124,7 @@ class Unauthenticated(Base):
             self.assertEqual((status, location(headers)), (303, f"{B}/login"), path)
 
     def test_actions_redirect_to_sign_in(self):
-        for path in ("/keys", "/users", "/acl", "/dns", "/apikeys", "/machines/1/delete"):
+        for path in ("/keys", "/users", "/acl", "/dns", "/apikeys", "/machines/1/delete", "/settings/status/backup"):
             status, headers, _ = request("POST", B + path, form={"csrf": "tok"})
             self.assertEqual((status, location(headers)), (303, f"{B}/login"), path)
         self.api.assert_not_called()
@@ -136,6 +136,15 @@ class Unauthenticated(Base):
 
 
 class Csrf(Base):
+    def test_backup_now_needs_the_token_and_an_admin(self):
+        with mock.patch.object(app.hs, "helper_backup", return_value="started") as run:
+            for form in ({}, {"csrf": ""}, {"csrf": "other"}):
+                status, _, _ = request("POST", f"{B}/settings/status/backup", ADMIN, form)
+                self.assertEqual(status, 403, form)
+            status, _, _ = request("POST", f"{B}/settings/status/backup", MEMBER, {"csrf": "tok"})
+            self.assertEqual(status, 403)
+        run.assert_not_called()
+
     def test_missing_or_wrong_token(self):
         for form in ({}, {"csrf": ""}, {"csrf": "other"}):
             status, _, _ = request("POST", f"{B}/users", ADMIN, dict(form, name="eve"))
