@@ -524,6 +524,34 @@ class HelperSocketTest(SupervisorMixin, FakeCase):
             self.assertEqual(row["state"], "running")
         self.assertEqual(rows["headscale"]["health"], "healthy")
 
+    def test_status_has_a_backup_key_when_the_scheduler_exists(self):
+        summary = {"enabled": True, "schedule": "0 3 * * *", "running": False, "last": None}
+        with mock.patch.object(self.s, "backup_summary", create=True, return_value=summary):
+            data = self.req("GET", "/status")[2]
+        self.assertEqual(data["backup"], summary)
+
+    def test_status_without_a_scheduler_has_no_backup_key(self):
+        self.assertNotIn("backup", self.req("GET", "/status")[2])
+
+    def test_backup_route_starts_a_manual_run(self):
+        with mock.patch.object(self.s, "start_backup", create=True, return_value=True) as start:
+            code, _, data = self.req("POST", "/backup")
+        self.assertEqual((code, data), (200, {"ok": True, "started": True}))
+        start.assert_called_once_with("manual")
+
+    def test_backup_route_reports_a_run_in_progress(self):
+        with mock.patch.object(self.s, "start_backup", create=True, return_value=False):
+            code, _, data = self.req("POST", "/backup")
+        self.assertEqual((code, data), (200, {"ok": False, "error": "already running"}))
+
+    def test_backup_route_in_setup_mode_or_without_a_scheduler(self):
+        self.assertFalse(self.req("POST", "/backup")[2]["ok"])  # no start_backup yet
+        with mock.patch.object(self.s, "start_backup", create=True, return_value=True) as start, \
+                mock.patch.object(self.s, "mode", "setup"):
+            data = self.req("POST", "/backup")[2]
+        self.assertFalse(data["ok"])
+        start.assert_not_called()
+
     def test_status_after_a_crash(self):
         os.kill(self.s.children["console"].pid, signal.SIGKILL)
         self.s.children["console"].backoff_min = 5  # keep it down for a moment
