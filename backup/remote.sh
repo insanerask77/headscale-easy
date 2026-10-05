@@ -4,6 +4,9 @@
 #   remote.sh push  <file>          upload one backup archive
 #   remote.sh prune                 delete remote backups older than the retention
 #   remote.sh fetch <spec> <dir>    download one backup into <dir> (make restore)
+#   remote.sh list                  names of the backups already on the remote
+#   remote.sh sync <dir>            push every backup in <dir> that the remote lacks,
+#                                   then prune (BACKUP_MODE=sync sidecar)
 #
 # BACKUP_REMOTE chooses the destination:
 #   remote:path             an rclone remote, e.g. s3:my-bucket/headscale-easy
@@ -58,9 +61,10 @@ push() {
     [ -f "$file" ] || die "no such file: $file"
     if is_rsync "$REMOTE"; then
         dir=$(rsync_dir "$REMOTE"); check_rsync_dir "$dir"
-        rsync -e "$(ssh_cmd)" --chmod=F600 "$file" "$(rsync_host "$REMOTE"):$dir/"
+        rsync -e "$(ssh_cmd)" --chmod=F600 "$file" "$(rsync_host "$REMOTE"):$dir/" || return 1
     else
-        rclone copyto "$file" "${REMOTE%/}/$(basename "$file")"
+        # explicit: under "if push ..." (sync) set -e is off, and a failed upload must not log success
+        rclone copyto "$file" "${REMOTE%/}/$(basename "$file")" || return 1
     fi
     log "uploaded $(basename "$file") to $REMOTE"
 }
@@ -89,13 +93,45 @@ fetch() {
     fi
 }
 
+list() {
+    if is_rsync "$REMOTE"; then
+        dir=$(rsync_dir "$REMOTE"); check_rsync_dir "$dir"
+        # shellcheck disable=SC2046  # ssh_cmd is a word list on purpose
+        $(ssh_cmd) "$(rsync_host "$REMOTE")" "find '$dir' -maxdepth 1 -name '$PATTERN' -print" | sed 's|.*/||'
+    else
+        rclone lsf "$REMOTE" --include "$PATTERN" | sed 's|.*/||'
+    fi
+}
+
+# Idempotent: what is already pushed comes from the remote listing, not from a
+# local state file the sidecar could lose. A failed push is retried on the next
+# pass and does not stop the others. In-progress (.part) archives are skipped
+# (the pattern does not match them) and so are the pre-restore safety copies.
+sync() {
+    dir="$1"
+    [ -d "$dir" ] || die "no such directory: $dir"
+    have=$(list) || die "could not list the remote"
+    failed=0
+    for f in "$dir"/$PATTERN; do
+        [ -f "$f" ] || continue
+        name=$(basename "$f")
+        case "$name" in *-pre-restore-*) continue ;; esac
+        if printf '%s\n' "$have" | grep -qxF "$name"; then continue; fi
+        if push "$f"; then :; else log "remote: push of $name FAILED, will retry"; failed=1; fi
+    done
+    prune || { log "remote: prune FAILED"; failed=1; }
+    return "$failed"
+}
+
 action="${1:-}"
-[ -n "$action" ] || die "usage: remote.sh push <file> | prune | fetch <spec> <dir>"
+[ -n "$action" ] || die "usage: remote.sh push <file> | prune | fetch <spec> <dir> | list | sync <dir>"
 shift
 case "$action" in
-    push|prune) [ -n "$REMOTE" ] || die "BACKUP_REMOTE is not set" ;;
+    push|prune|list|sync) [ -n "$REMOTE" ] || die "BACKUP_REMOTE is not set" ;;
 esac
 case "$action" in
+    list)  list ;;
+    sync)  sync "${1:?dir}" ;;
     push)  push "${1:?file}" ;;
     prune) prune ;;
     fetch) fetch "${1:?spec}" "${2:?dir}" ;;
