@@ -142,7 +142,7 @@ def check_network(tailnet: str, isolation: bool, base_domain: str = "", server_u
     try:
         base = render.check_base_domain(wanted)
     except ValueError:
-        raise SetupError(_("The base domain must be a DNS name such as headscale-easy.net."))
+        raise SetupError(_("The base domain must be a DNS name such as hse.net."))
     return {"tailnet_name": tailnet, "network_isolation": "true" if isolation else "false", "base_domain": base}
 
 

@@ -205,7 +205,7 @@ wizard or Settings.
       (`device.<base domain>`)
 - [x] Tests in `tests/test_wizard.py`, `tests/test_render.py`, `tests/test_dns.py`
 
-> **Decision (pending owner OK):** default `headscale-easy.net`, AIO only; the compose
+> **Decision (pending owner OK):** default `hse.net` (confirmed by the owner; editable in the wizard and on the console DNS page), AIO only; the compose
 > install keeps `<tailnet>.headscale.net`. Rejected: no dots, bad labels, the
 > server's own domain or a parent of it.
 

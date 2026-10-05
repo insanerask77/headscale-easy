@@ -81,7 +81,7 @@ Precedence is **environment > `/data/config/settings.json` > defaults**.
 | `HSE_ADMIN_EMAIL`, `HSE_ADMIN_PASSWORD` | | First administrator, created on first start if no account exists |
 | `HSE_DERP_PORT` | `3478` | STUN port of the embedded DERP relay |
 | `TAILNET_NAME` | `myorg` | Label of the tailnet |
-| `HSE_BASE_DOMAIN` | `headscale-easy.net` | MagicDNS base domain: devices are `<device>.<base domain>`. Must differ from the server's own domain. Set at first run; later edit it on the DNS page |
+| `HSE_BASE_DOMAIN` | `hse.net` | MagicDNS base domain: devices are `<device>.<base domain>`. Must differ from the server's own domain. Set at first run; later edit it on the DNS page |
 | `NETWORK_ISOLATION` | `true` | Each user only reaches their own devices |
 | `NODE_KEY_EXPIRY` | `180d` | Device key lifetime |
 | `DERP_USE_PUBLIC` | `true` | Also use Tailscale's public DERP map |

@@ -73,7 +73,7 @@ docker run -d --name headscale-easy \
 ```
 
 La precedencia es **entorno > `/data/config/settings.json` > valores por
-defecto**. Las variables (`HSE_TLS`, `TAILNET_NAME`, `HSE_BASE_DOMAIN` (dominio base de MagicDNS, por defecto `headscale-easy.net`), `NETWORK_ISOLATION`,
+defecto**. Las variables (`HSE_TLS`, `TAILNET_NAME`, `HSE_BASE_DOMAIN` (dominio base de MagicDNS, por defecto `hse.net`), `NETWORK_ISOLATION`,
 `NODE_KEY_EXPIRY`, `UI_LANG`, `TZ`, `OIDC_*`, `HEADSCALE_DB_TYPE` y
 `HEADSCALE_PG_*`, entre otras) están en la
 [versión en inglés](all-in-one.md#headless-start-no-wizard).

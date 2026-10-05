@@ -254,7 +254,7 @@ class SettingsTest(unittest.TestCase):
 
     def test_base_domain_default_setting_and_env(self):
         base = {"public_url": "https://vpn.example.com", "tailnet_name": "acme", "acme_email": "a@example.com"}
-        self.assertEqual(render.to_vars(base)["BASE_DOMAIN"], "headscale-easy.net")
+        self.assertEqual(render.to_vars(base)["BASE_DOMAIN"], "hse.net")
         self.assertEqual(render.to_vars(base, "compose")["BASE_DOMAIN"], "acme.headscale.net")
         self.assertEqual(render.to_vars(dict(base, base_domain="Corp.Internal"))["BASE_DOMAIN"], "corp.internal")
         self.assertEqual(render.load_settings({"HSE_BASE_DOMAIN": "x.example"}, self.path)["base_domain"], "x.example")
@@ -292,7 +292,7 @@ class RenderAllTest(unittest.TestCase):
             self.assertEqual(os.stat(os.path.dirname(p["config"])).st_mode & 0o777, 0o700)
             self.assertEqual(read(p["derp"]), "regions: {}\n")
             # The console edits the dns block; a re-render keeps it
-            text = read(p["config"]).replace("base_domain: headscale-easy.net", "base_domain: edited.example")
+            text = read(p["config"]).replace("base_domain: hse.net", "base_domain: edited.example")
             with open(p["config"], "w", encoding="utf-8") as fh:
                 fh.write(text)
             render.render_all(settings, d)

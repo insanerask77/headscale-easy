@@ -141,7 +141,7 @@ def _domain(url):
     return host
 
 
-DEFAULT_BASE_DOMAIN = "headscale-easy.net"  # slug of "Headscale Easy"
+DEFAULT_BASE_DOMAIN = "hse.net"  # slug of "Headscale Easy"
 _DNS_LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 
 
@@ -155,7 +155,7 @@ def check_base_domain(value, server_host=""):
         return ""
     labels = name.split(".")
     if len(name) > 253 or len(labels) < 2 or not all(_DNS_LABEL.match(x) for x in labels):
-        raise ValueError("base_domain must be a DNS name such as headscale-easy.net")
+        raise ValueError("base_domain must be a DNS name such as hse.net")
     host = (server_host or "").lower()
     if host and (host == name or host.endswith("." + name)):
         raise ValueError("base_domain must differ from the server's own domain (%s)" % host)

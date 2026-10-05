@@ -45,7 +45,7 @@
   "Tailnet name": "Nome da tailnet",
   "That token is not valid.": "Esse token não é válido.",
   "The address your devices and browsers will use to reach this server.": "O endereço que os seus dispositivos e navegadores usarão para chegar a este servidor.",
-  "The base domain must be a DNS name such as headscale-easy.net.": "O domínio base deve ser um nome DNS como headscale-easy.net.",
+  "The base domain must be a DNS name such as hse.net.": "O domínio base deve ser um nome DNS como hse.net.",
   "The base domain must differ from the server's own domain.": "O domínio base deve ser diferente do domínio do próprio servidor.",
   "The passwords do not match.": "As palavras-passe não coincidem.",
   "The tailnet name may only have lowercase letters, numbers and hyphens.": "O nome da tailnet só pode ter minúsculas, números e hífenes.",
