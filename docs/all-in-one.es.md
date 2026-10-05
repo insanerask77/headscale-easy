@@ -167,3 +167,14 @@ aprobarlas en la consola. Los auditores no pueden generar claves.
     contenedor. La pestaña te avisa. Usa un nombre o IP real o, en Linux, añade
     `--network host` (y quita `--hostname` y `--sysctl`, que Docker no permite con
     él).
+
+## Estado de los dispositivos en vivo
+
+La página Máquinas (y la de cada dispositivo) se actualiza sola: un dispositivo
+que se conecta, se desconecta, se añade, se elimina o se renombra aparece en
+pocos segundos, sin recargar. La consola mantiene abierto un flujo de eventos
+(`/admin/events`, Server-Sent Events); los miembros solo reciben eventos de sus
+propios dispositivos. Un pequeño indicador **En vivo** muestra la conexión; si
+se corta, la página vuelve a refrescarse cada pocos segundos. Si hay un proxy
+inverso delante del contenedor, asegúrate de que no almacena en búfer las
+respuestas `text/event-stream` (el Caddy incluido no lo hace).

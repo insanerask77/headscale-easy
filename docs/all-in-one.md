@@ -180,3 +180,14 @@ approved in the console. Auditors cannot generate keys.
     reach it: inside a container `localhost` is the container itself. The tab warns
     you. Use a real name or IP, or on Linux add `--network host` (and drop
     `--hostname` and `--sysctl`, which Docker does not allow with it).
+
+## Live device status
+
+The Machines page (and a device's page) updates on its own: a device that
+connects, disconnects, is added, removed or renamed shows up within a few
+seconds, without reloading. The console keeps a Server-Sent Events stream open
+(`/admin/events`); members only receive events about their own devices. A small
+**Live** indicator shows the connection; if it drops the page falls back to
+refreshing every few seconds. When a reverse proxy sits in front of the
+container, make sure it does not buffer `text/event-stream` responses (the
+bundled Caddy does not).

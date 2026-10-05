@@ -262,10 +262,10 @@ registration with a Tailscale client, DNS edit through the supervisor, child res
 Found while trying the `:next` image by hand. To be done **before** starting
 phase 3. Detailed plan: `PHASE2_5_EXECUTION_PLAN.md`.
 
-- [ ] **Language selector (UI bug)**: the selector is broken in the console
+- [x] **Language selector (UI bug)**: the selector is broken in the console
       (the wizard's is fine). Reproduce, fix, add a regression test; keep
       `scripts/check_i18n.py` green.
-- [ ] **DERP in the wizard**: the wizard has no DERP step. Add it, with these
+- [x] **DERP in the wizard**: the wizard has no DERP step. Add it, with these
       modes: (a) *embedded* DERP/STUN served by the container itself (the
       default), (b) custom DERP map (URL or `derp.yaml`), (c) Tailscale's
       public DERP. **If DERP is not configured, the DERP server must be the
@@ -273,12 +273,12 @@ phase 3. Detailed plan: `PHASE2_5_EXECUTION_PLAN.md`.
       3478/udp, `derp.urls` empty, `derp.paths` unused), so a fresh install works
       without any third-party relay. Mirror it in `HSE_*` env vars for headless
       starts and in the docs.
-- [ ] **Credentials for new users**: the console lets you create users but not
+- [x] **Credentials for new users**: the console lets you create users but not
       give them a username and password. Add them in the create-user form (and
       a "set/reset password" action), reusing the local-accounts code from
       phase 1 (stdlib PBKDF2, same rules as the admin), with tests in
       `test_security.py`.
-- [ ] **Self-registration on the main (sign-in) page**: let people create their
+- [x] **Self-registration on the main (sign-in) page**: let people create their
       own account from the landing/login page, with three modes set by the
       admin. **Configurable in the first-run wizard** (its own step, after the
       administrator; choosing *restricted* offers to create the first
@@ -292,19 +292,19 @@ phase 3. Detailed plan: `PHASE2_5_EXECUTION_PLAN.md`.
       limit the endpoint, return the same error for a wrong or expired key,
       and test every mode (including that `off` really answers 404 and that
       `invite` rejects missing keys) in `test_security.py`.
-- [ ] **"Docker" section in Add device**: a new tab next to Linux / Windows /
+- [x] **"Docker" section in Add device**: a new tab next to Linux / Windows /
       macOS / iOS / Android that lets you bring Tailscale up as a container on
       this tailnet: ready-to-copy `docker run` and `docker-compose.yml`
       (official `tailscale/tailscale` image, `--login-server` = this server),
       options for hostname, exit node and subnet routes, and a "Generate key"
       button that fills in a pre-auth key (shown once).
-- [ ] **Tailnet / MagicDNS base domain**: it is always assigned as
+- [x] **Tailnet / MagicDNS base domain**: it is always assigned as
       `headscale…` (`<tailnet>.headscale.net`). Make it configurable in the
       wizard (field + env var) and, if left empty, **default to
       `Headscale Easy`**-based naming. Validate it as a DNS name (Headscale
       needs a valid base domain: decide the exact slug, e.g. `headscale-easy`,
       and show it in the form). Keep it editable in the DNS page.
-- [ ] **Live device status (WebSocket)**: nothing watches devices
+- [x] **Live device status (WebSocket)**: nothing watches devices
       connecting/disconnecting, so a newly connected device only appears after
       a page refresh. Add a push channel from the console (WebSocket, or SSE
       as a stdlib-only fallback if a WebSocket is too heavy for the
@@ -313,6 +313,11 @@ phase 3. Detailed plan: `PHASE2_5_EXECUTION_PLAN.md`.
       The nodes page subscribes and updates without a reload (with
       reconnect/backoff). Keep it behind the session auth; test with a fake
       Headscale.
+
+**Status:** ✅ Done (`PHASE2_5_EXECUTION_PLAN.md`, PRs #59, #60, #62-#65 and the wrap-up PR).
+Decisions taken: embedded DERP is the default; a temporary password forces a change at
+first sign-in; invitation keys are single or multi use; no e-mail verification; MagicDNS
+base domain defaults to `hse.net`; live status uses SSE (not WebSocket).
 
 **Done when** the selector works, a fresh install with no DERP settings runs on
 its own embedded DERP, new users can sign in with the credentials set on

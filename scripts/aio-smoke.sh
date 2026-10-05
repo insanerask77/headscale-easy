@@ -6,6 +6,9 @@
 #  Needs Docker and python3. Starts the image twice and fails when:
 #    - headless mode (HSE_PUBLIC_URL + admin env) is not healthy, /healthz or
 #      /admin/healthz do not answer, or a pre-auth key cannot be created;
+#    - the rendered config does not use the embedded DERP by default, the
+#      container does not answer STUN on 3478/udp, sign-up is not off
+#      (/admin/signup must be 404) or the event stream does not require a session;
 #    - setup mode (no env) does not print a token or serve /admin/setup;
 #    - the image is above MAX_IMAGE_MB (250) or idle RAM above MAX_RAM_MB (100).
 #  Env: MAX_IMAGE_MB, MAX_RAM_MB, IDLE_SECONDS (60), HOST_PORT (18080)
@@ -66,6 +69,29 @@ docker exec "$NAME" hse health || fail "hse health"
 key=$(docker exec "$NAME" headscale preauthkeys create --user 1 --expiration 1h -c /data/config/config.yaml 2>&1 | tail -1)
 [ -n "$key" ] && ! grep -qiE 'error|fail' <<<"$key" || fail "could not create a pre-auth key: $key"
 echo "pre-auth key created"
+
+# --- defaults of phase 2.5 -------------------------------------------------------------
+cfg=/data/config/config.yaml
+docker exec "$NAME" grep -q '^  urls: \[\]' "$cfg" || fail "DERP is not embedded-only by default (derp.urls is not empty)"
+docker exec "$NAME" grep -q 'enabled: true' "$cfg" || fail "the embedded DERP server is not enabled"
+docker exec "$NAME" grep -q 'base_domain: hse.net' "$cfg" || fail "the default MagicDNS base domain is not hse.net"
+# STUN: a binding request with the FINGERPRINT attribute Tailscale's server insists on
+docker exec -i "$NAME" python3 - <<'PY' || fail "the container does not answer STUN on 3478/udp"
+import os, socket, struct, zlib
+tx, sw = os.urandom(12), b"tailnode"
+attrs = struct.pack("!HH", 0x8022, len(sw)) + sw
+head = lambda n: struct.pack("!HHI", 1, n, 0x2112A442) + tx
+crc = (zlib.crc32(head(len(attrs) + 8) + attrs) & 0xFFFFFFFF) ^ 0x5354554E
+msg = head(len(attrs) + 8) + attrs + struct.pack("!HHI", 0x8028, 4, crc)
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.settimeout(3)
+s.sendto(msg, ("127.0.0.1", 3478))
+assert s.recv(512)[:2] == b"\x01\x01"
+PY
+echo "embedded DERP, STUN and base domain: ok"
+[ "$(http_code /admin/signup)" = 404 ] || fail "sign-up is not off by default (/admin/signup should answer 404)"
+[ "$(http_code /admin/events)" = 401 ] || fail "/admin/events answered without a session"
+echo "sign-up off, event stream needs a session: ok"
 
 echo "idle for ${IDLE_SECONDS}s, then RAM"
 sleep "$IDLE_SECONDS"
