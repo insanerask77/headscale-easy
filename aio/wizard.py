@@ -19,6 +19,7 @@ Standard library only; reuses web/ (UI, i18n, QR, local accounts).
 """
 from __future__ import annotations
 
+import datetime
 import hmac
 import http.cookies
 import json
@@ -42,6 +43,7 @@ sys.path.insert(0, os.path.join(ROOT, "aio"))
 sys.path.insert(0, os.environ.get("HSE_WEB_DIR") or os.path.join(ROOT, "web"))
 
 import local_accounts as lac  # noqa: E402
+import cron  # noqa: E402
 import render  # noqa: E402
 import signup  # noqa: E402
 from i18n import LANGUAGES, _, pick_lang, set_lang  # noqa: E402
@@ -67,7 +69,6 @@ TLS_MODES = ("auto", "internal", "off")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_-]{3,32}$")
 TAILNET_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$")
-CRON_RE = re.compile(r"^[0-9*/,\-]+( [0-9*/,\-]+){4}$")
 
 # Headscale policy of NETWORK_ISOLATION=true (same as install.sh's apply_network_policy)
 ISOLATION_POLICY = """{
@@ -164,12 +165,18 @@ def check_network(tailnet: str, isolation: bool, base_domain: str = "", server_u
     return {"tailnet_name": tailnet, "network_isolation": "true" if isolation else "false", "base_domain": base}
 
 
-def check_backups(schedule: str, keep_days: str) -> dict:
+def check_backups(schedule: str, keep_days: str, enabled: bool = True) -> dict:
+    """Schedule (five cron fields, or ``off``) and retention; ``enabled=False`` stores ``off``."""
     schedule = " ".join(schedule.split())
-    if not CRON_RE.match(schedule):
-        raise SetupError(_("Enter the schedule as five cron fields, for example 0 3 * * *."))
     if not keep_days.strip().isdigit() or not 1 <= int(keep_days) <= 3650:
         raise SetupError(_("Days to keep backups must be a number between 1 and 3650."))
+    if not enabled or cron.is_off(schedule):
+        schedule = "off"
+    else:
+        try:
+            cron.parse(schedule)
+        except ValueError:
+            raise SetupError(_("Enter the schedule as five cron fields, for example 0 3 * * *.")) from None
     return {"backup_schedule": schedule, "backup_keep_days": str(int(keep_days))}
 
 
@@ -517,12 +524,31 @@ def derp_page(sess: dict, v: dict, error: str | None = None) -> str:
                  inner, sess, "derp", error)
 
 
+def _next_run_text(schedule: str) -> str:
+    try:
+        if cron.is_off(schedule):
+            return ""
+        return cron.next_run(schedule, datetime.datetime.now()).strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return ""
+
+
 def backups_page(sess: dict, v: dict, error: str | None = None) -> str:
-    inner = (_field(_("Backup schedule (cron)"), f'<input type="text" name="backup_schedule" required '
-                    f'spellcheck="false" value="{esc(v.get("backup_schedule", "0 3 * * *"))}">') +
+    schedule = v.get("backup_schedule", "0 3 * * *") or "0 3 * * *"
+    enabled = v.get("backup_enabled", "off" if schedule == "off" else "on") != "off"
+    if schedule == "off":
+        schedule = "0 3 * * *"  # what turning them back on would use
+    nxt = _next_run_text(schedule) if enabled else ""
+    options = "".join(f'<option value="{val}"{" selected" if (val == "on") == enabled else ""}>{esc(label)}</option>'
+                      for val, label in (("on", _("Enabled (recommended)")), ("off", _("Disabled"))))
+    hint = _("Next run: {when}", when=nxt) if nxt else _("Five cron fields, in the container's time zone (TZ).")
+    inner = (_field(_("Scheduled backups"), f'<select name="backup_enabled">{options}</select>') +
+             _field(_("Backup schedule (cron)"), f'<input type="text" name="backup_schedule" '
+                    f'spellcheck="false" value="{esc(schedule)}">', hint) +
              _field(_("Days to keep backups"), f'<input type="number" name="backup_keep_days" required min="1" '
                     f'max="3650" value="{esc(v.get("backup_keep_days", "14"))}">'))
-    return _card(_("Backups"), _("Scheduled backups arrive in a later release; these values are stored for it."),
+    return _card(_("Backups"), _("Every night a backup is written to /data/backups and old ones are deleted after the "
+                                 "days you choose. Backups contain every secret (accounts, keys): keep them private."),
                  inner, sess, "backups", error)
 
 
@@ -531,7 +557,9 @@ def finish_page(sess: dict, data: dict, error: str | None = None) -> str:
     rows = [(_("Public URL"), s["public_url"]), (_("HTTPS certificates"), s["tls"]),
             (_("Administrator"), data["admin"]["email"]), (_("Tailnet name"), data["network"]["tailnet_name"]),
             (_("Sign-up"), signup.mode_label(data["signup"]["signup_mode"])),
-            (_("Relays (DERP)"), data["derp"]["derp_mode"])]
+            (_("Relays (DERP)"), data["derp"]["derp_mode"]),
+            (_("Backups"), _("Disabled") if data["backups"]["backup_schedule"] == "off"
+             else data["backups"]["backup_schedule"])]
     summary = "".join(f'<div class="kv"><dt>{esc(k)}</dt><dd>{esc(v)}</dd></div>' for k, v in rows)
     return _card(_("Review and finish"), _("Everything is ready. Finishing starts the server; this can take a minute."),
                  f'<dl class="kvs">{summary}</dl>', sess, "finish", error,
@@ -787,7 +815,8 @@ class Handler(BaseHTTPRequestHandler):
         if method == "GET":
             return self.send(200, backups_page(sess, data.get("backups", {})))
         try:
-            data["backups"] = check_backups(form.get("backup_schedule", ""), form.get("backup_keep_days", ""))
+            data["backups"] = check_backups(form.get("backup_schedule", ""), form.get("backup_keep_days", ""),
+                                            form.get("backup_enabled", "on") != "off")
         except SetupError as exc:
             return self.send(400, backups_page(sess, dict(form), str(exc)))
         return self.redirect(f"{SETUP}/finish")

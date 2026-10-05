@@ -41,7 +41,6 @@
   "Relays and STUN run in this container on UDP 3478. Nothing goes through third parties.": "Les relais et STUN s'exécutent dans ce conteneur, sur UDP 3478. Rien ne passe par des tiers.",
   "Retry": "Réessayer",
   "Review and finish": "Vérifier et terminer",
-  "Scheduled backups arrive in a later release; these values are stored for it.": "Les sauvegardes planifiées arriveront dans une prochaine version ; ces valeurs sont conservées pour elle.",
   "See the container logs for details.": "Consultez les logs du conteneur pour plus de détails.",
   "Server address": "Adresse du serveur",
   "Set up Headscale Easy": "Configurer Headscale Easy",
@@ -63,5 +62,10 @@
   "Unlock": "Déverrouiller",
   "Use a DERP map you host. You can also upload one from the console.": "Utilisez une carte DERP que vous hébergez. Vous pouvez aussi en téléverser une depuis la console.",
   "Wait a minute and try again.": "Attendez une minute et réessayez.",
-  "With automatic certificates the first load can take a few seconds.": "Avec les certificats automatiques, le premier chargement peut prendre quelques secondes."
+  "With automatic certificates the first load can take a few seconds.": "Avec les certificats automatiques, le premier chargement peut prendre quelques secondes.",
+  "Every night a backup is written to /data/backups and old ones are deleted after the days you choose. Backups contain every secret (accounts, keys): keep them private.": "Chaque nuit, une sauvegarde est écrite dans /data/backups et les anciennes sont supprimées après le nombre de jours choisi. Les sauvegardes contiennent tous les secrets (comptes, clés) : gardez-les privées.",
+  "Enabled (recommended)": "Activées (recommandé)",
+  "Scheduled backups": "Sauvegardes planifiées",
+  "Next run: {when}": "Prochaine exécution : {when}",
+  "Five cron fields, in the container's time zone (TZ).": "Cinq champs cron, dans le fuseau horaire du conteneur (TZ)."
 }
