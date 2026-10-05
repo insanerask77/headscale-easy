@@ -6,7 +6,7 @@ behind the setup-mode Caddy (plain HTTP on :80) and answers only
 /admin/setup* and /admin/static/*; everything else redirects to /admin/setup.
 
     token -> language -> server URL + TLS -> admin account ->
-    tailnet + isolation -> backups -> finish
+    tailnet + isolation -> relays (DERP) -> backups -> finish
 
 A one-time token (data/config/setup-token, also printed in the logs) gates
 every step. The wizard creates the admin account (accounts.db) as it goes (two-factor
@@ -60,7 +60,7 @@ EXIT_DELAY = float(os.environ.get("HSE_WIZARD_EXIT_DELAY", "3"))
 SESSION_TTL = 2 * 3600
 MAX_BODY = 16 * 1024
 
-STEPS = ("language", "server", "admin", "network", "backups", "finish")
+STEPS = ("language", "server", "admin", "network", "derp", "backups", "finish")
 TLS_MODES = ("auto", "internal", "off")
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -129,6 +129,17 @@ def check_server(url: str, tls: str, acme_email: str) -> dict:
             raise SetupError(_("Let's Encrypt does not issue certificates for IP addresses or localhost."))
         out["acme_email"] = check_email(acme_email)
     return out
+
+
+def check_derp(mode: str, url: str = "") -> dict:
+    if mode not in render.DERP_MODES:
+        raise SetupError(_("Choose how devices relay traffic."))
+    if mode != "custom":
+        return {"derp_mode": mode, "derp_url": ""}
+    try:
+        return {"derp_mode": mode, "derp_url": render.check_derp_url(url)}
+    except ValueError:
+        raise SetupError(_("The DERP map URL must start with http:// or https://."))
 
 
 def check_network(tailnet: str, isolation: bool, base_domain: str = "", server_url: str = "") -> dict:
@@ -474,6 +485,23 @@ def network_page(sess: dict, v: dict, error: str | None = None) -> str:
                  "network", error)
 
 
+def derp_page(sess: dict, v: dict, error: str | None = None) -> str:
+    mode = v.get("derp_mode") or "embedded"
+    options = (("embedded", _("This server (recommended)"),
+                _("Relays and STUN run in this container on UDP 3478. Nothing goes through third parties.")),
+               ("public", _("Tailscale's public relays"),
+                _("Adds Tailscale's public DERP map. More locations, but traffic may use their servers.")),
+               ("custom", _("My own DERP map"), _("Use a DERP map you host. You can also upload one from the console.")))
+    radios = "".join(
+        f'<label class="check"><input type="radio" name="derp_mode" value="{k}"{" checked" if k == mode else ""}>'
+        f'<span><b>{esc(title)}</b><br><span class="muted small">{esc(text)}</span></span></label>'
+        for k, title, text in options)
+    inner = radios + _field(_("DERP map URL (own map only)"), f'<input type="url" name="derp_url" '
+                            f'spellcheck="false" placeholder="https://" value="{esc(v.get("derp_url", ""))}">')
+    return _card(_("Relays (DERP)"), _("Devices that cannot connect directly relay their traffic through DERP."),
+                 inner, sess, "derp", error)
+
+
 def backups_page(sess: dict, v: dict, error: str | None = None) -> str:
     inner = (_field(_("Backup schedule (cron)"), f'<input type="text" name="backup_schedule" required '
                     f'spellcheck="false" value="{esc(v.get("backup_schedule", "0 3 * * *"))}">') +
@@ -486,7 +514,8 @@ def backups_page(sess: dict, v: dict, error: str | None = None) -> str:
 def finish_page(sess: dict, data: dict, error: str | None = None) -> str:
     s = data["server"]
     rows = [(_("Public URL"), s["public_url"]), (_("HTTPS certificates"), s["tls"]),
-            (_("Administrator"), data["admin"]["email"]), (_("Tailnet name"), data["network"]["tailnet_name"])]
+            (_("Administrator"), data["admin"]["email"]), (_("Tailnet name"), data["network"]["tailnet_name"]),
+            (_("Relays (DERP)"), data["derp"]["derp_mode"])]
     summary = "".join(f'<div class="kv"><dt>{esc(k)}</dt><dd>{esc(v)}</dd></div>' for k, v in rows)
     return _card(_("Review and finish"), _("Everything is ready. Finishing starts the server; this can take a minute."),
                  f'<dl class="kvs">{summary}</dl>', sess, "finish", error,
@@ -523,7 +552,7 @@ class Wizard:
     def next_step(self, data: dict) -> str:
         """First step that is not done yet."""
         for step, key in (("language", "lang"), ("server", "server"), ("admin", "admin"),
-                          ("network", "network"), ("backups", "backups")):
+                          ("network", "network"), ("derp", "derp"), ("backups", "backups")):
             if not data.get(key):
                 return step
         return "finish"
@@ -710,6 +739,17 @@ class Handler(BaseHTTPRequestHandler):
                                                       "base_domain": form.get("base_domain", ""),
                                                       "network_isolation": "true" if form.get("isolation") else "false"},
                                                str(exc)))
+        return self.redirect(f"{SETUP}/derp")
+
+    def step_derp(self, method, sess, form, headers):
+        data = sess["data"]
+        if method == "GET":
+            return self.send(200, derp_page(sess, data.get("derp", {})))
+        try:
+            data["derp"] = check_derp(form.get("derp_mode", ""), form.get("derp_url", ""))
+        except SetupError as exc:
+            return self.send(400, derp_page(sess, {"derp_mode": form.get("derp_mode", ""),
+                                                   "derp_url": form.get("derp_url", "")}, str(exc)))
         return self.redirect(f"{SETUP}/backups")
 
     def step_backups(self, method, sess, form, headers):
@@ -730,7 +770,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(409, finish_page(sess, data, _("Setup is already running. Wait a moment.")))
         try:
             # two-factor is optional here: the console recommends it after the first sign-in
-            stored = {"ui_lang": data["lang"], "mfa_required": "optional", **data["server"], **data["network"], **data["backups"],
+            stored = {"ui_lang": data["lang"], "mfa_required": "optional", **data["server"], **data["network"], **data["derp"], **data["backups"],
                       "admin_email": data["admin"]["email"]}
             try:
                 wiz.finisher.run({k: v for k, v in stored.items() if v != ""}, data["admin"]["username"])

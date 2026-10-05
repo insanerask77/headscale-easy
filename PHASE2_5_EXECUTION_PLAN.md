@@ -96,36 +96,36 @@ handler), `web/static/app.js`
 ### 2.1 Settings model
 **Files:** `aio/render.py`, `aio/wizard.py`
 
-- [ ] New setting `derp_mode`: `embedded` (default) | `public` | `custom`
+- [x] New setting `derp_mode`: `embedded` (default) | `public` | `custom`
       (env `HSE_DERP_MODE`)
   - `embedded`: Headscale's embedded DERP + STUN on `HSE_DERP_PORT` (3478/udp);
     `derp.urls: []`, no third-party relay
   - `public`: Tailscale's public DERP map (today's `DERP_USE_PUBLIC=true`)
   - `custom`: a URL and/or an uploaded `derp.yaml`
-- [ ] When nothing is configured (no setting, no env) the result is
+- [x] When nothing is configured (no setting, no env) the result is
       `embedded`. Keep today's `DERP_USE_PUBLIC` working as an alias
-- [ ] Render the config for each mode; golden-file tests in `tests/test_render.py`
-- [ ] Make sure `server_url` / the DERP region hostname is the public URL's
+- [x] Render the config for each mode; golden-file tests in `tests/test_render.py`
+- [x] Make sure `server_url` / the DERP region hostname is the public URL's
       host, otherwise clients cannot reach the embedded DERP
 
 ### 2.2 Wizard step
 **Files:** `aio/wizard.py`, `web/locales/*`
 
-- [ ] New step `derp` (after `network`): three radio options with a one-line
+- [x] New step `derp` (after `network`): three radio options with a one-line
       explanation each; `embedded` preselected; `custom` shows the URL field
-- [ ] Add it to `STEPS`, the step dots and the final summary
-- [ ] Validation (URL scheme, reachable-format check only; no outbound calls)
-- [ ] Tests in `tests/test_wizard.py`
+- [x] Add it to `STEPS`, the step dots and the final summary
+- [x] Validation (URL scheme, reachable-format check only; no outbound calls)
+- [x] Tests in `tests/test_wizard.py`
 
 ### 2.3 Console and docs
 **Files:** `web/derp_pages.py`, `docs/all-in-one.md`, `docs/all-in-one.es.md`
 
-- [ ] The existing DERP page shows the active mode and does not offer to
+- [x] The existing DERP page shows the active mode and does not offer to
       "fix" an embedded setup
-- [ ] Document the mode, the env var and the 3478/udp requirement
+- [x] Document the mode, the env var and the 3478/udp requirement
 
 ### 2.4 Verify
-- [ ] Start with no DERP settings → `headscale` config has the embedded DERP,
+- [x] (verified on the AIO image: `urls: []`, STUN answers on 3478/udp) Start with no DERP settings → `headscale` config has the embedded DERP,
       the container answers STUN on 3478/udp, a Tailscale client connects
       through it (extends the smoke test: assert the rendered config)
 

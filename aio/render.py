@@ -52,7 +52,9 @@ SETTINGS = {
     "tailnet_name": ("TAILNET_NAME", "myorg"),
     "base_domain": ("HSE_BASE_DOMAIN", ""),  # MagicDNS domain; empty = DEFAULT_BASE_DOMAIN
     "node_key_expiry": ("NODE_KEY_EXPIRY", "180d"),
-    "derp_use_public": ("DERP_USE_PUBLIC", "true"),
+    "derp_use_public": ("DERP_USE_PUBLIC", None),  # alias of derp_mode: true = public, false = embedded
+    "derp_mode": ("HSE_DERP_MODE", None),  # embedded (default) | public | custom
+    "derp_url": ("HSE_DERP_URL", ""),  # custom: a DERP map served over http(s)
     "network_isolation": ("NETWORK_ISOLATION", "true"),
     "http_port": ("HEADSCALE_HTTP_PORT", "8080"),
     "metrics_port": ("HEADSCALE_METRICS_PORT", "9090"),
@@ -141,6 +143,31 @@ def _domain(url):
     return host
 
 
+DERP_MODES = ("embedded", "public", "custom")
+
+
+def check_derp_url(value):
+    """A DERP map URL (http/https, a host, no spaces); "" if none."""
+    url = (value or "").strip()
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname or re.search(r"\s", url):
+        raise ValueError("derp_url must be an http(s):// URL of a DERP map")
+    return url
+
+
+def derp_mode(settings):
+    """embedded (default) | public | custom. DERP_USE_PUBLIC stays as an alias."""
+    mode = (settings.get("derp_mode") or "").strip().lower()
+    if not mode:
+        legacy = settings.get("derp_use_public")
+        mode = "public" if legacy == "true" else "embedded"
+    if mode not in DERP_MODES:
+        raise ValueError("HSE_DERP_MODE must be embedded, public or custom")
+    return mode
+
+
 DEFAULT_BASE_DOMAIN = "hse.net"  # slug of "Headscale Easy"
 _DNS_LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 
@@ -202,7 +229,7 @@ def to_vars(settings, target="aio"):
         "BASE_DOMAIN": check_base_domain(settings.get("base_domain"), domain) or (
             DEFAULT_BASE_DOMAIN if target == "aio" else "%s.headscale.net" % settings.get("tailnet_name", "myorg")),
         "LOG_LEVEL": settings.get("log_level", "info"),
-        "DERP_USE_PUBLIC": settings.get("derp_use_public", "true"),
+        "DERP_USE_PUBLIC": settings.get("derp_use_public") or "true",
         "NODE_KEY_EXPIRY": settings.get("node_key_expiry", "180d"),
         "HEADSCALE_DB_TYPE": settings.get("db_type", "sqlite"),
         "HEADSCALE_PG_HOST": settings.get("pg_host", ""),
@@ -224,6 +251,13 @@ def to_vars(settings, target="aio"):
         raise ValueError("ACME_EMAIL is required with HSE_TLS=auto")
     if auth != "none" and not (v["OIDC_ISSUER_URL"] and v["OIDC_CLIENT_ID"]):
         raise ValueError("OIDC needs OIDC_ISSUER and OIDC_CLIENT_ID")
+    if target == "aio":
+        v["DERP_MODE"] = derp_mode(settings)
+        v["DERP_URL"] = check_derp_url(settings.get("derp_url"))
+        v["DERP_USE_PUBLIC"] = "true" if v["DERP_MODE"] == "public" else "false"
+    else:
+        v["DERP_MODE"] = "public" if v["DERP_USE_PUBLIC"] == "true" else "embedded"
+        v["DERP_URL"] = ""
     return v
 
 
@@ -391,6 +425,9 @@ def render_headscale_config(v, target="aio", existing=None, data_dir=None):
     if v.get("DERP_USE_PUBLIC", "true") == "true":
         derp_urls = "urls:\n    - https://controlplane.tailscale.com/derpmap/default"
         derp_auto = "true"
+    elif v.get("DERP_URL"):
+        derp_urls = "urls:\n    - %s" % v["DERP_URL"]
+        derp_auto = "true"
     else:
         derp_urls = "urls: []"
         derp_auto = "false"
@@ -519,6 +556,7 @@ def console_env(settings, data_dir=None):
     env = {
         "PUBLIC_URL": v["SERVER_URL"],
         "TAILNET_NAME": v["TAILNET_NAME"],
+        "HSE_DERP_MODE": v["DERP_MODE"],
         "DEFAULT_LANG": settings.get("ui_lang", "en"),
         "TZ": settings.get("tz", "UTC"),
         "SESSION_SECRET": settings.get("session_secret", ""),
