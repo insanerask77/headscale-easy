@@ -11,6 +11,7 @@ import ipaddress
 import json
 import re
 import shlex
+from urllib.parse import urlparse
 
 from i18n import _
 from ui import BASE, copy_btn, csrf_input, esc, notice
@@ -114,6 +115,18 @@ def _code(text: str) -> str:
     return f'<div class="code"><code class="pre">{esc(text)}</code>{copy_btn(text)}</div>'
 
 
+def loopback(url: str) -> bool:
+    """Does the server's address point at the machine it runs on? From inside a
+    container that is the container itself, so it can never reach the server."""
+    host = (urlparse(url).hostname or "").lower()
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback or host in ("0.0.0.0", "::")
+    except ValueError:
+        return False
+
+
 def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: str = "",
           users: list[dict] | None = None) -> str:
     v = v or dict(DEFAULTS, route_list=[])
@@ -144,6 +157,10 @@ def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: 
       <div class="form-foot"><button class="btn primary" type="submit">{esc(_("Update the snippets"))}</button></div>
     </form>"""
     err = notice("error", error) if error else ""
+    warn = notice("warn", _(
+        "This server's address is {url}. Inside a container “localhost” is the container itself, so it cannot reach the "
+        "server. Use the server's real address (a name or IP the container can reach), or on Linux add --network host "
+        "to the container (and drop --hostname and --sysctl).", url=url)) if loopback(url) else ""
     if error:
         return f"{err}{form}"
     keys_link = f'<a class="link" href="{BASE}/settings/keys">' + esc(_("Settings → Keys")) + "</a>"
@@ -155,6 +172,7 @@ def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: 
             placeholder="<code>&lt;auth-key&gt;</code>", link=keys_link) + "</p>"
     name = "tailscale-" + v["hostname"]
     return f"""
+    {warn}
     <ol class="steps">
       <li>{esc(_("Set it up:"))}{form}</li>
       <li>{esc(_("Start it with Docker:"))}{_code(docker_run(url, v, key))}</li>

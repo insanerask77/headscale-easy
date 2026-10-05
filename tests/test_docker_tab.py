@@ -83,6 +83,21 @@ class Snippets(unittest.TestCase):
         self.assertIn("boom", html)
 
 
+class LoopbackWarning(unittest.TestCase):
+    def test_detects_addresses_a_container_cannot_use(self):
+        for url in ("http://localhost:8088", "https://localhost", "http://127.0.0.1:8080", "http://[::1]:8080",
+                    "http://0.0.0.0:80", "http://hse.localhost"):
+            self.assertTrue(docker_tab.loopback(url), url)
+        for url in ("https://vpn.example.com", "http://192.168.1.10:8088", "http://172.17.0.1:8088",
+                    "http://host.docker.internal:8088"):
+            self.assertFalse(docker_tab.loopback(url), url)
+
+    def test_panel_warns_only_for_loopback(self):
+        v, _e = parsed(hostname="edge-1")
+        self.assertIn("--network host", docker_tab.panel(MEMBER, "http://localhost:8088", v))
+        self.assertNotIn("--network host", docker_tab.panel(MEMBER, "https://vpn.example.com", v))
+
+
 class Page(Base):
     def setUp(self):
         super().setUp()

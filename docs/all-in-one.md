@@ -174,3 +174,9 @@ snippets; it is shown once and never stored. Without a key, leave `TS_AUTHKEY`
 out and read the sign-in link with `docker logs`. Exit-node and subnet-route
 options add the forwarding settings they need; the routes still have to be
 approved in the console. Auditors cannot generate keys.
+
+!!! warning "Use an address the container can reach"
+    If the server's public URL is `localhost` (or `127.0.0.1`), a container cannot
+    reach it: inside a container `localhost` is the container itself. The tab warns
+    you. Use a real name or IP, or on Linux add `--network host` (and drop
+    `--hostname` and `--sysctl`, which Docker does not allow with it).

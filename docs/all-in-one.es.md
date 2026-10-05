@@ -160,3 +160,10 @@ se muestra una vez y no se guarda. Sin clave, quita `TS_AUTHKEY` y lee el
 enlace de inicio de sesión con `docker logs`. Las opciones de nodo de salida y
 rutas añaden los ajustes de reenvío necesarios; las rutas aún hay que
 aprobarlas en la consola. Los auditores no pueden generar claves.
+
+!!! warning "Usa una dirección que el contenedor alcance"
+    Si la URL pública del servidor es `localhost` (o `127.0.0.1`), un contenedor no
+    puede llegar a ella: dentro de un contenedor `localhost` es el propio
+    contenedor. La pestaña te avisa. Usa un nombre o IP real o, en Linux, añade
+    `--network host` (y quita `--hostname` y `--sysctl`, que Docker no permite con
+    él).

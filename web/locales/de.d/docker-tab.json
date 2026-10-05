@@ -17,5 +17,6 @@
   "Set it up:": "Einrichten:",
   "Start it with Docker:": "Mit Docker starten:",
   "Or save this as docker-compose.yml and run docker compose up -d:": "Oder speichern Sie dies als docker-compose.yml und führen Sie docker compose up -d aus:",
-  "Owner of the device": "Besitzer des Geräts"
+  "Owner of the device": "Besitzer des Geräts",
+  "This server's address is {url}. Inside a container “localhost” is the container itself, so it cannot reach the server. Use the server's real address (a name or IP the container can reach), or on Linux add --network host to the container (and drop --hostname and --sysctl).": "Die Adresse dieses Servers ist {url}. In einem Container ist „localhost“ der Container selbst und erreicht den Server daher nicht. Verwenden Sie die echte Adresse des Servers (ein Name oder eine IP, die der Container erreicht) oder fügen Sie unter Linux --network host zum Container hinzu (und entfernen Sie --hostname und --sysctl)."
 }
