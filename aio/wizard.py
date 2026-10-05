@@ -131,11 +131,19 @@ def check_server(url: str, tls: str, acme_email: str) -> dict:
     return out
 
 
-def check_network(tailnet: str, isolation: bool) -> dict:
+def check_network(tailnet: str, isolation: bool, base_domain: str = "", server_url: str = "") -> dict:
     tailnet = tailnet.strip().lower()
     if not TAILNET_RE.match(tailnet):
         raise SetupError(_("The tailnet name may only have lowercase letters, numbers and hyphens."))
-    return {"tailnet_name": tailnet, "network_isolation": "true" if isolation else "false"}
+    host = urlparse(server_url).hostname or ""
+    wanted = base_domain.strip().strip(".").lower()
+    if wanted and host and (host == wanted or host.endswith("." + wanted)):
+        raise SetupError(_("The base domain must differ from the server's own domain."))
+    try:
+        base = render.check_base_domain(wanted)
+    except ValueError:
+        raise SetupError(_("The base domain must be a DNS name such as headscale-easy.net."))
+    return {"tailnet_name": tailnet, "network_isolation": "true" if isolation else "false", "base_domain": base}
 
 
 def check_backups(schedule: str, keep_days: str) -> dict:
@@ -454,8 +462,12 @@ def network_page(sess: dict, v: dict, error: str | None = None) -> str:
     name = v.get("tailnet_name", "myorg")
     iso = v.get("network_isolation", "true") == "true"
     inner = (_field(_("Tailnet name"), f'<input type="text" name="tailnet_name" required maxlength="32" '
-                    f'spellcheck="false" value="{esc(name)}" pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?">',
-                    _("Devices get names like device.{name}.headscale.net.", name="<name>")) +
+                    f'spellcheck="false" value="{esc(name)}" pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?">') +
+             _field(_("MagicDNS base domain"), f'<input type="text" name="base_domain" maxlength="253" '
+                    f'spellcheck="false" placeholder="{esc(render.DEFAULT_BASE_DOMAIN)}" '
+                    f'value="{esc(v.get("base_domain", ""))}">',
+                    _("Devices get names like device.{name}. Leave it empty to use {default}.",
+                      name="<base>", default=render.DEFAULT_BASE_DOMAIN)) +
              f'<label class="check"><input type="checkbox" name="isolation" value="1"{" checked" if iso else ""}>'
              f'<span>{esc(_("Isolate users: each user only reaches their own devices"))}</span></label>')
     return _card(_("Network"), _("Name your tailnet and choose how users see each other."), inner, sess,
@@ -691,9 +703,11 @@ class Handler(BaseHTTPRequestHandler):
         if method == "GET":
             return self.send(200, network_page(sess, data.get("network", {})))
         try:
-            data["network"] = check_network(form.get("tailnet_name", ""), form.get("isolation") == "1")
+            data["network"] = check_network(form.get("tailnet_name", ""), form.get("isolation") == "1",
+                                            form.get("base_domain", ""), data.get("server", {}).get("public_url", ""))
         except SetupError as exc:
             return self.send(400, network_page(sess, {"tailnet_name": form.get("tailnet_name", ""),
+                                                      "base_domain": form.get("base_domain", ""),
                                                       "network_isolation": "true" if form.get("isolation") else "false"},
                                                str(exc)))
         return self.redirect(f"{SETUP}/backups")

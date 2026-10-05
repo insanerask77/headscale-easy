@@ -227,6 +227,12 @@ class ValidationTest(unittest.TestCase):
 
     def test_network_and_backups(self):
         self.assertEqual(wizard.check_network("My-Org", True)["tailnet_name"], "my-org")
+        self.assertEqual(wizard.check_network("acme", True)["base_domain"], "")
+        got = wizard.check_network("acme", True, " Corp.Internal. ", "https://vpn.example.com")
+        self.assertEqual(got["base_domain"], "corp.internal")
+        for bad in ("nodots", "a b.com", "-x.com", "x..com", "vpn.example.com", "example.com"):
+            with self.assertRaises(wizard.SetupError, msg=bad):
+                wizard.check_network("acme", True, bad, "https://vpn.example.com")
         self.assertEqual(wizard.check_network("x", False)["network_isolation"], "false")
         for bad in ("", "-a", "a-", "a.b", "a b", "x" * 40):
             with self.assertRaises(wizard.SetupError, msg=bad):

@@ -189,21 +189,25 @@ wizard or Settings.
 ### 4.1 Setting and validation
 **Files:** `aio/render.py`, `aio/wizard.py`, `web/locales/*`
 
-- [ ] New setting `base_domain` (env `HSE_BASE_DOMAIN`). Today it is derived
+- [x] New setting `base_domain` (env `HSE_BASE_DOMAIN`). Today it is derived
       as `<tailnet>.headscale.net`
-- [ ] Default when empty: derived from "Headscale Easy"
+- [x] Default when empty: derived from "Headscale Easy"
       (`headscale-easy.<suffix>`); settle the exact value, and check that
       Headscale accepts it (must be a valid DNS name, different from the
       server's own domain)
-- [ ] Validate as a DNS name (labels, length) with a clear error message
-- [ ] Keep `render.py`'s rule that an existing value edited in the DNS page
+- [x] Validate as a DNS name (labels, length) with a clear error message
+- [x] Keep `render.py`'s rule that an existing value edited in the DNS page
       is not overwritten on re-render
 
 ### 4.2 Wizard
-- [ ] On the network step: editable "MagicDNS base domain" field, prefilled
+- [x] On the network step: editable "MagicDNS base domain" field, prefilled
       with the default, with the example line updated
       (`device.<base domain>`)
-- [ ] Tests in `tests/test_wizard.py`, `tests/test_render.py`, `tests/test_dns.py`
+- [x] Tests in `tests/test_wizard.py`, `tests/test_render.py`, `tests/test_dns.py`
+
+> **Decision (pending owner OK):** default `headscale-easy.net`, AIO only; the compose
+> install keeps `<tailnet>.headscale.net`. Rejected: no dots, bad labels, the
+> server's own domain or a parent of it.
 
 **Done when:** the wizard shows and lets you change the base domain; empty
 means the Headscale Easy default; the DNS page still edits it later.

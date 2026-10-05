@@ -50,6 +50,7 @@ SETTINGS = {
     "ui_lang": ("UI_LANG", "en"),
     "tz": ("TZ", "UTC"),
     "tailnet_name": ("TAILNET_NAME", "myorg"),
+    "base_domain": ("HSE_BASE_DOMAIN", ""),  # MagicDNS domain; empty = DEFAULT_BASE_DOMAIN
     "node_key_expiry": ("NODE_KEY_EXPIRY", "180d"),
     "derp_use_public": ("DERP_USE_PUBLIC", "true"),
     "network_isolation": ("NETWORK_ISOLATION", "true"),
@@ -140,6 +141,27 @@ def _domain(url):
     return host
 
 
+DEFAULT_BASE_DOMAIN = "headscale-easy.net"  # slug of "Headscale Easy"
+_DNS_LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+
+
+def check_base_domain(value, server_host=""):
+    """The MagicDNS base domain as a lowercase DNS name; "" means the default.
+
+    Headscale refuses a base domain that is the server's own domain or a
+    parent of it, so that is rejected here with a clear message."""
+    name = (value or "").strip().strip(".").lower()
+    if not name:
+        return ""
+    labels = name.split(".")
+    if len(name) > 253 or len(labels) < 2 or not all(_DNS_LABEL.match(x) for x in labels):
+        raise ValueError("base_domain must be a DNS name such as headscale-easy.net")
+    host = (server_host or "").lower()
+    if host and (host == name or host.endswith("." + name)):
+        raise ValueError("base_domain must differ from the server's own domain (%s)" % host)
+    return name
+
+
 def to_vars(settings, target="aio"):
     """install.sh-style variables (SERVER_URL, DOMAIN, SSL_MODE...) from settings."""
     url = (settings.get("public_url") or "").rstrip("/")
@@ -177,6 +199,8 @@ def to_vars(settings, target="aio"):
         "IP_PREFIXES_V4": settings.get("ip_prefixes_v4", "100.64.0.0/10"),
         "IP_PREFIXES_V6": settings.get("ip_prefixes_v6", "fd7a:115c:a1e0::/48"),
         "TAILNET_NAME": settings.get("tailnet_name", "myorg"),
+        "BASE_DOMAIN": check_base_domain(settings.get("base_domain"), domain) or (
+            DEFAULT_BASE_DOMAIN if target == "aio" else "%s.headscale.net" % settings.get("tailnet_name", "myorg")),
         "LOG_LEVEL": settings.get("log_level", "info"),
         "DERP_USE_PUBLIC": settings.get("derp_use_public", "true"),
         "NODE_KEY_EXPIRY": settings.get("node_key_expiry", "180d"),
@@ -253,7 +277,7 @@ def dns_block(v, existing=None):
     block = _marked(existing, DNS_BEGIN, DNS_END)
     if block is not None:
         return block.rstrip("\n")
-    base = "%s.headscale.net" % v["TAILNET_NAME"]
+    base = v.get("BASE_DOMAIN") or "%s.headscale.net" % v["TAILNET_NAME"]
     magic = "true"
     if existing:
         base = _dns_setting(existing, "base_domain") or base

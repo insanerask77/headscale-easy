@@ -252,6 +252,19 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(s["node_key_expiry"], "90d")
         self.assertEqual(s["network_isolation"], "false")
 
+    def test_base_domain_default_setting_and_env(self):
+        base = {"public_url": "https://vpn.example.com", "tailnet_name": "acme", "acme_email": "a@example.com"}
+        self.assertEqual(render.to_vars(base)["BASE_DOMAIN"], "headscale-easy.net")
+        self.assertEqual(render.to_vars(base, "compose")["BASE_DOMAIN"], "acme.headscale.net")
+        self.assertEqual(render.to_vars(dict(base, base_domain="Corp.Internal"))["BASE_DOMAIN"], "corp.internal")
+        self.assertEqual(render.load_settings({"HSE_BASE_DOMAIN": "x.example"}, self.path)["base_domain"], "x.example")
+        self.assertIn("base_domain: corp.internal", render.dns_block(render.to_vars(dict(base, base_domain="corp.internal"))))
+
+    def test_base_domain_validation(self):
+        for bad in ("nodots", "a b.com", "-x.com", "x..com", "a" * 64 + ".com", "vpn.example.com", "example.com"):
+            with self.assertRaises(ValueError, msg=bad):
+                render.to_vars({"public_url": "https://vpn.example.com", "acme_email": "a@example.com", "base_domain": bad})
+
     def test_missing_or_corrupt_file_is_ignored(self):
         self.assertEqual(render.load_settings({}, self.path)["tailnet_name"], "myorg")
         with open(self.path, "w") as fh:
@@ -279,7 +292,7 @@ class RenderAllTest(unittest.TestCase):
             self.assertEqual(os.stat(os.path.dirname(p["config"])).st_mode & 0o777, 0o700)
             self.assertEqual(read(p["derp"]), "regions: {}\n")
             # The console edits the dns block; a re-render keeps it
-            text = read(p["config"]).replace("base_domain: acme.headscale.net", "base_domain: edited.example")
+            text = read(p["config"]).replace("base_domain: headscale-easy.net", "base_domain: edited.example")
             with open(p["config"], "w", encoding="utf-8") as fh:
                 fh.write(text)
             render.render_all(settings, d)
