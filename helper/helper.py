@@ -8,6 +8,7 @@ three fixed operations on a fixed container:
     POST /configtest   'headscale configtest' in the Headscale container
     POST /restart      restart Headscale and wait until it is healthy
     GET  /status       health of the stack's containers + Headscale version
+    POST /backup       start a backup now (all-in-one supervisor only; 404 here)
 
 There are no parameters: no query strings, no request bodies, no container
 names, no commands. Anything else is refused (404, 405 or 400). The container
@@ -47,6 +48,7 @@ ROUTES = {
     ("POST", "/configtest"): "configtest",
     ("POST", "/restart"): "restart",
     ("GET", "/status"): "status",
+    ("POST", "/backup"): "backup",   # all-in-one supervisor only (see aio/supervisor.py)
 }
 PATHS = {path for _, path in ROUTES}
 
@@ -242,6 +244,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(405, {"ok": False, "error": "method not allowed"}, {"Allow": allowed})
         try:
             backends = self.backends or {"configtest": configtest, "restart": restart, "status": status}
+            if name not in backends:  # /backup on the Docker helper: the route does not exist here
+                return self._send(404, {"ok": False, "error": "not found"})
             code, payload = backends[name]()
         except OSError as exc:
             log.error("%s: Docker unreachable: %s", name, exc)
@@ -270,7 +274,7 @@ class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
 def serve(path: str = HELPER_SOCKET, backends: dict | None = None) -> Server:
     """Bind the Unix socket (replacing a stale one) readable by owner+group.
 
-    ``backends`` maps "configtest" / "restart" / "status" to callables returning
+    ``backends`` maps "configtest" / "restart" / "status" (/ "backup") to callables returning
     (HTTP status, payload); the default is the Docker implementation above."""
     handler = Handler
     if backends is not None:

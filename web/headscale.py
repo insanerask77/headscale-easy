@@ -409,6 +409,26 @@ def helper_status() -> dict | None:
     return data if code == 200 else None
 
 
+def helper_backup() -> str:
+    """Ask the all-in-one supervisor for a backup now (POST /backup).
+
+    'started', 'busy' (one is already running), 'unavailable' (no helper, or
+    the 1.x helper, which has no such route: 404) or 'error'."""
+    if not os.path.exists(HELPER_SOCKET):
+        return "unavailable"
+    try:
+        code, data = helper("POST", "/backup", timeout=20)
+    except OSError:
+        return "error"
+    if code == 404:
+        return "unavailable"
+    if code == 200 and data.get("ok"):
+        return "started"
+    if code == 200 and "already running" in str(data.get("error", "")):
+        return "busy"
+    return "error"
+
+
 def docker_available() -> bool:
     """Can Headscale be validated and restarted from here?"""
     backend = _backend()
