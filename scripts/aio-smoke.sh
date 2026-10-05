@@ -210,6 +210,9 @@ docker exec "$NAME" headscale users destroy --identifier "$(hs_user_id smoke-res
     || fail "could not delete the marker user (online round)"
 [ -z "$(hs_user_id smoke-restore)" ] || fail "the marker user is still there (online round)"
 docker exec "$NAME" hse restore "$archive" --yes || fail "online hse restore failed"
+# docker's health status is still the pre-restore "healthy" for up to one interval: wait for the console itself
+healthz_ok() { [ "$(http_code /admin/healthz)" = 200 ]; }
+wait_for 90 "/admin/healthz did not answer 200 after the online restore" healthz_ok
 wait_for 90 "container is not healthy after the online restore" is_healthy "$NAME"
 [ -n "$(hs_user_id smoke-restore)" ] || fail "online restore did not bring the marker user back"
 [ "$(http_code /admin/healthz)" = 200 ] || fail "/admin/healthz did not answer 200 after the online restore"
