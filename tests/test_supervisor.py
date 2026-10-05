@@ -536,7 +536,8 @@ class HelperSocketTest(SupervisorMixin, FakeCase):
         self.assertEqual(data["backup"], summary)
 
     def test_status_without_a_scheduler_has_no_backup_key(self):
-        self.assertNotIn("backup", self.req("GET", "/status")[2])
+        with mock.patch.object(self.s, "backup_summary", None):
+            self.assertNotIn("backup", self.req("GET", "/status")[2])
 
     def test_backup_route_starts_a_manual_run(self):
         with mock.patch.object(self.s, "start_backup", create=True, return_value=True) as start:
@@ -550,7 +551,8 @@ class HelperSocketTest(SupervisorMixin, FakeCase):
         self.assertEqual((code, data), (200, {"ok": False, "error": "already running"}))
 
     def test_backup_route_in_setup_mode_or_without_a_scheduler(self):
-        self.assertFalse(self.req("POST", "/backup")[2]["ok"])  # no start_backup yet
+        with mock.patch.object(self.s, "start_backup", None):
+            self.assertFalse(self.req("POST", "/backup")[2]["ok"])
         with mock.patch.object(self.s, "start_backup", create=True, return_value=True) as start, \
                 mock.patch.object(self.s, "mode", "setup"):
             data = self.req("POST", "/backup")[2]
