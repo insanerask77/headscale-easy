@@ -142,6 +142,9 @@ major upgrades.
 
 ## Backups
 
+!!! note "Using the all-in-one image?"
+    It backs itself up, with no extra container: see [All-in-one → Backups](all-in-one.md#backups). This section describes the split `docker-compose.yml` of 1.x.
+
 Daily backups are **optional**: the installer asks (off by default, since they
 add a small container and disk use, but recommended). When enabled, the
 `backup` container makes a backup every day at the time you chose (03:00 by

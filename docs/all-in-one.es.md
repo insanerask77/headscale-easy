@@ -51,8 +51,9 @@ El modo configuración arranca cuando no existe `/data/config/settings.json` ni
 7. **Relés (DERP)**: *este servidor* (por defecto: DERP y STUN corren en el
    contenedor, UDP 3478, nada de terceros), también los relés públicos de
    Tailscale, o tu propio mapa DERP.
-8. **Copias**: la programación y la retención se guardan para las copias
-   integradas que llegarán en una versión posterior.
+8. **Copias**: cuándo hacerlas (sintaxis cron, por defecto cada noche a las
+   03:00; `off` las desactiva) y cuántos días guardarlas (por defecto 14). El
+   asistente muestra cuándo será la próxima. Mira [Copias de seguridad](#backups).
 
 Al terminar se crean la clave de API de Headscale, el usuario de Headscale del
 administrador y la política de aislamiento, y arranca la consola. Si un paso
@@ -81,7 +82,7 @@ docker run -d --name headscale-easy \
 
 La precedencia es **entorno > `/data/config/settings.json` > valores por
 defecto**. Las variables (`HSE_TLS`, `TAILNET_NAME`, `HSE_BASE_DOMAIN` (dominio base de MagicDNS, por defecto `hse.net`), `HSE_SIGNUP` (`off` por defecto; `invite` exige clave de invitación; `open` permite a cualquiera; se cambia después en Ajustes → General), `HSE_DERP_MODE` (`embedded` por defecto: DERP y STUN propios del contenedor, publica `3478/udp`; `public` añade los relés públicos de Tailscale; `custom` usa tu mapa con `HSE_DERP_URL`), `NETWORK_ISOLATION`,
-`NODE_KEY_EXPIRY`, `UI_LANG`, `TZ`, `OIDC_*`, `HEADSCALE_DB_TYPE` y
+`NODE_KEY_EXPIRY`, `UI_LANG`, `TZ`, `BACKUP_SCHEDULE` (cron, por defecto `0 3 * * *`; `off` la desactiva) y `BACKUP_KEEP_DAYS` (por defecto `14`), `OIDC_*`, `HEADSCALE_DB_TYPE` y
 `HEADSCALE_PG_*`, entre otras) están en la
 [versión en inglés](all-in-one.md#headless-start-no-wizard).
 
@@ -93,10 +94,105 @@ defecto**. Las variables (`HSE_TLS`, `TAILNET_NAME`, `HSE_BASE_DOMAIN` (dominio 
 | `caddy/` | Certificados y logs de acceso |
 | `console/` | Bases de cuentas, sesiones y auditoría; clave de API de Headscale |
 | `config/` | `settings.json`, `config.yaml`, `Caddyfile` y `derp.yaml` generados |
-| `backups/` | Reservado para las copias integradas |
+| `backups/` | Las copias integradas y `status.json` (última y próxima ejecución) |
 
-Todo lo crea el contenedor con permisos privados (700 / 600). Copia el volumen
-para copiar el servidor.
+Todo lo crea el contenedor con permisos privados (700 / 600). El contenedor se
+copia a sí mismo, mira [Copias de seguridad](#backups); copiar el volumen
+también sirve.
+
+## Copias de seguridad { #backups }
+
+El contenedor hace una copia **cada noche a las 03:00** (zona horaria `TZ`) y
+guarda los últimos 14 días en `/data/backups`, sin ningún contenedor extra. Se
+desactiva con `BACKUP_SCHEDULE=off` y se cambia con `BACKUP_SCHEDULE` /
+`BACKUP_KEEP_DAYS` (o en el asistente). Si la hora programada pasó mientras el
+contenedor estaba parado, se hace una copia poco después de arrancar.
+
+Cada copia es un `headscale-easy-<fecha>-<hora>.tar.gz` con:
+
+| Dentro | Qué es |
+|---|---|
+| `headscale/` | La base de datos (copia consistente tomada con Headscale en marcha: `db.sqlite`, o `headscale.sql` de `pg_dump` con un PostgreSQL externo) y sus claves privadas, para que los dispositivos sigan registrados tras restaurar |
+| `config/` | `settings.json`, `config.yaml`, `Caddyfile`, `derp.yaml`, secreto de sesión: tus cambios de DNS viven en `config.yaml` |
+| `console/` | Cuentas locales (hashes de contraseña y secretos de doble factor), clave de API de Headscale, modo de doble factor |
+| `web/` | El registro de actividad |
+| `caddy/pki/` | La CA interna, si usas `HSE_TLS=internal` |
+| `meta.json` | Formato, versiones y un SHA-256 de cada fichero, comprobado antes de restaurar |
+
+Las sesiones activas **no** se guardan: tras restaurar todos vuelven a iniciar
+sesión (una sesión restaurada revivirá accesos revocados después de la copia).
+Cada copia se vuelve a leer y se verifica antes de darla por buena, y las
+antiguas se borran por edad, nunca la última correcta.
+
+!!! warning "Una copia es un conjunto de secretos"
+    Contiene hashes de contraseña, secretos de doble factor, el secreto de
+    cliente OIDC y las claves privadas de Headscale. El archivo y
+    `/data/backups` son privados (600 / 700). Guárdalas en un sitio seguro y
+    fuera de este servidor, y trata la copia como al servidor. La consola
+    muestra el estado de las copias pero no ofrece descargarlas, a propósito.
+
+### Copiar y restaurar
+
+```bash
+docker exec headscale-easy hse backup          # una copia ahora mismo
+docker exec headscale-easy hse backups         # lista: tamaño, antigüedad, resultado
+docker exec headscale-easy hse restore /data/backups/headscale-easy-20261005-030000.tar.gz
+```
+
+**Ajustes → Estado** muestra la última copia (hora, tamaño, resultado), la
+próxima ejecución y un botón **Copiar ahora** (administradores). Si falla una
+copia programada, también envía una notificación si la tienes configurada.
+
+Restaurar, por orden de preferencia:
+
+1. **Contenedor parado (recomendado).** Es también como se restaura en un
+   servidor *nuevo*: usa un volumen nuevo y vacío y arranca el contenedor con
+   normalidad después. Arranca en modo normal (sin asistente) con los mismos
+   usuarios, máquinas, cuentas y DNS.
+
+    ```bash
+    docker stop headscale-easy
+    docker run --rm -v hse:/data --entrypoint hse \
+      ghcr.io/insanerask77/headscale-easy-aio restore /data/backups/<fichero>.tar.gz
+    docker start headscale-easy
+    ```
+
+2. **Contenedor en marcha**: `docker exec headscale-easy hse restore <fichero>`
+   detiene los tres procesos, restaura y los vuelve a arrancar. Se rechaza
+   mientras la configuración inicial no esté terminada (usa la vía del
+   contenedor parado).
+
+Las dos vías comprueban primero el archivo (formato, SHA-256 de cada fichero,
+integridad de las bases de datos) y no cambian nada si no es válido. Antes de
+sustituir nada hacen una copia `…-pre-restore-…` de los datos actuales y la
+devuelven si la restauración falla a medias. Un archivo de una instalación 1.x
+se rechaza: mira las notas de migración (fase 5). Y al revés: `scripts/restore.sh`
+(la herramienta de 1.x) rechaza un archivo de esta imagen y apunta a `hse restore`.
+
+### Dónde van las copias
+
+`/data/backups` está en el mismo volumen que los datos, así que no sobrevive a
+perder el disco. Monta otro sitio (por ejemplo una carpeta de un NAS) encima:
+
+```bash
+docker run … -v hse:/data -v /mnt/nas/hse-backups:/data/backups …
+```
+
+La carpeta debe poder escribirla el uid 1000. Para copias a S3, B2, SFTP u otro
+servidor usa la imagen `backup` como **sidecar de sincronización** en la edición
+avanzada: con `BACKUP_MODE=sync` sube cada archivo nuevo que encuentre en
+`/backups` (monta la misma carpeta, en solo lectura) cada
+`BACKUP_SYNC_INTERVAL` segundos y aplica la retención remota. rclone y rsync no
+vienen en la imagen todo en uno. Mira [Operación → Copias remotas](operations.md#backups-remotos)
+para los ajustes del destino.
+
+### Sintaxis de la programación
+
+Cinco campos, `minuto hora día-del-mes mes día-de-la-semana`, con `*`, listas
+(`1,15`), rangos (`1-5`) y pasos (`*/6`, `0-20/5`); el día de la semana es 0-7
+(0 y 7 son domingo). Si se indican día del mes y día de la semana, vale
+cualquiera de los dos, como en cron. `off` (o vacío) desactiva la
+programación. Por ejemplo `30 2 * * 1-5` son las 02:30 de lunes a viernes.
 
 ## Seguridad y requisitos
 
@@ -113,6 +209,7 @@ para copiar el servidor.
 ```bash
 docker exec headscale-easy hse health   # sano cuando todos los procesos corren
 docker exec headscale-easy hse reload   # regenera la config y reinicia Caddy y Headscale
+docker exec headscale-easy hse backup   # copia ahora (mira Copias de seguridad)
 docker logs -f headscale-easy           # [supervisor] [headscale] [caddy] [console]
 ```
 
@@ -123,12 +220,12 @@ el DNS en la consola valida la configuración y reinicia Headscale a través de
 están en el volumen.
 
 Medido en el runner de CI: la imagen pesa unos 55 MB y el contenedor en reposo
-usa unos 65 MB de RAM. CI falla por encima de 250 MB y 100 MB.
+usa unos 65 MB de RAM, también mientras corre una copia. CI falla por encima de 250 MB y 100 MB.
 
 ## Límites de la preview
 
 - Sin Authentik integrado: cuentas locales (con doble factor) u OIDC externo.
-- Las copias programadas aún no están integradas; copia el volumen `/data`.
+- Las copias se quedan en el volumen: para copias remotas usa el sidecar de sincronización (mira [Copias de seguridad](#backups)).
 - La migración de una instalación 1.x todavía no está automatizada.
 
 ## Usuarios y registro
