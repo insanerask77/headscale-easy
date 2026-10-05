@@ -20,7 +20,9 @@ import tempfile
 import threading
 import time
 import unittest
+from datetime import datetime
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -633,6 +635,244 @@ class ProcessTest(FakeCase):
         self.assertIn("healthy (setup mode): caddy, wizard", res.stdout)
         proc.send_signal(signal.SIGTERM)
         self.assertEqual(proc.wait(10), 0)
+
+
+# --- Scheduled backups ---------------------------------------------------------------------
+
+# Stands in for aio/backup.py: logs argv and the env it got, optionally waits for a flag file, exits with a code.
+FAKE_BACKUP = """#!%(py)s
+import json, os, sys, time
+state = os.path.join(os.environ["HSE_DATA_DIR"], "fake")
+with open(os.path.join(state, "backup.log"), "a") as fh:
+    fh.write(json.dumps({"argv": sys.argv[1:], "env": {k: os.environ.get(k) for k in
+        ("BACKUP_SCHEDULE", "BACKUP_KEEP_DAYS", "HSE_DATA_DIR", "TZ")}}) + "\\n")
+print("fake backup running", flush=True)
+hold = os.path.join(state, "backup-hold")
+while os.path.exists(hold):
+    time.sleep(0.02)
+sys.exit(int(open(os.path.join(state, "backup-exit")).read()) if os.path.exists(os.path.join(state, "backup-exit")) else 0)
+"""
+
+
+class SchedulerTest(SupervisorMixin, FakeCase):
+    def setUp(self):
+        super().setUp()
+        self.backup_py = os.path.join(self.fakes.bin, "backup.py")
+        self.fakes.write(self.backup_py, FAKE_BACKUP % {"py": sys.executable}, 0o755)
+        patch = mock.patch.object(sup, "BACKUP_CMD", [sys.executable, self.backup_py])
+        patch.start()
+        self.addCleanup(patch.stop)
+        os.makedirs(os.path.join(self.fakes.data, "backups"), exist_ok=True)
+        self.now = [datetime(2026, 10, 5, 2, 59)]
+
+    def runs(self):
+        return [json.loads(line) for line in self.fakes.lines("backup.log")]
+
+    def sched(self, schedule="0 3 * * *", start=True, **env):
+        s = self.make(BACKUP_SCHEDULE=schedule, **env)
+        s.mode = "run"
+        s.settings = s.load()
+        s.clock = lambda: self.now[0]
+        s.sched_tick = 0.02
+        s.catchup_delay = 0.05
+        if start:
+            s.start_scheduler()
+            self.armed(s)
+        return s
+
+    def armed(self, s):
+        """Wait until the scheduler has computed its next slot (moving the fake clock earlier would race)."""
+        if s.backup_cfg["schedule"] != "off":
+            self.assertTrue(wait_for(lambda: s._backup_next is not None))
+
+    def status(self, at, ok=True):
+        entry = {"at": at, "ok": ok, "file": "headscale-easy-x.tar.gz", "size": 1234, "trigger": "scheduled"}
+        with open(os.path.join(self.fakes.data, "backups", "status.json"), "w") as fh:
+            json.dump({"last": entry, "last_ok": entry, "count": 3, "bytes": 4096}, fh)
+
+    def test_fires_on_time_once_per_slot(self):
+        s = self.sched()
+        time.sleep(0.2)
+        self.assertEqual(self.runs(), [])  # 02:59: not yet
+        self.now[0] = datetime(2026, 10, 5, 3, 0)
+        self.assertTrue(wait_for(lambda: len(self.runs()) == 1))
+        self.assertEqual(self.runs()[0]["argv"], ["create", "--trigger", "scheduled"])
+        self.assertTrue(any(l.startswith("[backup] fake backup running") for l in s.lines))
+        self.now[0] = datetime(2026, 10, 5, 3, 0, 40)  # same slot, later ticks: no second run
+        time.sleep(0.3)
+        self.assertEqual(len(self.runs()), 1)
+        self.now[0] = datetime(2026, 10, 6, 3, 0)
+        self.assertTrue(wait_for(lambda: len(self.runs()) == 2))
+
+    def test_the_subprocess_gets_the_schedule_the_data_dir_and_the_time_zone(self):
+        self.sched("*/5 * * * *", BACKUP_KEEP_DAYS="30", TZ="Europe/Madrid")
+        self.now[0] = datetime(2026, 10, 5, 3, 5)
+        self.assertTrue(wait_for(lambda: self.runs()))
+        env = self.runs()[0]["env"]
+        self.assertEqual((env["BACKUP_SCHEDULE"], env["BACKUP_KEEP_DAYS"]), ("*/5 * * * *", "30"))
+        self.assertEqual((env["HSE_DATA_DIR"], env["TZ"]), (self.fakes.data, "Europe/Madrid"))
+
+    def test_off_never_fires(self):
+        s = self.sched("off")
+        self.now[0] = datetime(2026, 10, 5, 3, 0)
+        time.sleep(0.3)
+        self.assertEqual(self.runs(), [])
+        summary = s.backup_summary()
+        self.assertFalse(summary["enabled"])
+        self.assertIsNone(summary["next_run"])
+
+    def test_missed_run_is_made_up_once(self):
+        self.status("2026-10-01T03:00:12")  # last backup four days ago; slots 02..05 Oct passed
+        self.now[0] = datetime(2026, 10, 5, 10, 0)
+        s = self.sched()
+        self.assertTrue(wait_for(lambda: len(self.runs()) == 1))
+        self.assertTrue(any("missed" in l for l in s.lines))
+        time.sleep(0.4)
+        self.assertEqual(len(self.runs()), 1)  # once, not once per missed slot
+
+    def test_no_catch_up_when_the_last_backup_is_recent(self):
+        self.status("2026-10-05T03:00:12")
+        self.now[0] = datetime(2026, 10, 5, 10, 0)
+        self.sched()
+        time.sleep(0.4)
+        self.assertEqual(self.runs(), [])
+
+    def test_no_catch_up_without_history(self):
+        self.now[0] = datetime(2026, 10, 9, 10, 0)
+        self.sched()
+        time.sleep(0.4)
+        self.assertEqual(self.runs(), [])
+
+    def test_catch_up_is_cancelled_when_the_next_slot_arrives_first(self):
+        self.status("2026-10-01T03:00:00")
+        self.now[0] = datetime(2026, 10, 5, 2, 59)
+        s = self.sched(start=False)
+        s.catchup_delay = 0.6
+        s.start_scheduler()
+        time.sleep(0.1)
+        self.now[0] = datetime(2026, 10, 5, 3, 0)
+        self.assertTrue(wait_for(lambda: len(self.runs()) == 1))
+        time.sleep(0.9)
+        self.assertEqual(len(self.runs()), 1)
+
+    def test_overlapping_slot_is_skipped(self):
+        self.fakes.flag("backup-hold")
+        s = self.sched()
+        self.now[0] = datetime(2026, 10, 5, 3, 0)
+        self.assertTrue(wait_for(lambda: len(self.runs()) == 1))
+        self.assertTrue(s.backup_summary()["running"])
+        self.assertFalse(s.start_backup("manual"))  # busy
+        self.now[0] = datetime(2026, 10, 6, 3, 0)  # the next slot arrives while it still runs
+        self.assertTrue(wait_for(lambda: any("skipped" in l for l in s.lines)))
+        self.assertEqual(len(self.runs()), 1)
+        self.fakes.flag("backup-hold", False)
+        self.assertTrue(wait_for(lambda: not s.backup_summary()["running"]))
+        self.assertTrue(s.start_backup("manual"))  # free again
+        self.assertTrue(wait_for(lambda: len(self.runs()) == 2))
+        self.assertEqual(self.runs()[1]["argv"], ["create", "--trigger", "manual"])
+
+    def test_failed_run_is_logged_and_not_retried_in_a_loop(self):
+        with open(os.path.join(self.fakes.data, "fake", "backup-exit"), "w") as fh:
+            fh.write("1")
+        s = self.sched()
+        self.now[0] = datetime(2026, 10, 5, 3, 0)
+        self.assertTrue(wait_for(lambda: any("FAILED (exit 1)" in l for l in s.lines)))
+        self.assertTrue(wait_for(lambda: not s.backup_summary()["running"]))
+        time.sleep(0.3)
+        self.assertEqual(len(self.runs()), 1)
+        with open(os.path.join(self.fakes.data, "fake", "backup-exit"), "w") as fh:
+            fh.write("3")  # another backup holds the lock (hse backup)
+        self.assertTrue(s.start_backup("manual"))
+        self.assertTrue(wait_for(lambda: any("another backup is running" in l for l in s.lines)))
+
+    def test_configure_picks_up_a_new_schedule_and_rejects_an_invalid_one(self):
+        s = self.sched("0 3 * * *")
+        self.assertEqual(s.backup_summary()["next_run"], "2026-10-05T03:00:00")
+        s.settings["backup_schedule"] = "*/5 * * * *"
+        s.settings["backup_keep_days"] = "7"
+        s.configure_backup()
+        summary = s.backup_summary()
+        self.assertEqual((summary["schedule"], summary["keep_days"]), ("*/5 * * * *", 7))
+        self.armed(s)
+        self.now[0] = datetime(2026, 10, 5, 3, 5)
+        self.assertTrue(wait_for(lambda: len(self.runs()) == 1))
+        s.settings["backup_schedule"] = "nonsense"
+        s.configure_backup()
+        self.assertEqual(s.backup_summary()["schedule"], "*/5 * * * *")  # kept
+        self.assertTrue(any("Invalid schedule" in l for l in s.lines))
+        s.settings["backup_schedule"] = "off"
+        s.configure_backup()
+        self.assertFalse(s.backup_summary()["enabled"])
+
+    def test_hse_reload_rereads_the_schedule(self):
+        s = self.make(BACKUP_SCHEDULE="0 3 * * *")
+        s.clock = lambda: self.now[0]
+        s.sched_tick = 0.02
+        s.start_children()
+        self.addCleanup(s.shutdown)
+        self.assertTrue(wait_for(lambda: s.mode == "run" and len(s.children) == 3 and s.headscale_healthy(fresh=True)))
+        self.assertEqual(s.backup_summary()["schedule"], "0 3 * * *")
+        s.env["BACKUP_SCHEDULE"] = "30 4 * * *"
+        s.reload()
+        self.assertEqual(s.backup_summary()["schedule"], "30 4 * * *")
+
+    def test_setup_mode_schedules_nothing(self):
+        s = self.make(HSE_PUBLIC_URL="", BACKUP_SCHEDULE="* * * * *")
+        s.clock = lambda: self.now[0]
+        s.sched_tick = 0.02
+        s.start_children()
+        self.addCleanup(s.shutdown)
+        self.assertEqual(s.mode, "setup")
+        self.assertIsNone(s._sched_thread)
+        self.assertFalse(s.start_backup("manual"))
+        self.now[0] = datetime(2026, 10, 5, 3, 0)
+        time.sleep(0.3)
+        self.assertEqual(self.runs(), [])
+
+    def test_shutdown_stops_the_scheduler_and_terminates_a_running_backup(self):
+        self.fakes.flag("backup-hold")
+        s = self.sched()
+        self.assertTrue(s.start_backup("manual"))
+        self.assertTrue(wait_for(lambda: len(self.runs()) == 1))
+        proc = s._backup_proc
+        self.assertIsNotNone(proc)
+        started = time.monotonic()
+        s.shutdown()
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertFalse(s._sched_thread.is_alive())
+        self.assertIsNotNone(proc.wait(5))
+        self.assertTrue(wait_for(lambda: not s._backup_running))
+        self.assertFalse(s.start_backup("manual"))
+
+    def test_summary_reads_status_json(self):
+        s = self.sched()
+        self.status("2026-10-05T01:00:00")
+        summary = s.backup_summary()
+        self.assertEqual((summary["count"], summary["bytes"]), (3, 4096))
+        self.assertEqual(summary["last"]["file"], "headscale-easy-x.tar.gz")
+        self.assertEqual(summary["last_ok"]["size"], 1234)
+        self.assertTrue(summary["enabled"] and not summary["running"])
+
+    def test_clock_uses_the_configured_time_zone(self):
+        try:
+            ZoneInfo("Etc/GMT+12")
+        except Exception:  # noqa: BLE001
+            self.skipTest("no tz database on this host")
+        s = self.sched(start=False)
+        s.clock = None
+        s.settings["tz"] = "Etc/GMT+12"  # UTC-12
+        behind = s.now_local()
+        s.settings["tz"] = "Etc/GMT-14"  # UTC+14
+        ahead = s.now_local()
+        self.assertAlmostEqual((ahead - behind).total_seconds(), 26 * 3600, delta=60)
+
+    def test_unknown_time_zone_falls_back_to_system_time_and_warns_once(self):
+        s = self.sched(start=False)
+        s.clock = None
+        s.settings["tz"] = "Mars/Olympus_Mons"
+        self.assertLess(abs((s.now_local() - datetime.now()).total_seconds()), 5)
+        s.now_local()
+        self.assertEqual(len([l for l in s.lines if "tzdata" in l]), 1)
 
 
 if __name__ == "__main__":
