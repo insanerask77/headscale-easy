@@ -567,16 +567,18 @@ def finish_page(sess: dict, data: dict, error: str | None = None) -> str:
 
 
 def done_page(public_url: str, first_key: str = "") -> str:
-    url = public_url + BASE + "/"
+    url = public_url + BASE + "/login"
     key_html = (f'<div class="code"><code>{esc(first_key)}</code></div>'
                 f'<p class="muted small">{esc(_("Invitation key: copy it now, it is not shown again."))}</p>') if first_key else ""
     return bare_page(_("Setup complete"), f"""
-    <section class="card narrow center login setup">
+    <section class="card narrow center login setup" data-await-console="{esc(url)}" data-probe="{BASE}/healthz">
       <div class="big-logo">{LOGO}</div>
       <h1>{esc(_("Setup complete"))}</h1>
       <p class="muted">{esc(_("Headscale Easy is starting. Sign in with the administrator account you just created."))}</p>
       <p class="muted small">{esc(_("With automatic certificates the first load can take a few seconds."))}</p>
       {key_html}
+      <p class="muted small" data-await-waiting>{esc(_("Waiting for the console to start; you will be taken to the sign-in page."))}</p>
+      <p class="muted small" data-await-slow hidden>{esc(_("The console is taking longer than expected. Check the container logs, then open it with the button below."))}</p>
       <a class="btn wide primary" href="{esc(url)}">{esc(_("Open the console"))}</a>
     </section>""")
 

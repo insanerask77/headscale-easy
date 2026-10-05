@@ -204,6 +204,19 @@ class BackupCard(unittest.TestCase):
         self.assertNotIn("Back up now", html)
         self.assertNotIn('data-live="backup"', html)
 
+    def test_times_as_epoch_seconds_as_backup_py_writes_them(self):
+        epoch = dict(BACKUP_OK["last"], at=1791209576)  # 2026-10-05 14:12:56 UTC
+        code, html = self.page(dict(BACKUP_OK, last=epoch, last_ok=epoch))
+        self.assertEqual(code, 200)
+        self.assertIn("2026-10-05 14:12 UTC", html)
+
+    def test_odd_times_never_break_the_page(self):
+        for at in (None, True, 10**30, -1, [1], {"a": 1}, "yesterday", ""):
+            odd = dict(BACKUP_OK["last"], at=at)
+            code, html = self.page(dict(BACKUP_OK, last=odd, last_ok=odd, next_run=at))
+            self.assertEqual(code, 200, at)
+            self.assertIn('data-live="backup"', html)
+
     def test_ok_state(self):
         code, html = self.page(BACKUP_OK)
         self.assertEqual(code, 200)

@@ -3,6 +3,8 @@ comes from status.py."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import status
 from i18n import _, ngettext
 from ui import BASE, badge, csrf_input, esc, flash_html, layout, page_head, parse_time, time_tag
@@ -51,8 +53,16 @@ def _containers(rows: list[dict], helper: dict | None) -> str:
       <tbody>{body}</tbody></table></div>"""
 
 
-def _when(value: str | None) -> str:
-    """A backup time: a <time> tag when it parses, the raw text otherwise."""
+def _when(value) -> str:
+    """A backup time: a <time> tag when it parses, the raw text otherwise. backup.py writes epoch seconds,
+    the supervisor ISO 8601: take both, and never fail the page over a odd value."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            value = datetime.fromtimestamp(value, timezone.utc).isoformat()
+        except (OverflowError, OSError, ValueError):
+            return "—"
+    if value is not None and not isinstance(value, str):
+        return "—"
     if parse_time(value) is None:
         return esc(value) if value else "—"
     return time_tag(value)

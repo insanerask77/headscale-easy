@@ -317,7 +317,12 @@ class FullFlowTest(WizardTestBase):
         self.assertIn("admin@example.com", review)
         status, _h, done = c.post("/admin/setup/finish", {}, page=review)
         self.assertEqual(status, 200, done[:500])
-        self.assertIn("http://localhost:8080/admin/", done)
+        self.assertIn('href="http://localhost:8080/admin/login"', done)
+        # the page waits for the console and then goes to the sign-in page (app.js, CSP allows only our scripts)
+        self.assertIn('data-await-console="http://localhost:8080/admin/login"', done)
+        self.assertIn('data-probe="/admin/healthz"', done)
+        self.assertIn("data-await-waiting", done)
+        self.assertNotIn("<script>", done)
         self.assertTrue(self.exited.wait(5), "the wizard did not ask to exit")
 
         # settings.json (600) with a generated session secret, and what was asked for

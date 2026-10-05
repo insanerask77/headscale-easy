@@ -88,7 +88,7 @@ LOGO = """<svg class="logo" viewBox="0 0 48 48" aria-hidden="true">
 # -----------------------------------------------------------------------------
 
 def parse_time(value: str | None) -> datetime | None:
-    if not value or value.startswith("0001-"):
+    if not isinstance(value, str) or not value or value.startswith("0001-"):
         return None
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))

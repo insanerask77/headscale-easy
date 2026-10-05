@@ -3,5 +3,7 @@
   "Two-factor authentication is not enabled on your account. It takes a minute and keeps your tailnet safe even if your password leaks.": "L'authentification à deux facteurs n'est pas activée sur votre compte. Cela prend une minute et protège votre tailnet même si votre mot de passe fuit.",
   "Remind me later": "Me le rappeler plus tard",
   "You can turn on two-factor authentication from the console after signing in.": "Vous pourrez activer l'authentification à deux facteurs depuis la console après vous être connecté.",
-  "Open the console": "Ouvrir la console"
+  "Open the console": "Ouvrir la console",
+  "Waiting for the console to start; you will be taken to the sign-in page.": "En attente du démarrage de la console ; vous serez redirigé vers la page de connexion.",
+  "The console is taking longer than expected. Check the container logs, then open it with the button below.": "La console met plus de temps que prévu. Consultez les logs du conteneur, puis ouvrez-la avec le bouton ci-dessous."
 }

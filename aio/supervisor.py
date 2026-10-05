@@ -715,6 +715,11 @@ class Supervisor:
         except (OSError, ValueError):
             return {}
 
+    def _aware(self, naive: datetime) -> datetime:
+        """The cron time is wall-clock time in the configured zone: give it that zone, so the console shows the right instant."""
+        tz = self._tz()
+        return naive.replace(tzinfo=tz) if tz else naive.astimezone()
+
     def backup_summary(self) -> dict:
         cfg = self.backup_cfg
         enabled = not cron.is_off(cfg["schedule"])
@@ -722,7 +727,7 @@ class Supervisor:
         if enabled:
             nxt = self._backup_next or cron.next_run(cfg["schedule"], self.now_local())
         status = self._read_backup_status()
-        return {"enabled": enabled, "schedule": cfg["schedule"], "next_run": nxt.isoformat() if nxt else None,
+        return {"enabled": enabled, "schedule": cfg["schedule"], "next_run": self._aware(nxt).isoformat() if nxt else None,
                 "keep_days": cfg["keep_days"], "running": self._backup_running,
                 "env_locked": self.backup_env_locked(),
                 "last": status.get("last"), "last_ok": status.get("last_ok"),

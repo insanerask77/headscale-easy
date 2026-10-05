@@ -820,7 +820,9 @@ class SchedulerTest(SupervisorMixin, FakeCase):
 
     def test_configure_picks_up_a_new_schedule_and_rejects_an_invalid_one(self):
         s = self.sched("0 3 * * *")
-        self.assertEqual(s.backup_summary()["next_run"], "2026-10-05T03:00:00")
+        nxt = datetime.fromisoformat(s.backup_summary()["next_run"])
+        self.assertIsNotNone(nxt.tzinfo)  # the console shows it as an instant: it needs the zone
+        self.assertEqual(nxt.replace(tzinfo=None), datetime(2026, 10, 5, 3, 0))
         s.settings["backup_schedule"] = "*/5 * * * *"
         s.settings["backup_keep_days"] = "7"
         s.configure_backup()

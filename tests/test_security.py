@@ -410,7 +410,7 @@ class DeviceApproval(Base):
                             (app.sign({"path": "https://evil.example/", "exp": time.time() + 60}), f"{B}/machines"),
                             (app.sign({"path": f"{B}/users", "exp": time.time() + 60}), f"{B}/machines"),
                             (app.sign({"path": self.PATH, "exp": time.time() - 1}), f"{B}/machines"),
-                            (nxt[:-1] + "0", f"{B}/machines")):
+                            (nxt[:-1] + ("1" if nxt[-1] == "0" else "0"), f"{B}/machines")):  # always a different last digit
             msg = email.message.Message()
             msg["Cookie"] = f"hse_next={value}"
             h.headers, h.client_address = msg, ("127.0.0.1", 1)

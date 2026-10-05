@@ -231,6 +231,30 @@
   // "#new" opens the matching dialog (e.g. Add device → Generate auth key)
   if (location.hash === "#new") openDialog("new");
 
+  // Setup complete page: the console needs a moment to start. Wait until it answers (the wizard answers
+  // the same path with a redirect, a proxy error means "not yet"), then go to the sign-in page.
+  (function () {
+    var box = document.querySelector("[data-await-console]");
+    if (!box) return;
+    var target = box.dataset.awaitConsole, probe = box.dataset.probe, started = Date.now();
+    var waiting = box.querySelector("[data-await-waiting]"), slow = box.querySelector("[data-await-slow]");
+    function poll() {
+      fetch(probe, { cache: "no-store", redirect: "manual", credentials: "omit" }).then(function (r) {
+        if (r.status === 200 && r.type === "basic") { location.replace(target); return; }
+        again();
+      }, again);
+    }
+    function again() {
+      if (Date.now() - started > 120000) {
+        if (waiting) waiting.hidden = true;
+        if (slow) slow.hidden = false;
+        return;
+      }
+      setTimeout(poll, 1500);
+    }
+    setTimeout(poll, 1000);
+  })();
+
   // Slow forms (saving DNS restarts Headscale): lock the button while working
   document.addEventListener("submit", function (ev) {
     var form = ev.target;
