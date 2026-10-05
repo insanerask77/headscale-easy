@@ -563,3 +563,53 @@ restore) and the download/remote niceties, never verification or the round-trip 
       the remote's own encryption are the answer, and the docs say so.
 - [ ] **Editable schedule in the console** (instead of env / `settings.json` +
       `hse reload`)? Default: read-only on the Status page for now.
+
+---
+
+## Appendix: interfaces between blocks (so they can be built in parallel)
+
+Each block owns its files; touch another block's file only where listed here.
+Merge conflicts in `aio/supervisor.py` are expected and are resolved by keeping
+every block's additions (they live in separate methods).
+
+**`aio/backup.py` (Block 1 owns it)**
+```python
+class BackupBusy(Exception): ...
+@dataclass
+class Result: ok: bool; path: str | None; size: int; duration: float; files: int; error: str | None
+def create(data_dir, out_dir=None, settings=None, trigger="manual") -> Result   # takes the lock; raises BackupBusy
+def prune(out_dir, keep_days, now=None) -> list[str]                            # removed file names
+def read_status(out_dir) -> dict          # contents of status.json ({} if none)
+def lock(out_dir)                         # context manager, flock on <out_dir>/.lock, raises BackupBusy
+```
+CLI: `python aio/backup.py create [--trigger scheduled|manual] [--out DIR]`, exit 0 ok / 1 failed / 3 busy.
+Archive format: exactly the layout and `meta.json` in Block 1.1 (`format: 2`,
+`edition: "aio"`, `files: {relpath: sha256}`). Constants: `ARCHIVE_GLOB = "headscale-easy-*.tar.gz"`.
+
+**`aio/restore.py` (Block 3 owns it; NOT in backup.py)**
+```python
+class RestoreError(Exception): ...
+def inspect(archive) -> dict               # meta.json contents; raises RestoreError
+def restore(archive, data_dir, *, offline=True, with_postgres=False) -> dict   # {"ok":..., "safety_copy": path|None}
+```
+It reads the archive format above on its own (no import from backup.py except
+`backup.lock`/`backup.create` for the safety copy, called lazily; tests use fakes).
+
+**`aio/cron.py` (Block 2 owns it)**
+```python
+def parse(expr: str) -> object            # ValueError with a user-readable message
+def is_off(expr: str) -> bool             # "off" or empty
+def next_run(expr: str, after: datetime) -> datetime    # naive local time
+```
+
+**`aio/supervisor.py`**
+- Block 2 adds: scheduler thread, `Supervisor.start_backup(trigger) -> bool`
+  (False when busy; runs `python aio/backup.py create --trigger X` as a subprocess),
+  `Supervisor.backup_summary() -> dict` (`{"enabled","schedule","next_run","keep_days","running","last","last_ok","count","bytes"}`).
+- Block 3 adds: SIGUSR1 online restore (`restore_requested` event, `/run/hse/restore.json`, `/run/hse/restore-result.json`).
+- Block 4 adds: `be_backup` and the `"backup"` key in `be_status`, calling Block 2's two methods.
+
+**Helper protocol (Block 4):** `POST /backup` → `{"ok": true, "started": true}` or `{"ok": false, "error": "already running"}`.
+**Console (Block 4):** reads `status["backup"]` from the helper; absent = not available.
+**Block 5** imports `aio.cron.parse/is_off/next_run`. **Block 6** touches only `backup/` and its test.
+**Block 7** touches CI, smoke script, docs, CHANGELOG/ROADMAP/SIMPLIFICATION_PLAN.
