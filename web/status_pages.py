@@ -3,11 +3,12 @@ comes from status.py."""
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 
 import status
 from i18n import _, ngettext
-from ui import BASE, badge, csrf_input, esc, flash_html, layout, page_head, parse_time, time_tag
+from ui import BASE, LOGO, bare_page, badge, csrf_input, esc, flash_html, layout, page_head, parse_time, time_tag
 
 
 def _kv(label: str, value: str) -> str:
@@ -143,6 +144,50 @@ def _backup_settings(backup: dict | None, session: dict) -> str:
             f'<p class="muted small">{esc(_("Five fields: minute hour day month weekday. For example 0 3 * * * is every day at 03:00. The server time zone is TZ."))}</p></section>')
 
 
+def _backup_files(backup: dict | None, session: dict) -> str:
+    """The backups in /data/backups with Download and Restore (admins only). Not data-live: a confirmation being
+    typed must survive the page refreshes. Restoring replaces all the data, so it asks to type RESTORE."""
+    if backup is None or backup.get("files") is None or not session.get("admin"):
+        return ""
+    files = backup["files"]
+    if not files:
+        body = f'<p class="muted">{esc(_("There are no backups yet."))}</p>'
+    else:
+        csrf = csrf_input(session)
+        rows = ""
+        for f in files:
+            name = esc(f.get("name", ""))
+            hidden = f'{csrf}<input type="hidden" name="name" value="{name}">'
+            rows += (
+                f'<tr><td><code>{name}</code></td><td>{_when(f.get("mtime"))}</td>'
+                f'<td>{esc(_size(f.get("size") or 0))}</td><td class="actions">'
+                f'<form method="post" action="{BASE}/settings/status/backup/download" class="inline">{hidden}'
+                f'<button class="btn" type="submit">{esc(_("Download"))}</button></form> '
+                f'<details class="restore"><summary class="btn danger">{esc(_("Restore"))}…</summary>'
+                f'<form method="post" action="{BASE}/settings/status/backup/restore" class="stack">{hidden}'
+                f'<p class="muted small">{esc(_("This replaces every user, device, account and setting with what this backup holds. The current data is saved first and put back if the restore fails. The console restarts and you may have to sign in again."))}</p>'
+                f'<label>{esc(_("Type RESTORE to confirm"))}<input type="text" name="confirm" required pattern="RESTORE" '
+                f'autocomplete="off" spellcheck="false" placeholder="RESTORE"></label>'
+                f'<button class="btn danger-solid" type="submit">{esc(_("Restore this backup"))}</button></form></details></td></tr>')
+        body = (f'<div class="table-wrap"><table class="simple"><thead><tr><th>{esc(_("Backup"))}</th><th>{esc(_("Date"))}</th>'
+                f'<th>{esc(_("Size"))}</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>')
+    hint = (f'<p class="muted small">{esc(_("A backup holds every secret of this server. Download it only to a safe place."))}</p>')
+    return f'<section class="card"><h2>{esc(_("Available backups"))}</h2>{body}{hint}</section>'
+
+
+def restoring_page(restore_id: str) -> str:
+    """Shown while the supervisor stops the console, restores and starts it again (app.js waits for it)."""
+    rid = restore_id if re.fullmatch(r"[0-9.]{1,32}", restore_id or "") else ""
+    return bare_page(_("Restoring backup"), f"""
+    <section class="card narrow center login setup" data-await-restore="{BASE}/settings/status?m=backup-restore-done"
+             data-probe="{BASE}/restore-status?id={rid}">
+      <div class="big-logo">{LOGO}</div>
+      <h1>{esc(_("Restoring backup"))}</h1>
+      <p class="muted" data-await-waiting>{esc(_("The backup is being restored and the console restarts. Do not close this page: it continues by itself when it is done."))}</p>
+      <p class="muted small" data-await-slow hidden>{esc(_("The restore is taking longer than expected. Check the container logs; this page can be reloaded."))}</p>
+    </section>""")
+
+
 def _disks(disks: list) -> str:
     if not disks:
         return f'<p class="muted">{esc(_("Disk use is not available."))}</p>'
@@ -185,6 +230,7 @@ def status_page(session: dict, ctx: dict, data: dict, flash: str = "") -> str:
     <section class="card"><h2>{esc(_("Containers"))}</h2>{_containers(data["containers"], data["helper"])}</section>
     {_backups(data.get("backup"), session)}
     {_backup_settings(data.get("backup"), session)}
+    {_backup_files(data.get("backup"), session)}
     <section class="card"><h2>{esc(_("Disk"))}</h2>{_disks(data["disks"])}</section>
     <section class="card"><h2>{esc(_("Headscale"))}</h2>{_metrics(data["metrics"], data["online"])}</section>"""
     return layout(_("Status"), "status", body, session, ctx)

@@ -146,8 +146,8 @@ deleted by age, never the newest successful one.
     It holds password hashes, two-factor secrets, the OIDC client secret and
     Headscale's private keys. The archive and `/data/backups` are private
     (600 / 700). Copy them somewhere safe and off this server, and treat the
-    copy like the server. The console can show the state of the backups but
-    does not offer a download on purpose.
+    copy like the server. Administrators can download a backup from the console
+    (Settings → Status → Available backups); every download is audited.
 
 ### Backing up and restoring
 
@@ -174,7 +174,13 @@ Restore, in order of preference:
     docker start headscale-easy
     ```
 
-2. **Running container**: `docker exec headscale-easy hse restore <file>` stops
+2. **From the console** (administrators): *Settings → Status → Available backups*
+   lists every archive with **Download** and **Restore**. Restoring asks you to
+   type `RESTORE`, saves the current data first, restarts the console (a page
+   waits and brings you back, and reports whether it worked) and may ask you to
+   sign in again. It is the same restore as the command below.
+
+3. **Running container**: `docker exec headscale-easy hse restore <file>` stops
    the three processes, restores, and starts them again. It is refused while
    setup is not finished (use the stopped-container way).
 

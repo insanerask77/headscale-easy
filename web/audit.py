@@ -137,6 +137,8 @@ def action_labels() -> dict[str, str]:
         "settings.notify_test": _("Sent a test notification"),
         "backup.run": _("Started a backup"),
         "backup.settings": _("Changed the backup settings"),
+        "backup.restore": _("Restored a backup"),
+        "backup.download": _("Downloaded a backup"),
         # devices (seen in Headscale's state)
         "device.registered": _("Device registered"),
         "device.removed": _("Device removed"),

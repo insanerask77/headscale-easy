@@ -109,8 +109,9 @@ LAN or tailnet in Caddy or your front proxy — see the
   two-factor secrets, the OIDC client secret and Headscale's private keys. The
   directory is `700` and each archive `600`, owned by the container's
   unprivileged user. Console sessions are never included (a restored session
-  would revive revoked logins), the console shows the state of the backups but
-  offers no download, and a restore checks the format and a SHA-256 of every
+  would revive revoked logins), administrators can download or restore a backup
+  from the console (POST with the CSRF token, names checked against the backups
+  directory, a typed confirmation to restore, both audited), and a restore checks the format and a SHA-256 of every
   file before it changes anything.
 - **Secrets** (`.env`, generated configuration, backups) never belong in git;
   they are all in `.gitignore`.

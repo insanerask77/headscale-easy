@@ -131,8 +131,9 @@ antiguas se borran por edad, nunca la última correcta.
     Contiene hashes de contraseña, secretos de doble factor, el secreto de
     cliente OIDC y las claves privadas de Headscale. El archivo y
     `/data/backups` son privados (600 / 700). Guárdalas en un sitio seguro y
-    fuera de este servidor, y trata la copia como al servidor. La consola
-    muestra el estado de las copias pero no ofrece descargarlas, a propósito.
+    fuera de este servidor, y trata la copia como al servidor. Los
+    administradores pueden descargar una copia desde la consola (Ajustes →
+    Estado → Copias disponibles); cada descarga queda en el registro de actividad.
 
 ### Copiar y restaurar
 
@@ -160,7 +161,13 @@ Restaurar, por orden de preferencia:
     docker start headscale-easy
     ```
 
-2. **Contenedor en marcha**: `docker exec headscale-easy hse restore <fichero>`
+2. **Desde la consola** (administradores): *Ajustes → Estado → Copias
+   disponibles* lista cada archivo con **Descargar** y **Restaurar**. Restaurar
+   pide escribir `RESTORE`, guarda antes los datos actuales, reinicia la consola
+   (una página espera y te devuelve, e indica si funcionó) y puede pedirte que
+   vuelvas a entrar. Es la misma restauración que el comando de abajo.
+
+3. **Contenedor en marcha**: `docker exec headscale-easy hse restore <fichero>`
    detiene los tres procesos, restaura y los vuelve a arrancar. Se rechaza
    mientras la configuración inicial no esté terminada (usa la vía del
    contenedor parado).

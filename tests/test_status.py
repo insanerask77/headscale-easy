@@ -289,6 +289,53 @@ class BackupSettingsCard(unittest.TestCase):
         self.assertIn("fixed by environment variables", card)
 
 
+FILES = [{"name": "headscale-easy-20261005-030000.tar.gz", "size": 2097152, "mtime": 1791169200},
+         {"name": "headscale-easy-20261004-030000-pre-restore-20261004120000.tar.gz", "size": 1024, "mtime": 1791082800}]
+
+
+class BackupFilesCard(unittest.TestCase):
+    def page(self, backup, session=ADMIN):
+        return Page.get(self, session, helper=dict(HELPER, **({"backup": backup} if backup is not None else {})))
+
+    def card(self, html):
+        return html.split("Available backups", 1)[1].split("</section>", 1)[0]
+
+    def test_list_with_download_and_restore(self):
+        _c, html = self.page(dict(BACKUP_OK, files=FILES))
+        card = self.card(html)
+        self.assertIn("headscale-easy-20261005-030000.tar.gz", card)
+        self.assertIn("2.0 MB", card)
+        self.assertIn("pre-restore", card)
+        self.assertEqual(card.count(f'action="{B}/settings/status/backup/download"'), 2)
+        self.assertEqual(card.count(f'action="{B}/settings/status/backup/restore"'), 2)
+        self.assertIn('name="name" value="headscale-easy-20261005-030000.tar.gz"', card)
+        self.assertIn('name="confirm" required pattern="RESTORE"', card)
+        self.assertEqual(card.count('name="csrf"'), 4)  # every form carries the token
+        self.assertNotIn("<a ", card.split("<table", 1)[1])  # downloads are POSTs, not links
+
+    def test_empty_list(self):
+        _c, html = self.page(dict(BACKUP_OK, files=[]))
+        self.assertIn("There are no backups yet.", self.card(html))
+        self.assertNotIn("backup/restore", self.card(html))
+
+    def test_hidden_for_non_admins_without_the_key_and_on_1x(self):
+        self.assertNotIn("Available backups", self.page(dict(BACKUP_OK, files=FILES), MEMBER)[1])
+        self.assertNotIn("Available backups", self.page(BACKUP_OK)[1])  # no `files` key
+        self.assertNotIn("Available backups", self.page(None)[1])
+
+    def test_file_names_are_escaped(self):
+        _c, html = self.page(dict(BACKUP_OK, files=[{"name": '"><b>x</b>', "size": 1, "mtime": 1}]))
+        self.assertNotIn("<b>x</b>", html)
+
+    def test_restore_done_message_follows_the_result(self):
+        for result, text in (({"ok": True, "requested": 1.0}, "Backup restored"),
+                             ({"ok": False, "requested": 1.0}, "restore failed"), (None, "restore failed")):
+            with mock.patch.object(hs, "restore_result", return_value=result), sources(dict(HELPER)):
+                code, html = request("GET", f"{B}/settings/status?m=backup-restore-done", ADMIN)
+            self.assertEqual(code, 200)
+            self.assertIn(text, html, result)
+
+
 class BackupSettingsSave(unittest.TestCase):
     URL = f"{B}/settings/status/backup-settings"
 

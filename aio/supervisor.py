@@ -48,6 +48,9 @@ HEALTH_TTL = 10.0
 # The backup runs as its own process (aio/backup.py): a slow tar or an OOM must not take the supervisor down.
 BACKUP_CMD = [sys.executable, os.environ.get("HSE_BACKUP_APP", os.path.join(ROOT, "aio", "backup.py"))]
 DEFAULT_BACKUP_SCHEDULE = "0 3 * * *"
+BACKUP_NAME_RE = re.compile(r"^headscale-easy-[0-9A-Za-z][0-9A-Za-z._-]*\.tar\.gz$")  # what backup.py writes; no path separators
+BACKUP_LIST_MAX = 100
+RESTORE_DELAY = 1.5      # lets the console answer the request that started a restore from its page
 BACKUP_TICK = 30.0       # how often the scheduler looks at the clock (it is woken early by reload / shutdown)
 BACKUP_CATCHUP = 60.0    # delay before the one catch-up run after a missed slot
 BACKUP_TIMEOUT = 3600.0  # a backup that runs longer than this is killed
@@ -258,6 +261,7 @@ class Supervisor:
         self.stopping = threading.Event()
         self.reload_requested = threading.Event()
         self.restore_requested = threading.Event()
+        self.restore_delay = RESTORE_DELAY
         self.server = None
         self._op_lock = threading.Lock()
         self._health = {"at": 0.0, "ok": False}
@@ -534,6 +538,65 @@ class Supervisor:
         self.log("backups: settings changed from the console (%s)" % ", ".join(sorted(changes)))
         return 200, {"ok": True, "backup": self.backup_summary()}
 
+    def be_restore(self):
+        """POST /restore: the console asks to restore one of the backups in /data/backups.
+
+        The helper protocol takes no body, so the console leaves ``{"name": ...}`` in
+        ``<run dir>/restore-ui.json``. The archive is validated here (the same checks as ``hse restore``);
+        the restore itself is the online restore of SIGUSR1, started a moment later so the console can
+        still answer its request (it is stopped, and started again, by the restore)."""
+        if self.mode != "run":
+            return 200, {"ok": False, "error": "restores are not available in setup mode"}
+        path = os.path.join(self.run_dir, "restore-ui.json")
+        try:
+            with open(path, encoding="utf-8") as fh:
+                name = json.load(fh).get("name")
+            os.unlink(path)
+        except (OSError, ValueError, AttributeError):
+            return 200, {"ok": False, "error": "no request"}
+        backups = os.path.join(self.data_dir, "backups")
+        archive = os.path.join(backups, name) if isinstance(name, str) else ""
+        if (not isinstance(name, str) or not BACKUP_NAME_RE.match(name) or os.path.islink(archive)
+                or not os.path.isfile(archive)):
+            return 200, {"ok": False, "error": "unknown backup", "field": "invalid"}
+        if self._backup_running:
+            return 200, {"ok": False, "error": "a backup is running", "field": "busy"}
+        req_path = os.path.join(self.run_dir, restore_mod.RESTORE_REQUEST)
+        if os.path.exists(req_path):
+            return 200, {"ok": False, "error": "another restore is in progress", "field": "busy"}
+        try:
+            restore_mod.inspect(archive)
+        except restore_mod.RestoreError as exc:
+            self.log("restore from the console refused: %s" % exc)
+            return 200, {"ok": False, "error": str(exc), "field": "invalid"}
+        requested = time.time()
+        try:
+            os.unlink(os.path.join(self.run_dir, restore_mod.RESTORE_RESULT))
+        except OSError:
+            pass
+        fd = os.open(req_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"archive": archive, "requested": requested, "with_postgres": False}, fh)
+        self.log("restore of %s requested from the console" % name)
+        timer = threading.Timer(self.restore_delay, self.restore_requested.set)
+        timer.daemon = True
+        timer.start()
+        return 200, {"ok": True, "id": repr(requested)}
+
+    def backup_files(self) -> list:
+        """The archives in /data/backups, newest first (name, size, mtime): what the console lists."""
+        out = []
+        try:
+            with os.scandir(os.path.join(self.data_dir, "backups")) as it:
+                for entry in it:
+                    if BACKUP_NAME_RE.match(entry.name) and entry.is_file(follow_symlinks=False):
+                        st = entry.stat(follow_symlinks=False)
+                        out.append({"name": entry.name, "size": st.st_size, "mtime": int(st.st_mtime)})
+        except OSError:
+            pass
+        out.sort(key=lambda f: (f["mtime"], f["name"]), reverse=True)
+        return out[:BACKUP_LIST_MAX]
+
     def backup_env_locked(self) -> dict:
         """Which backup settings an environment variable fixes (the console cannot change those)."""
         return {"schedule": bool(str(self.env.get("BACKUP_SCHEDULE") or "").strip()),
@@ -543,7 +606,8 @@ class Supervisor:
         os.makedirs(self.run_dir, mode=0o755, exist_ok=True)
         self.server = helper_mod.serve(self.helper_socket, {
             "configtest": self.be_configtest, "restart": self.be_restart, "status": self.be_status,
-            "backup": self.be_backup, "backup_settings": self.be_backup_settings})
+            "backup": self.be_backup, "backup_settings": self.be_backup_settings,
+            "restore": self.be_restore})
         threading.Thread(target=self.server.serve_forever, name="helper-socket", daemon=True).start()
         with open(os.path.join(self.run_dir, "supervisor.pid"), "w", encoding="utf-8") as fh:
             fh.write(str(os.getpid()))
@@ -729,7 +793,7 @@ class Supervisor:
         status = self._read_backup_status()
         return {"enabled": enabled, "schedule": cfg["schedule"], "next_run": self._aware(nxt).isoformat() if nxt else None,
                 "keep_days": cfg["keep_days"], "running": self._backup_running,
-                "env_locked": self.backup_env_locked(),
+                "env_locked": self.backup_env_locked(), "files": self.backup_files(),
                 "last": status.get("last"), "last_ok": status.get("last_ok"),
                 "count": status.get("count", 0), "bytes": status.get("bytes", 0)}
 

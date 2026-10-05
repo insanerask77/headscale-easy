@@ -24,6 +24,8 @@ Work in progress on the `next` branch: see `SIMPLIFICATION_PLAN.md`.
   - Settings → Status shows the last backup, the next run, a **Back up now**
     button and a **Backup settings** card (turn scheduled backups on/off, schedule,
     days kept; values fixed by `BACKUP_SCHEDULE` / `BACKUP_KEEP_DAYS` stay read-only)
+    and an **Available backups** list with **Download** and **Restore** (typed
+    confirmation, safety copy first, a page waits for the restart; both audited)
     (administrators, audited); a failed scheduled backup sends a notification.
   - The `backup` image gains `BACKUP_MODE=sync`: a sidecar that uploads the
     archives of `/data/backups` to the remote (rclone / rsync) for the advanced edition.

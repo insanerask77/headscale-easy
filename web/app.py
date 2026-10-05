@@ -30,6 +30,7 @@ import mimetypes
 import os
 import re
 import secrets
+import shutil
 import signal
 import time
 import urllib.error
@@ -410,6 +411,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == f"{BASE}/healthz":
                 return self.send(200, "ok", "text/plain")
+            if path == f"{BASE}/restore-status":
+                return self.restore_status(params.get("id", ""))
             if path.startswith(f"{BASE}/static/"):
                 return self.static(path[len(f"{BASE}/static/"):])
             if path == f"{BASE}/login":
@@ -529,6 +532,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == f"{BASE}/settings/status":
                 if not sees_all:
                     return self.fail(403, _("No permission"), _("This section is for admins only."))
+                if flash == "backup-restore-done":  # the page that waited for the restore sends us here
+                    flash = "backup-restore-ok" if (hs.restore_result() or {}).get("ok") else "backup-restore-failed"
                 return self.send(200, status_pages.status_page(session, CTX, server_status.collect(), flash))
             if path == f"{BASE}/logs":
                 return self.send(200, audit.page(session, CTX, params))
@@ -732,6 +737,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.backup_now(session)
             if path == f"{BASE}/settings/status/backup-settings":
                 return self.backup_settings(session, form)
+            if path == f"{BASE}/settings/status/backup/restore":
+                return self.backup_restore(session, form)
+            if path == f"{BASE}/settings/status/backup/download":
+                return self.backup_download(session, form)
             if path == f"{BASE}/users":
                 return self.create_user(session, form)
             m = re.fullmatch(rf"{BASE}/users/(\d+)/(rename|delete)", path)
@@ -823,6 +832,56 @@ class Handler(BaseHTTPRequestHandler):
         elif result == "invalid":
             log.info("%s sent invalid backup settings: %s", session["username"], detail)
         return self.redirect(f"{BASE}/settings/status?m=backup-settings-{result}")
+
+    def backup_restore(self, session: dict, form: dict):
+        """Status page > Restore (admins only, typed confirmation): the supervisor restores one backup and restarts us."""
+        if not session.get("admin"):
+            return self.fail(403, _("No permission"), _("This action is for admins only."))
+        if form.get("confirm") != "RESTORE":
+            return self.redirect(f"{BASE}/settings/status?m=backup-restore-confirm")
+        name = form.get("name", "")
+        result, detail = hs.helper_restore(name)
+        if result != "started":
+            log.info("%s could not restore %r: %s %s", session["username"], name, result, detail)
+            return self.redirect(f"{BASE}/settings/status?m=backup-restore-{result}")
+        log.warning("%s restores the backup %s", session["username"], name)
+        audit.request_event(self, session, "backup.restore", name, {"file": name})
+        return self.send(200, status_pages.restoring_page(detail))
+
+    def backup_download(self, session: dict, form: dict):
+        """Status page > Download (admins only, POST with the CSRF token): the archive as an attachment."""
+        if not session.get("admin"):
+            return self.fail(403, _("No permission"), _("This action is for admins only."))
+        name = form.get("name", "")
+        opened = server_status.open_backup(name)
+        if opened is None:
+            return self.fail(404, _("Not found"), _("That backup does not exist."))
+        fh, size = opened
+        with fh:
+            audit.request_event(self, session, "backup.download", name, {"file": name, "size": size})
+            log.warning("%s downloads the backup %s", session["username"], name)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/gzip")
+            self.send_header("Content-Length", str(size))
+            self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "same-origin")
+            self.end_headers()
+            shutil.copyfileobj(fh, self.wfile, 1 << 20)
+
+    def restore_status(self, restore_id: str):
+        """GET /admin/restore-status?id=...: has the restore with that id finished? No session needed (the restore
+        restarts the console and may change the session secret); it only says done / ok for an id only the requester has."""
+        done = ok = False
+        result = hs.restore_result()
+        try:
+            if result is not None and float(restore_id) == float(result.get("requested")):
+                done, ok = True, bool(result.get("ok"))
+        except (TypeError, ValueError):
+            pass
+        return self.send(200, json.dumps({"done": done, "ok": ok}), "application/json",
+                         [("Cache-Control", "no-store")])
 
     def notify_test(self, session: dict):
         if not session.get("admin"):

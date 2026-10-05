@@ -1145,5 +1145,101 @@ class BackupSettingsTest(SupervisorMixin, FakeCase):
         self.assertFalse(self.request(s, enabled=True, schedule="1 1 * * *", keep_days="5")["ok"])
 
 
+class RestoreFromConsoleTest(SupervisorMixin, FakeCase):
+    """POST /restore: the console asks to restore one of /data/backups; the supervisor validates and starts it."""
+    NAME = "headscale-easy-20260101-030000.tar.gz"
+
+    def setUp(self):
+        super().setUp()
+        self.s = self.make()
+        self.s.mode = "run"
+        self.s.restore_delay = 0.05
+        os.makedirs(self.fakes.run, exist_ok=True)
+        self.backups = os.path.join(self.fakes.data, "backups")
+        os.makedirs(self.backups, exist_ok=True)
+        fx.build_aio_archive(os.path.join(self.backups, self.NAME), fx.data_tree("a"))
+
+    def ask(self, name):
+        with open(os.path.join(self.fakes.run, "restore-ui.json"), "w", encoding="utf-8") as fh:
+            json.dump({"name": name}, fh)
+        return self.s.be_restore()[1]
+
+    def request_file(self):
+        return os.path.join(self.fakes.run, "restore.json")
+
+    def test_valid_backup_starts_the_online_restore(self):
+        res = self.ask(self.NAME)
+        self.assertTrue(res["ok"], res)
+        with open(self.request_file(), encoding="utf-8") as fh:
+            req = json.load(fh)
+        self.assertEqual(req["archive"], os.path.join(self.backups, self.NAME))
+        self.assertEqual(float(res["id"]), req["requested"])  # what the console polls for
+        self.assertEqual(oct(os.stat(self.request_file()).st_mode & 0o777), "0o600")
+        self.assertFalse(os.path.exists(os.path.join(self.fakes.run, "restore-ui.json")))  # consumed
+        self.assertFalse(self.s.restore_requested.is_set())  # not before the console could answer
+        self.assertTrue(self.s.restore_requested.wait(2))
+
+    def test_names_that_are_not_a_backup_of_this_directory(self):
+        outside = os.path.join(self.tmp.name, "headscale-easy-outside.tar.gz")
+        fx.build_aio_archive(outside, fx.data_tree("x"))
+        os.symlink(outside, os.path.join(self.backups, "headscale-easy-link.tar.gz"))
+        with open(os.path.join(self.backups, ".headscale-easy-x.tar.gz.part"), "wb") as fh:
+            fh.write(b"partial")
+        for name in ("../headscale-easy-outside.tar.gz", outside, "/etc/passwd", "headscale-easy-link.tar.gz",
+                     ".headscale-easy-x.tar.gz.part", "headscale-easy-missing.tar.gz", "notes.txt", "", None, 7,
+                     self.NAME + "/", "x/" + self.NAME):
+            res = self.ask(name)
+            self.assertEqual((res["ok"], res.get("field")), (False, "invalid"), repr(name))
+        self.assertFalse(os.path.exists(self.request_file()))
+        self.assertFalse(self.s.restore_requested.wait(0.2))
+
+    def test_a_broken_or_foreign_archive_is_refused(self):
+        with open(os.path.join(self.backups, "headscale-easy-garbage.tar.gz"), "wb") as fh:
+            fh.write(b"not a tarball")
+        fx.build_1x_archive(os.path.join(self.backups, "headscale-easy-old.tar.gz"))
+        for name in ("headscale-easy-garbage.tar.gz", "headscale-easy-old.tar.gz"):
+            res = self.ask(name)
+            self.assertEqual((res["ok"], res.get("field")), (False, "invalid"), name)
+        self.assertFalse(os.path.exists(self.request_file()))
+
+    def test_refused_while_a_backup_or_another_restore_runs(self):
+        self.s._backup_running = True
+        self.assertEqual(self.ask(self.NAME)["field"], "busy")
+        self.s._backup_running = False
+        with open(self.request_file(), "w") as fh:
+            fh.write("{}")
+        self.assertEqual(self.ask(self.NAME)["field"], "busy")
+
+    def test_setup_mode_and_no_request(self):
+        self.assertEqual(self.s.be_restore()[1], {"ok": False, "error": "no request"})
+        self.s.mode = "setup"
+        self.assertFalse(self.ask(self.NAME)["ok"])
+        self.assertFalse(os.path.exists(self.request_file()))
+
+    def test_backup_files_newest_first_and_only_archives(self):
+        for name, mtime in (("headscale-easy-20260102-030000.tar.gz", 2000), ("headscale-easy-20260103-030000.tar.gz", 3000)):
+            path = os.path.join(self.backups, name)
+            fx.build_aio_archive(path, fx.data_tree("b"))
+            os.utime(path, (mtime, mtime))
+        os.utime(os.path.join(self.backups, self.NAME), (1000, 1000))
+        for junk in ("status.json", ".lock", "headscale-easy-20260104.tar.gz.part", "other.tar.gz"):
+            with open(os.path.join(self.backups, junk), "wb") as fh:
+                fh.write(b"x")
+        files = self.s.backup_files()
+        self.assertEqual([f["name"] for f in files], ["headscale-easy-20260103-030000.tar.gz",
+                                                       "headscale-easy-20260102-030000.tar.gz", self.NAME])
+        self.assertEqual(set(files[0]), {"name", "size", "mtime"})
+        self.s.settings = self.s.load()
+        self.s.configure_backup()
+        self.assertEqual(self.s.backup_summary()["files"], files)
+
+    def test_backup_files_are_capped(self):
+        with mock.patch.object(sup, "BACKUP_LIST_MAX", 2):
+            for i in range(4):
+                with open(os.path.join(self.backups, "headscale-easy-2026020%d-030000.tar.gz" % i), "wb") as fh:
+                    fh.write(b"x")
+            self.assertEqual(len(self.s.backup_files()), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

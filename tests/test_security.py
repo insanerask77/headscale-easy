@@ -125,7 +125,8 @@ class Unauthenticated(Base):
 
     def test_actions_redirect_to_sign_in(self):
         for path in ("/keys", "/users", "/acl", "/dns", "/apikeys", "/machines/1/delete", "/settings/status/backup",
-                     "/settings/status/backup-settings"):
+                     "/settings/status/backup-settings", "/settings/status/backup/restore",
+                     "/settings/status/backup/download"):
             status, headers, _ = request("POST", B + path, form={"csrf": "tok"})
             self.assertEqual((status, location(headers)), (303, f"{B}/login"), path)
         self.api.assert_not_called()

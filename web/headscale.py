@@ -456,6 +456,45 @@ def helper_backup_settings(enabled: bool, schedule: str, keep_days: str) -> tupl
     return "error", str(data.get("error", ""))
 
 
+def _run_dir() -> str:
+    return os.path.dirname(HELPER_SOCKET)
+
+
+def helper_restore(name: str) -> tuple[str, str]:
+    """Ask the all-in-one supervisor to restore one backup of /data/backups (POST /restore).
+
+    The helper takes no body, so the name goes in a file next to its socket. Returns (result, detail):
+    'started' (detail = the id of this restore, see restore_result), 'invalid' (not a valid backup),
+    'busy' (a backup or another restore is running), 'unavailable' (no helper, or the 1.x one) or 'error'."""
+    if not os.path.exists(HELPER_SOCKET):
+        return "unavailable", ""
+    path = os.path.join(_run_dir(), "restore-ui.json")
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"name": name}, fh)
+        code, data = helper("POST", "/restore", timeout=120)  # it checks the whole archive first
+    except OSError:
+        return "error", ""
+    if code == 404:
+        return "unavailable", ""
+    if code == 200 and data.get("ok"):
+        return "started", str(data.get("id", ""))
+    if code == 200 and data.get("field") in ("invalid", "busy"):
+        return str(data["field"]), str(data.get("error", ""))
+    return "error", str(data.get("error", ""))
+
+
+def restore_result() -> dict | None:
+    """The supervisor's answer to the last online restore (restore-result.json), None until it finished."""
+    try:
+        with open(os.path.join(_run_dir(), "restore-result.json"), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def docker_available() -> bool:
     """Can Headscale be validated and restarted from here?"""
     backend = _backend()

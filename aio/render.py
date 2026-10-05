@@ -606,6 +606,7 @@ def console_env(settings, data_dir=None):
         "HEADSCALE_DERP_FILE": p["derp"],
         "HEADSCALE_DERP_FILE_IN_CONFIG": p["derp"],
         "HELPER_SOCKET": "/run/hse/helper.sock",
+        "BACKUP_DIR": os.path.join(d, "backups"),
         "OIDC_ISSUER": v["OIDC_ISSUER_URL"],
         "OIDC_CLIENT_ID": v["OIDC_CLIENT_ID"],
         "OIDC_CLIENT_SECRET": v["OIDC_CLIENT_SECRET"],

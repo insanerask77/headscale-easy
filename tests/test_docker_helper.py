@@ -314,6 +314,14 @@ class BackupRouteTest(unittest.TestCase):
         self.assertEqual(call(self.sock, "POST", "/backup-settings", body=b'{"a": 1}')[0], 400)
         self.assertEqual(call(self.sock, "GET", "/backup-settings")[0], 405)
 
+    def test_restore_route_is_404_on_the_docker_helper_and_takes_no_body(self):
+        self.serve(None)
+        self.assertEqual(call(self.sock, "POST", "/restore")[0], 404)
+        self.serve({"restore": lambda: (200, {"ok": True})})
+        self.assertEqual(call(self.sock, "POST", "/restore")[0], 200)
+        self.assertEqual(call(self.sock, "POST", "/restore", body=b'{"name": "x"}')[0], 400)
+        self.assertEqual(call(self.sock, "GET", "/restore")[0], 405)
+
     def test_route_is_404_on_the_docker_helper(self):
         self.serve(None)
         code, _, body = call(self.sock, "POST", "/backup")
@@ -405,6 +413,27 @@ class WebClientTest(unittest.TestCase):
         self.assertEqual(hs.helper_backup_settings(True, "foo", "14"), ("invalid", "bad"))
         self.assertEqual(hs.helper_backup_settings(True, "1 1 * * *", "1"), ("locked", ""))
         self.assertEqual(hs.helper_backup_settings(True, "1 1 * * *", "1")[0], "error")
+
+    def test_helper_restore_results_and_request_file(self):
+        answers = iter([(200, {"ok": True, "id": "1791209576.5"}), (200, {"ok": False, "error": "bad", "field": "invalid"}),
+                        (200, {"ok": False, "error": "busy", "field": "busy"}), (200, {"ok": False, "error": "x"})])
+        server = helper.serve(self.helper_sock, {"restore": lambda: next(answers)})
+        threading.Thread(target=server.serve_forever, args=(0.05,), daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.assertEqual(hs.helper_restore("headscale-easy-x.tar.gz"), ("started", "1791209576.5"))
+        path = os.path.join(os.path.dirname(self.helper_sock), "restore-ui.json")
+        with open(path, encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh), {"name": "headscale-easy-x.tar.gz"})
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+        self.assertEqual(hs.helper_restore("a"), ("invalid", "bad"))
+        self.assertEqual(hs.helper_restore("a"), ("busy", "busy"))
+        self.assertEqual(hs.helper_restore("a")[0], "error")
+
+    def test_helper_restore_unavailable_without_helper_or_on_the_docker_helper(self):
+        self.assertEqual(hs.helper_restore("a")[0], "unavailable")  # no socket
+        self.start_helper()
+        self.assertEqual(hs.helper_restore("a")[0], "unavailable")  # 404
 
     def test_helper_backup_settings_unavailable_on_the_docker_helper_and_without_helper(self):
         self.assertEqual(hs.helper_backup_settings(True, "0 3 * * *", "14")[0], "unavailable")  # no socket
