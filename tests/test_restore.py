@@ -36,7 +36,7 @@ class FakeBackup:
         self.created = []
         self.locks = 0
 
-    def create(self, data_dir, out_dir=None, settings=None, trigger="manual"):
+    def create(self, data_dir, out_dir=None, settings=None, trigger="manual", require_settings=True):
         if not self.ok:
             return mock.Mock(ok=False, path=None, error="disk full")
         path = os.path.join(out_dir, "headscale-easy-20260102-030000.tar.gz")

@@ -242,13 +242,14 @@ def _settings_snapshot(settings: dict, dst: str):
     os.chmod(dst, 0o600)
 
 
-def _collect(data_dir: str, root: str, settings: dict):
+def _collect(data_dir: str, root: str, settings: dict, require_settings: bool = True):
     """Fill ``root`` (the archive's top directory); returns the db type."""
     for rel, dest, kind, required in _FILES:
         src = os.path.join(data_dir, rel)
         if not os.path.isfile(src):
             if rel == "config/settings.json":
-                _settings_snapshot(settings, os.path.join(root, dest))
+                if require_settings or settings.get("public_url"):
+                    _settings_snapshot(settings, os.path.join(root, dest))
             elif required:
                 raise BackupError("missing %s" % rel)
             continue
@@ -370,7 +371,8 @@ def prune(out_dir: str, keep_days: float, now: float | None = None) -> list[str]
 
 
 # -- create -----------------------------------------------------------------------------
-def create(data_dir=None, out_dir=None, settings=None, trigger="manual", log=None) -> Result:
+def create(data_dir=None, out_dir=None, settings=None, trigger="manual", log=None,
+           require_settings=True) -> Result:
     """Make one backup. Takes the lock (BackupBusy if taken); any other failure is a Result with ok=False."""
     data_dir = data_dir or default_data_dir()
     out_dir = out_dir or backups_dir(data_dir)
@@ -393,7 +395,7 @@ def create(data_dir=None, out_dir=None, settings=None, trigger="manual", log=Non
                 name = "headscale-easy-%s-%d" % (stamp, n)
             root = os.path.join(work, name)
             os.mkdir(root, 0o700)
-            db_type = _collect(data_dir, root, settings)
+            db_type = _collect(data_dir, root, settings, require_settings)
             files = _tree_files(root)
             meta = {"format": FORMAT, "edition": EDITION,
                     "created": datetime.fromtimestamp(started).astimezone().isoformat(timespec="seconds"),

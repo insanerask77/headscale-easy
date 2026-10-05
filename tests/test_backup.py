@@ -114,6 +114,13 @@ class CreateTest(Base):
             self.assertEqual(member[0].mode & 0o777, 0o600)
             self.assertEqual(json.load(tar.extractfile(member[0]))["public_url"], "http://localhost")
 
+    def test_safety_copy_without_settings_is_allowed_when_asked(self):
+        os.unlink(os.path.join(self.data, "config", "settings.json"))
+        res = self.create(settings={}, require_settings=False)
+        self.assertTrue(res.ok, res.error)
+        with tarfile.open(res.path) as tar:
+            self.assertFalse([m for m in tar.getmembers() if m.name.endswith("config/settings.json")])
+
     def test_no_sessions_db_and_permissions(self):
         res = self.create()
         names = set(self.members(res.path))

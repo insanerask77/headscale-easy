@@ -247,7 +247,8 @@ def _safety_copy(data_dir: str, out_dir: str) -> str | None:
         log.warning("nothing to back up yet (fresh volume): no safety copy taken")
         return None
     backup = _backup()
-    result = backup.create(data_dir, out_dir=out_dir, trigger="pre-restore")
+    result = backup.create(data_dir, out_dir=out_dir, trigger="pre-restore",
+                           require_settings=False)  # a stopped headless container has no env to snapshot
     if not getattr(result, "ok", False):
         raise RestoreError("could not take the safety copy of the current data, nothing was changed: %s"
                            % getattr(result, "error", "unknown error"))
