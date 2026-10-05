@@ -327,6 +327,8 @@ Add device has a Docker tab to start Tailscale as a container.
 
 ### Phase 3 — Built-in backups · M
 
+Detailed plan: `PHASE3_EXECUTION_PLAN.md`.
+
 - [ ] Scheduler in the supervisor (it can read every file in `/data`):
       `BACKUP_SCHEDULE`, `BACKUP_KEEP_DAYS` as today.
 - [ ] Consistent copies with `sqlite3.Connection.backup()` (Headscale's
