@@ -529,7 +529,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == f"{BASE}/settings/status":
                 if not sees_all:
                     return self.fail(403, _("No permission"), _("This section is for admins only."))
-                return self.send(200, status_pages.status_page(session, CTX, server_status.collect()))
+                return self.send(200, status_pages.status_page(session, CTX, server_status.collect(), flash))
             if path == f"{BASE}/logs":
                 return self.send(200, audit.page(session, CTX, params))
             if path == f"{BASE}/logs.csv":
@@ -728,6 +728,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.set_user_password(session, m.group(1), form)
             if path == f"{BASE}/settings/notify-test":
                 return self.notify_test(session)
+            if path == f"{BASE}/settings/status/backup":
+                return self.backup_now(session)
             if path == f"{BASE}/users":
                 return self.create_user(session, form)
             m = re.fullmatch(rf"{BASE}/users/(\d+)/(rename|delete)", path)
@@ -794,6 +796,15 @@ class Handler(BaseHTTPRequestHandler):
                  f"{days} days" if days else "never")
         audit.request_event(self, session, "settings.key_expiry", _("Device key expiry"), {"from": before, "to": days})
         return self.redirect(f"{BASE}/settings/general?m=key-expiry-saved")
+
+    def backup_now(self, session: dict):
+        """Status page > Back up now (admins only): asks the all-in-one supervisor for a manual backup."""
+        if not session.get("admin"):
+            return self.fail(403, _("No permission"), _("This action is for admins only."))
+        result = hs.helper_backup()
+        if result in ("started", "busy"):
+            audit.request_event(self, session, "backup.run", _("Backup"), {"result": result})
+        return self.redirect(f"{BASE}/settings/status?m=backup-{result}")
 
     def notify_test(self, session: dict):
         if not session.get("admin"):

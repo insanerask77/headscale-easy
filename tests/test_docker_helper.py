@@ -294,6 +294,56 @@ class HelperTest(unittest.TestCase):
         self.assertTrue(os.path.exists(path))
 
 
+class BackupRouteTest(unittest.TestCase):
+    """POST /backup: served only when the backend exists (all-in-one supervisor)."""
+
+    def serve(self, backends):
+        self.tmp = tempfile.TemporaryDirectory(dir=SHORT_TMP)
+        self.addCleanup(self.tmp.cleanup)
+        self.sock = os.path.join(self.tmp.name, "helper.sock")
+        server = helper.serve(self.sock, backends)
+        threading.Thread(target=server.serve_forever, args=(0.05,), daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+
+    def test_route_is_404_on_the_docker_helper(self):
+        self.serve(None)
+        code, _, body = call(self.sock, "POST", "/backup")
+        self.assertEqual(code, 404)
+        self.assertFalse(body["ok"])
+
+    def test_served_by_a_backend(self):
+        calls = []
+        self.serve({"backup": lambda: (calls.append(1) or (200, {"ok": True, "started": True}))})
+        code, _, body = call(self.sock, "POST", "/backup")
+        self.assertEqual((code, body), (200, {"ok": True, "started": True}))
+        self.assertEqual(calls, [1])
+
+    def test_busy_is_reported(self):
+        self.serve({"backup": lambda: (200, {"ok": False, "error": "already running"})})
+        code, _, body = call(self.sock, "POST", "/backup")
+        self.assertEqual((code, body["error"]), (200, "already running"))
+
+    def test_contract_wrong_method_query_and_body(self):
+        calls = []
+        self.serve({"backup": lambda: (calls.append(1) or (200, {"ok": True, "started": True}))})
+        for method in ("GET", "PUT", "DELETE"):
+            code, headers, _ = call(self.sock, method, "/backup")
+            self.assertEqual(code, 405, method)
+            self.assertEqual(headers.get("Allow"), "POST")
+        self.assertEqual(call(self.sock, "POST", "/backup?out=/tmp")[0], 400)
+        self.assertEqual(call(self.sock, "POST", "/backup", body=b'{"out": "/tmp"}')[0], 400)
+        self.assertEqual(call(self.sock, "POST", "/backup/")[0], 404)
+        self.assertEqual(calls, [])
+
+    def test_backend_failure_does_not_leak(self):
+        def boom():
+            raise RuntimeError("secret path /data/x")
+        self.serve({"backup": boom})
+        code, _, body = call(self.sock, "POST", "/backup")
+        self.assertEqual((code, body), (500, {"ok": False, "error": "internal error"}))
+
+
 class WebClientTest(unittest.TestCase):
     """web/headscale.py against the real helper (over a fake Docker)."""
 
@@ -322,6 +372,25 @@ class WebClientTest(unittest.TestCase):
         threading.Thread(target=server.serve_forever, args=(0.05,), daemon=True).start()
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
+
+    def test_helper_backup_started_busy_and_error(self):
+        answers = iter([(200, {"ok": True, "started": True}), (200, {"ok": False, "error": "already running"}),
+                        (200, {"ok": False, "error": "disk full"})])
+        server = helper.serve(self.helper_sock, {"backup": lambda: next(answers)})
+        threading.Thread(target=server.serve_forever, args=(0.05,), daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.assertEqual([hs.helper_backup() for _ in range(3)], ["started", "busy", "error"])
+
+    def test_helper_backup_unavailable_without_helper_or_on_the_docker_helper(self):
+        self.assertEqual(hs.helper_backup(), "unavailable")  # no socket
+        self.start_helper()                                   # 1.x helper: the route is a 404
+        self.assertEqual(hs.helper_backup(), "unavailable")
+
+    def test_helper_backup_dead_socket_is_an_error(self):
+        with open(self.helper_sock, "w"):
+            pass
+        self.assertEqual(hs.helper_backup(), "error")
 
     def test_uses_the_helper(self):
         self.start_helper()

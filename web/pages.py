@@ -858,7 +858,8 @@ def notify_section(session: dict) -> str:
                 f'<p class="muted small">{esc(_("Set NOTIFY_URLS in .env (or run ./install.sh) and restart the web container."))}</p>')
     else:
         labels = {"device.registered": _("New device"), "device.key_expired": _("Key expired"),
-                  "device.expiring": _("Key expiring soon"), "device.removed": _("Device removed")}
+                  "device.expiring": _("Key expiring soon"), "device.removed": _("Device removed"),
+                  "backup.failed": _("Backup failed")}
         chosen = notify.events()
         items = "".join(f"<li>{esc(d['label'])}</li>" for d in dests)
         evs = ", ".join(labels[e] for e in notify.ALL_EVENTS if e in chosen)

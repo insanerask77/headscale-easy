@@ -453,13 +453,27 @@ class Supervisor:
         rows = sorted((self._summary(c) for c in self.children.values()), key=lambda r: r["name"])
         version = self.headscale_version() if "headscale" in self.children else None
         # docker: true so the console treats this backend as available
-        return 200, {"api": helper_mod.API_VERSION, "docker": True, "mode": self.mode,
-                     "headscale": {"container": "headscale", "version": version}, "containers": rows}
+        result = {"api": helper_mod.API_VERSION, "docker": True, "mode": self.mode,
+                  "headscale": {"container": "headscale", "version": version}, "containers": rows}
+        summary = getattr(self, "backup_summary", None)  # the scheduler's view (Block 2)
+        if self.mode == "run" and callable(summary):
+            result["backup"] = summary()
+        return 200, result
+
+    def be_backup(self):
+        """POST /backup: start a manual backup and answer at once; the console polls /status."""
+        start = getattr(self, "start_backup", None)
+        if self.mode != "run" or not callable(start):
+            return 200, {"ok": False, "error": "backups are not available in setup mode"}
+        if start("manual"):
+            return 200, {"ok": True, "started": True}
+        return 200, {"ok": False, "error": "already running"}
 
     def serve_helper(self):
         os.makedirs(self.run_dir, mode=0o755, exist_ok=True)
         self.server = helper_mod.serve(self.helper_socket, {
-            "configtest": self.be_configtest, "restart": self.be_restart, "status": self.be_status})
+            "configtest": self.be_configtest, "restart": self.be_restart, "status": self.be_status,
+            "backup": self.be_backup})
         threading.Thread(target=self.server.serve_forever, name="helper-socket", daemon=True).start()
         with open(os.path.join(self.run_dir, "supervisor.pid"), "w", encoding="utf-8") as fh:
             fh.write(str(os.getpid()))

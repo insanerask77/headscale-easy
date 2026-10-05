@@ -4,8 +4,8 @@ comes from status.py."""
 from __future__ import annotations
 
 import status
-from i18n import _
-from ui import badge, esc, layout, page_head
+from i18n import _, ngettext
+from ui import BASE, badge, csrf_input, esc, flash_html, layout, page_head, parse_time, time_tag
 
 
 def _kv(label: str, value: str) -> str:
@@ -51,6 +51,57 @@ def _containers(rows: list[dict], helper: dict | None) -> str:
       <tbody>{body}</tbody></table></div>"""
 
 
+def _when(value: str | None) -> str:
+    """A backup time: a <time> tag when it parses, the raw text otherwise."""
+    if parse_time(value) is None:
+        return esc(value) if value else "—"
+    return time_tag(value)
+
+
+def _backups(backup: dict | None, session: dict) -> str:
+    """The Backups card (all-in-one image). None: the helper reports no `backup`
+    key (1.x compose, or no helper), so there is nothing to show. The card is
+    data-live: app.js refreshes it every few seconds, which also shows a manual
+    run finishing."""
+    if backup is None:
+        return ""
+    last, running = backup.get("last") or None, bool(backup.get("running"))
+    if running:
+        state = badge(_("Running"), "orange")
+    elif last is None:
+        state = badge(_("Never"), "orange")
+    elif last.get("ok"):
+        state = badge(_("OK"), "green")
+    else:
+        state = badge(_("Failed"), "red")
+    rows = _kv(_("Last backup"), state + (f' {_when(last.get("at"))}' if last else ""))
+    if last and last.get("ok"):
+        rows += _kv(_("Size"), f'{esc(_size(last.get("size") or 0))} · <code>{esc(last.get("file") or "")}</code>')
+    if last and not last.get("ok") and last.get("error"):
+        rows += _kv(_("Error"), esc(str(last["error"])[:300]))
+    good = backup.get("last_ok")
+    if good and last and not last.get("ok"):
+        rows += _kv(_("Last good backup"), _when(good.get("at")))
+    if backup.get("enabled"):
+        schedule = f'<code>{esc(backup.get("schedule") or "")}</code>'
+        rows += _kv(_("Schedule"), schedule + (f' · {esc(_("next"))} {_when(backup.get("next_run"))}'
+                                              if backup.get("next_run") else ""))
+    else:
+        rows += _kv(_("Schedule"), f'<span class="muted">{esc(_("Off (BACKUP_SCHEDULE=off)"))}</span>')
+    rows += _kv(_("Kept"), esc(ngettext("{n} day", "{n} days", int(backup.get("keep_days") or 0))) +
+                (f' · {esc(ngettext("{n} backup", "{n} backups", int(backup.get("count") or 0)))} · {esc(_size(backup.get("bytes") or 0))}'
+                 if backup.get("count") else ""))
+    rows += _kv(_("Location"), "<code>/data/backups</code>")
+    action = ""
+    if session.get("admin"):
+        busy = " disabled" if running else ""
+        action = (f'<form method="post" action="{BASE}/settings/status/backup" data-busy>{csrf_input(session)}'
+                  f'<button class="btn" type="submit"{busy}>{esc(_("Back up now"))}</button></form>')
+    hint = (f'<p class="muted small">{esc(_("Backups hold every secret of this server (accounts, keys, settings). Keep them off this disk, for example on a mounted NAS folder, and out of reach of other people."))}</p>')
+    return (f'<section class="card" data-live="backup"><h2>{esc(_("Backups"))}</h2>'
+            f'<dl class="kvs">{rows}</dl>{action}{hint}</section>')
+
+
 def _disks(disks: list) -> str:
     if not disks:
         return f'<p class="muted">{esc(_("Disk use is not available."))}</p>'
@@ -83,14 +134,15 @@ def _metrics(metrics: dict | None, online: tuple[int, int] | None) -> str:
     return (f'<dl class="kvs">{rows}</dl>' if rows else "") + note
 
 
-def status_page(session: dict, ctx: dict, data: dict) -> str:
+def status_page(session: dict, ctx: dict, data: dict, flash: str = "") -> str:
     enabled = data["update_check"]
     off = "" if enabled else f'<p class="muted small">{esc(_("The update check is off (STATUS_UPDATE_CHECK=false)."))}</p>'
-    body = page_head(_("Status"), esc(_("The health of this server at a glance."))) + f"""
+    body = page_head(_("Status"), esc(_("The health of this server at a glance."))) + flash_html(flash) + f"""
     <section class="card"><h2>{esc(_("Versions"))}</h2>
       <dl class="kvs">{_version_row("Headscale", data["headscale"], enabled)}{_version_row("Headscale Easy", data["easy"], enabled)}</dl>
       <p class="muted small">{esc(_("The latest releases are looked up on GitHub and cached for 12 hours."))}</p>{off}</section>
     <section class="card"><h2>{esc(_("Containers"))}</h2>{_containers(data["containers"], data["helper"])}</section>
+    {_backups(data.get("backup"), session)}
     <section class="card"><h2>{esc(_("Disk"))}</h2>{_disks(data["disks"])}</section>
     <section class="card"><h2>{esc(_("Headscale"))}</h2>{_metrics(data["metrics"], data["online"])}</section>"""
     return layout(_("Status"), "status", body, session, ctx)

@@ -135,6 +135,7 @@ def action_labels() -> dict[str, str]:
         "settings.key_expiry": _("Changed device key expiry"),
         "settings.mfa": _("Changed two-factor authentication"),
         "settings.notify_test": _("Sent a test notification"),
+        "backup.run": _("Started a backup"),
         # devices (seen in Headscale's state)
         "device.registered": _("Device registered"),
         "device.removed": _("Device removed"),

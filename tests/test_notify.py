@@ -178,6 +178,48 @@ class Expiring(unittest.TestCase):
             self.assertEqual(ev.call_args[0][:2], ("device.expiring", "laptop"))
 
 
+def summary(at, ok, trigger="scheduled", error=None):
+    return {"last": {"at": at, "ok": ok, "trigger": trigger, "error": error}}
+
+
+class BackupFailed(unittest.TestCase):
+    def test_event_is_known_and_on_by_default(self):
+        self.assertIn("backup.failed", notify.ALL_EVENTS)
+        self.assertIn("backup.failed", notify.parse_events(None))
+        self.assertEqual(notify.parse_events("backup.failed"), {"backup.failed"})
+
+    def test_message(self):
+        self.assertEqual(notify.message("backup.failed", "backup", {"error": "disk full"}), "Backup failed: disk full")
+        self.assertEqual(notify.message("backup.failed", "backup", {}), "Backup failed.")
+
+    def test_first_look_remembers_and_stays_quiet(self):
+        failure, seen = notify.new_backup_failure(summary("t1", False), None)
+        self.assertEqual((failure, seen), (None, "t1"))
+
+    def test_new_scheduled_failure_is_reported_once(self):
+        failure, seen = notify.new_backup_failure(summary("t2", False, error="boom"), "t1")
+        self.assertEqual((failure["error"], seen), ("boom", "t2"))
+        self.assertEqual(notify.new_backup_failure(summary("t2", False, error="boom"), seen), (None, "t2"))
+
+    def test_successes_manual_runs_and_missing_data_do_not_report(self):
+        self.assertEqual(notify.new_backup_failure(summary("t2", True), "t1"), (None, "t2"))
+        self.assertEqual(notify.new_backup_failure(summary("t2", False, trigger="manual"), "t1"), (None, "t2"))
+        self.assertEqual(notify.new_backup_failure(None, "t1"), (None, "t1"))
+        self.assertEqual(notify.new_backup_failure({"last": None}, None), (None, None))
+
+    def test_check_backup_remembers_between_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            audit.configure(os.path.join(tmp, "audit.db"))
+            with mock.patch.object(notify, "event") as ev:
+                self.assertFalse(notify.check_backup(summary("t1", True)))           # first look
+                self.assertTrue(notify.check_backup(summary("t2", False, error="x" * 500)))
+                self.assertFalse(notify.check_backup(summary("t2", False, error="x")))   # same run
+                self.assertFalse(notify.check_backup(None))                          # supervisor not answering
+            ev.assert_called_once()
+            self.assertEqual(ev.call_args[0][:2], ("backup.failed", "backup"))
+            self.assertEqual(len(ev.call_args[0][2]["error"]), 200)
+
+
 class TestButton(ts.Base):
     def setUp(self):
         super().setUp()

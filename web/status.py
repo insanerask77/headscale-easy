@@ -157,6 +157,7 @@ def collect() -> dict:
         "headscale": {"version": hs_version, "latest": latest_release("headscale")},
         "easy": {"version": VERSION, "latest": latest_release("easy")},
         "containers": (helper or {}).get("containers") or [],
+        "backup": (helper or {}).get("backup"),  # all-in-one supervisor only
         "disks": disks,
         "metrics": fetch_metrics(),
         "online": online_nodes(),
