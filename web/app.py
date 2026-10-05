@@ -730,6 +730,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.notify_test(session)
             if path == f"{BASE}/settings/status/backup":
                 return self.backup_now(session)
+            if path == f"{BASE}/settings/status/backup-settings":
+                return self.backup_settings(session, form)
             if path == f"{BASE}/users":
                 return self.create_user(session, form)
             m = re.fullmatch(rf"{BASE}/users/(\d+)/(rename|delete)", path)
@@ -805,6 +807,22 @@ class Handler(BaseHTTPRequestHandler):
         if result in ("started", "busy"):
             audit.request_event(self, session, "backup.run", _("Backup"), {"result": result})
         return self.redirect(f"{BASE}/settings/status?m=backup-{result}")
+
+    def backup_settings(self, session: dict, form: dict):
+        """Status page > Backup settings (admins only): scheduled backups on/off, schedule, days to keep."""
+        if not session.get("admin"):
+            return self.fail(403, _("No permission"), _("This action is for admins only."))
+        enabled = form.get("backup_enabled", "on") != "off"
+        schedule = (form.get("backup_schedule") or "").strip()
+        keep = (form.get("backup_keep_days") or "").strip()
+        result, detail = hs.helper_backup_settings(enabled, schedule, keep)
+        if result == "saved":
+            log.info("%s set scheduled backups to %s", session["username"], f"{schedule!r}, {keep} days" if enabled else "off")
+            audit.request_event(self, session, "backup.settings", _("Backup settings"),
+                                {"enabled": enabled, "schedule": schedule if enabled else None, "keep_days": keep})
+        elif result == "invalid":
+            log.info("%s sent invalid backup settings: %s", session["username"], detail)
+        return self.redirect(f"{BASE}/settings/status?m=backup-settings-{result}")
 
     def notify_test(self, session: dict):
         if not session.get("admin"):

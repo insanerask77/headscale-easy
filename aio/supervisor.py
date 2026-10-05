@@ -47,6 +47,7 @@ START_TIMEOUT = float(os.environ.get("HSE_START_TIMEOUT", "90"))
 HEALTH_TTL = 10.0
 # The backup runs as its own process (aio/backup.py): a slow tar or an OOM must not take the supervisor down.
 BACKUP_CMD = [sys.executable, os.environ.get("HSE_BACKUP_APP", os.path.join(ROOT, "aio", "backup.py"))]
+DEFAULT_BACKUP_SCHEDULE = "0 3 * * *"
 BACKUP_TICK = 30.0       # how often the scheduler looks at the clock (it is woken early by reload / shutdown)
 BACKUP_CATCHUP = 60.0    # delay before the one catch-up run after a missed slot
 BACKUP_TIMEOUT = 3600.0  # a backup that runs longer than this is killed
@@ -469,11 +470,80 @@ class Supervisor:
             return 200, {"ok": True, "started": True}
         return 200, {"ok": False, "error": "already running"}
 
+    def be_backup_settings(self):
+        """POST /backup-settings: the console asks to turn scheduled backups on/off or change them.
+
+        The helper protocol takes no body, so the console leaves the values in
+        ``<run dir>/backup-settings.json`` (``enabled``, ``schedule``, ``keep_days``). They are checked here
+        (this is where ``cron`` lives), written to settings.json and picked up by the scheduler at once.
+        A value set by an environment variable wins over settings.json, so it cannot be changed from here."""
+        if self.mode != "run":
+            return 200, {"ok": False, "error": "backups are not available in setup mode"}
+        path = os.path.join(self.run_dir, "backup-settings.json")
+        try:
+            with open(path, encoding="utf-8") as fh:
+                req = json.load(fh)
+            os.unlink(path)
+        except (OSError, ValueError):
+            return 200, {"ok": False, "error": "no request"}
+        if not isinstance(req, dict):
+            return 200, {"ok": False, "error": "no request"}
+        locked = self.backup_env_locked()
+        changes = {}
+        if not locked["schedule"]:
+            schedule = str(req.get("schedule") or "").strip()
+            if not req.get("enabled", True):
+                schedule = "off"
+            elif not schedule or cron.is_off(schedule):
+                schedule = DEFAULT_BACKUP_SCHEDULE
+            try:
+                if not cron.is_off(schedule):
+                    cron.parse(schedule)
+            except ValueError as exc:
+                return 200, {"ok": False, "error": str(exc), "field": "schedule"}
+            changes["backup_schedule"] = "off" if cron.is_off(schedule) else schedule
+        if not locked["keep_days"]:
+            try:
+                keep = int(req.get("keep_days"))
+            except (TypeError, ValueError):
+                return 200, {"ok": False, "error": "days to keep must be a number", "field": "keep_days"}
+            if not 1 <= keep <= 3650:
+                return 200, {"ok": False, "error": "days to keep must be between 1 and 3650", "field": "keep_days"}
+            changes["backup_keep_days"] = str(keep)
+        if not changes:
+            return 200, {"ok": False, "error": "locked by environment variables", "field": "env"}
+        with self._op_lock:
+            stored = {}
+            try:
+                with open(self.paths["settings"], encoding="utf-8") as fh:
+                    stored = json.load(fh)
+            except (OSError, ValueError):
+                pass
+            if not isinstance(stored, dict) or not stored:
+                # headless start: nothing on disk yet, so keep the effective settings with the change
+                # (a settings.json with only these keys would make a restore on a fresh volume start the wizard)
+                stored = dict(self.load())
+            stored.update(changes)
+            tmp = self.paths["settings"] + ".tmp"
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(stored, fh, indent=2, sort_keys=True)
+            os.replace(tmp, self.paths["settings"])
+            self.settings = self.load()
+            self.configure_backup()
+        self.log("backups: settings changed from the console (%s)" % ", ".join(sorted(changes)))
+        return 200, {"ok": True, "backup": self.backup_summary()}
+
+    def backup_env_locked(self) -> dict:
+        """Which backup settings an environment variable fixes (the console cannot change those)."""
+        return {"schedule": bool(str(self.env.get("BACKUP_SCHEDULE") or "").strip()),
+                "keep_days": bool(str(self.env.get("BACKUP_KEEP_DAYS") or "").strip())}
+
     def serve_helper(self):
         os.makedirs(self.run_dir, mode=0o755, exist_ok=True)
         self.server = helper_mod.serve(self.helper_socket, {
             "configtest": self.be_configtest, "restart": self.be_restart, "status": self.be_status,
-            "backup": self.be_backup})
+            "backup": self.be_backup, "backup_settings": self.be_backup_settings})
         threading.Thread(target=self.server.serve_forever, name="helper-socket", daemon=True).start()
         with open(os.path.join(self.run_dir, "supervisor.pid"), "w", encoding="utf-8") as fh:
             fh.write(str(os.getpid()))
@@ -654,6 +724,7 @@ class Supervisor:
         status = self._read_backup_status()
         return {"enabled": enabled, "schedule": cfg["schedule"], "next_run": nxt.isoformat() if nxt else None,
                 "keep_days": cfg["keep_days"], "running": self._backup_running,
+                "env_locked": self.backup_env_locked(),
                 "last": status.get("last"), "last_ok": status.get("last_ok"),
                 "count": status.get("count", 0), "bytes": status.get("bytes", 0)}
 

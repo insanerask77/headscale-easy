@@ -429,6 +429,33 @@ def helper_backup() -> str:
     return "error"
 
 
+def helper_backup_settings(enabled: bool, schedule: str, keep_days: str) -> tuple[str, str]:
+    """Turn scheduled backups on/off or change them (POST /backup-settings on the all-in-one supervisor).
+
+    The helper takes no body, so the values go in a file next to its socket. Returns (result, detail):
+    'saved', 'invalid' (detail says what), 'locked' (an environment variable fixes them), 'unavailable'
+    (no helper, or the 1.x one: 404) or 'error'."""
+    if not os.path.exists(HELPER_SOCKET):
+        return "unavailable", ""
+    path = os.path.join(os.path.dirname(HELPER_SOCKET), "backup-settings.json")
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"enabled": bool(enabled), "schedule": schedule, "keep_days": keep_days}, fh)
+        code, data = helper("POST", "/backup-settings", timeout=20)
+    except OSError:
+        return "error", ""
+    if code == 404:
+        return "unavailable", ""
+    if code == 200 and data.get("ok"):
+        return "saved", ""
+    if code == 200 and data.get("field") == "env":
+        return "locked", ""
+    if code == 200 and data.get("field"):
+        return "invalid", str(data.get("error", ""))
+    return "error", str(data.get("error", ""))
+
+
 def docker_available() -> bool:
     """Can Headscale be validated and restarted from here?"""
     backend = _backend()

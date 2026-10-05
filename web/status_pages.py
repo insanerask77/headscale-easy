@@ -102,6 +102,37 @@ def _backups(backup: dict | None, session: dict) -> str:
             f'<dl class="kvs">{rows}</dl>{action}{hint}</section>')
 
 
+def _backup_settings(backup: dict | None, session: dict) -> str:
+    """Backup settings card: on/off, schedule, days to keep. Admins only, and not data-live: the page refreshes
+    the Backups card every few seconds and that would wipe what is being typed here."""
+    if backup is None or not session.get("admin"):
+        return ""
+    locked = backup.get("env_locked") or {}
+    enabled = bool(backup.get("enabled"))
+    schedule = backup.get("schedule") or ""
+    if not enabled or schedule == "off":
+        schedule = "0 3 * * *"
+    dis_sched = " disabled" if locked.get("schedule") else ""
+    dis_keep = " disabled" if locked.get("keep_days") else ""
+    on, off = (" selected", "") if enabled else ("", " selected")
+    fields = (
+        f'<label>{esc(_("Scheduled backups"))}<select name="backup_enabled"{dis_sched}>'
+        f'<option value="on"{on}>{esc(_("On"))}</option><option value="off"{off}>{esc(_("Off"))}</option></select></label>'
+        f'<label>{esc(_("Schedule (cron)"))}<input type="text" name="backup_schedule" value="{esc(schedule)}" '
+        f'spellcheck="false" autocomplete="off"{dis_sched}></label>'
+        f'<label>{esc(_("Days to keep backups"))}<input type="number" name="backup_keep_days" min="1" max="3650" '
+        f'value="{int(backup.get("keep_days") or 14)}"{dis_keep}></label>')
+    note = ""
+    if locked.get("schedule") or locked.get("keep_days"):
+        note = f'<p class="muted small">{esc(_("Some of these values are fixed by environment variables (BACKUP_SCHEDULE / BACKUP_KEEP_DAYS) and can only be changed there."))}</p>'
+    button = "" if (locked.get("schedule") and locked.get("keep_days")) else (
+        f'<button class="btn" type="submit">{esc(_("Save"))}</button>')
+    return (f'<section class="card"><h2>{esc(_("Backup settings"))}</h2>'
+            f'<form method="post" action="{BASE}/settings/status/backup-settings" class="stack">{csrf_input(session)}'
+            f'{fields}{button}</form>{note}'
+            f'<p class="muted small">{esc(_("Five fields: minute hour day month weekday. For example 0 3 * * * is every day at 03:00. The server time zone is TZ."))}</p></section>')
+
+
 def _disks(disks: list) -> str:
     if not disks:
         return f'<p class="muted">{esc(_("Disk use is not available."))}</p>'
@@ -143,6 +174,7 @@ def status_page(session: dict, ctx: dict, data: dict, flash: str = "") -> str:
       <p class="muted small">{esc(_("The latest releases are looked up on GitHub and cached for 12 hours."))}</p>{off}</section>
     <section class="card"><h2>{esc(_("Containers"))}</h2>{_containers(data["containers"], data["helper"])}</section>
     {_backups(data.get("backup"), session)}
+    {_backup_settings(data.get("backup"), session)}
     <section class="card"><h2>{esc(_("Disk"))}</h2>{_disks(data["disks"])}</section>
     <section class="card"><h2>{esc(_("Headscale"))}</h2>{_metrics(data["metrics"], data["online"])}</section>"""
     return layout(_("Status"), "status", body, session, ctx)

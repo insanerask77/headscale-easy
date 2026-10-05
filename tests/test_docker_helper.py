@@ -306,6 +306,14 @@ class BackupRouteTest(unittest.TestCase):
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
 
+    def test_settings_route_is_404_on_the_docker_helper_and_takes_no_body(self):
+        self.serve(None)
+        self.assertEqual(call(self.sock, "POST", "/backup-settings")[0], 404)
+        self.serve({"backup_settings": lambda: (200, {"ok": True})})
+        self.assertEqual(call(self.sock, "POST", "/backup-settings")[0], 200)
+        self.assertEqual(call(self.sock, "POST", "/backup-settings", body=b'{"a": 1}')[0], 400)
+        self.assertEqual(call(self.sock, "GET", "/backup-settings")[0], 405)
+
     def test_route_is_404_on_the_docker_helper(self):
         self.serve(None)
         code, _, body = call(self.sock, "POST", "/backup")
@@ -381,6 +389,27 @@ class WebClientTest(unittest.TestCase):
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
         self.assertEqual([hs.helper_backup() for _ in range(3)], ["started", "busy", "error"])
+
+    def test_helper_backup_settings_results_and_request_file(self):
+        answers = iter([(200, {"ok": True}), (200, {"ok": False, "error": "bad", "field": "schedule"}),
+                        (200, {"ok": False, "error": "env", "field": "env"}), (200, {"ok": False, "error": "x"})])
+        server = helper.serve(self.helper_sock, {"backup_settings": lambda: next(answers)})
+        threading.Thread(target=server.serve_forever, args=(0.05,), daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.assertEqual(hs.helper_backup_settings(True, "0 3 * * *", "14"), ("saved", ""))
+        path = os.path.join(os.path.dirname(self.helper_sock), "backup-settings.json")
+        with open(path, encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh), {"enabled": True, "schedule": "0 3 * * *", "keep_days": "14"})
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+        self.assertEqual(hs.helper_backup_settings(True, "foo", "14"), ("invalid", "bad"))
+        self.assertEqual(hs.helper_backup_settings(True, "1 1 * * *", "1"), ("locked", ""))
+        self.assertEqual(hs.helper_backup_settings(True, "1 1 * * *", "1")[0], "error")
+
+    def test_helper_backup_settings_unavailable_on_the_docker_helper_and_without_helper(self):
+        self.assertEqual(hs.helper_backup_settings(True, "0 3 * * *", "14")[0], "unavailable")  # no socket
+        self.start_helper()
+        self.assertEqual(hs.helper_backup_settings(True, "0 3 * * *", "14")[0], "unavailable")  # 404
 
     def test_helper_backup_unavailable_without_helper_or_on_the_docker_helper(self):
         self.assertEqual(hs.helper_backup(), "unavailable")  # no socket

@@ -49,6 +49,7 @@ ROUTES = {
     ("POST", "/restart"): "restart",
     ("GET", "/status"): "status",
     ("POST", "/backup"): "backup",   # all-in-one supervisor only (see aio/supervisor.py)
+    ("POST", "/backup-settings"): "backup_settings",   # same; the values travel in a file in the run dir
 }
 PATHS = {path for _, path in ROUTES}
 

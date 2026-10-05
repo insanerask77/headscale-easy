@@ -1054,5 +1054,94 @@ class OnlineRestoreProcessTest(FakeCase):
         self.assertEqual(proc.wait(10), 0)
 
 
+class BackupSettingsTest(SupervisorMixin, FakeCase):
+    """POST /backup-settings: the console turns scheduled backups on/off or changes them (values in a file)."""
+
+    def setUp(self):
+        super().setUp()
+        self.now = [datetime(2026, 10, 5, 2, 59)]
+
+    def request(self, s, **req):
+        with open(os.path.join(self.fakes.run, "backup-settings.json"), "w", encoding="utf-8") as fh:
+            json.dump(req, fh)
+        return s.be_backup_settings()[1]
+
+    def stored(self):
+        with open(os.path.join(self.fakes.data, "config", "settings.json"), encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def make_sched(self, stored=None, **env):
+        os.makedirs(os.path.join(self.fakes.data, "config"), exist_ok=True)
+        if stored is not None:
+            with open(os.path.join(self.fakes.data, "config", "settings.json"), "w", encoding="utf-8") as fh:
+                json.dump(stored, fh)
+        s = self.make(**env)
+        s.mode = "run"
+        s.settings = s.load()
+        s.clock = lambda: self.now[0]
+        s.configure_backup()
+        os.makedirs(self.fakes.run, exist_ok=True)
+        return s
+
+    def test_change_schedule_and_days_is_stored_and_applied(self):
+        s = self.make_sched({"public_url": "http://localhost", "tz": "UTC"})
+        res = self.request(s, enabled=True, schedule="30 4 * * *", keep_days="7")
+        self.assertTrue(res["ok"], res)
+        self.assertEqual((self.stored()["backup_schedule"], self.stored()["backup_keep_days"], self.stored()["public_url"]),
+                         ("30 4 * * *", "7", "http://localhost"))
+        self.assertEqual(s.backup_cfg, {"schedule": "30 4 * * *", "keep_days": 7})
+        self.assertEqual(res["backup"]["schedule"], "30 4 * * *")
+        path = os.path.join(self.fakes.data, "config", "settings.json")
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+        self.assertFalse(os.path.exists(os.path.join(self.fakes.run, "backup-settings.json")))  # consumed
+
+    def test_turn_off_then_on_again(self):
+        s = self.make_sched({"public_url": "http://localhost"})
+        self.assertTrue(self.request(s, enabled=False, schedule="30 4 * * *", keep_days="14")["ok"])
+        self.assertEqual((s.backup_cfg["schedule"], self.stored()["backup_schedule"]), ("off", "off"))
+        self.assertFalse(s.backup_summary()["enabled"])
+        self.assertTrue(self.request(s, enabled=True, schedule="", keep_days="14")["ok"])
+        self.assertEqual(s.backup_cfg["schedule"], "0 3 * * *")  # nothing typed: the default
+        self.assertTrue(s.backup_summary()["enabled"])
+
+    def test_invalid_values_change_nothing(self):
+        s = self.make_sched({"public_url": "http://localhost", "backup_schedule": "0 3 * * *"})
+        for req, field in (({"schedule": "foo"}, "schedule"), ({"schedule": "*/0 * * * *"}, "schedule"),
+                           ({"schedule": "$(x) * * * *"}, "schedule"), ({"keep_days": "0"}, "keep_days"),
+                           ({"keep_days": "9999"}, "keep_days"), ({"keep_days": "abc"}, "keep_days")):
+            res = self.request(s, **dict({"enabled": True, "schedule": "1 1 * * *", "keep_days": "5"}, **req))
+            self.assertEqual((res["ok"], res.get("field")), (False, field), req)
+        self.assertEqual(self.stored()["backup_schedule"], "0 3 * * *")
+        self.assertEqual(s.backup_cfg["schedule"], "0 3 * * *")
+
+    def test_environment_variables_win(self):
+        s = self.make_sched({"public_url": "http://localhost"}, BACKUP_SCHEDULE="0 5 * * *", BACKUP_KEEP_DAYS="3")
+        res = self.request(s, enabled=False, schedule="1 1 * * *", keep_days="9")
+        self.assertEqual((res["ok"], res["field"]), (False, "env"))
+        self.assertNotIn("backup_schedule", self.stored())
+        self.assertEqual(s.backup_summary()["env_locked"], {"schedule": True, "keep_days": True})
+
+    def test_only_the_free_half_changes_when_one_is_fixed(self):
+        s = self.make_sched({"public_url": "http://localhost"}, BACKUP_SCHEDULE="0 5 * * *")
+        self.assertTrue(self.request(s, enabled=False, schedule="1 1 * * *", keep_days="9")["ok"])
+        self.assertEqual(self.stored()["backup_keep_days"], "9")
+        self.assertNotIn("backup_schedule", self.stored())
+        self.assertEqual(s.backup_cfg["schedule"], "0 5 * * *")
+
+    def test_headless_start_keeps_the_effective_settings(self):
+        s = self.make_sched(None)  # settings come from the environment: no settings.json yet
+        self.assertTrue(self.request(s, enabled=True, schedule="0 2 * * *", keep_days="10")["ok"])
+        self.assertEqual((self.stored()["public_url"], self.stored()["backup_schedule"]), ("http://localhost", "0 2 * * *"))
+
+    def test_no_request_and_setup_mode(self):
+        s = self.make_sched({"public_url": "http://localhost"})
+        self.assertEqual(s.be_backup_settings()[1], {"ok": False, "error": "no request"})
+        with open(os.path.join(self.fakes.run, "backup-settings.json"), "w") as fh:
+            fh.write("not json")
+        self.assertEqual(s.be_backup_settings()[1], {"ok": False, "error": "no request"})
+        s.mode = "setup"
+        self.assertFalse(self.request(s, enabled=True, schedule="1 1 * * *", keep_days="5")["ok"])
+
+
 if __name__ == "__main__":
     unittest.main()

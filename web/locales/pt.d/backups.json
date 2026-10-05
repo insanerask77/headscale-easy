@@ -21,5 +21,20 @@
   "Backup started. This page shows the result when it finishes.": "Cópia iniciada. Esta página mostra o resultado quando terminar.",
   "A backup is already running.": "Já existe uma cópia em curso.",
   "Backups are not available here: this server does not run the all-in-one image.": "As cópias não estão disponíveis aqui: este servidor não executa a imagem tudo-em-um.",
-  "Could not start the backup. Check the logs of the container.": "Não foi possível iniciar a cópia. Verifique os registos do contentor."
+  "Could not start the backup. Check the logs of the container.": "Não foi possível iniciar a cópia. Verifique os registos do contentor.",
+  "Backup settings": "Definições de cópias",
+  "Scheduled backups": "Cópias agendadas",
+  "On": "Ativadas",
+  "Off": "Desativadas",
+  "Schedule (cron)": "Agendamento (cron)",
+  "Days to keep backups": "Dias de retenção das cópias",
+  "Save": "Guardar",
+  "Some of these values are fixed by environment variables (BACKUP_SCHEDULE / BACKUP_KEEP_DAYS) and can only be changed there.": "Alguns destes valores são fixados por variáveis de ambiente (BACKUP_SCHEDULE / BACKUP_KEEP_DAYS) e só podem ser alterados aí.",
+  "Five fields: minute hour day month weekday. For example 0 3 * * * is every day at 03:00. The server time zone is TZ.": "Cinco campos: minuto hora dia mês dia da semana. Por exemplo, 0 3 * * * é todos os dias às 03:00. O fuso horário do servidor é TZ.",
+  "Backup settings saved.": "Definições de cópias guardadas.",
+  "The backup settings are not valid: use five cron fields (for example 0 3 * * *) and 1 to 3650 days.": "As definições de cópias não são válidas: use cinco campos cron (por exemplo 0 3 * * *) e de 1 a 3650 dias.",
+  "These backup settings are fixed by environment variables (BACKUP_SCHEDULE / BACKUP_KEEP_DAYS); change them there.": "Estas definições de cópias são fixadas por variáveis de ambiente (BACKUP_SCHEDULE / BACKUP_KEEP_DAYS); altere-as aí.",
+  "The backup settings cannot be changed from here.": "As definições de cópias não podem ser alteradas aqui.",
+  "The backup settings could not be saved. Check the container logs.": "Não foi possível guardar as definições de cópias. Verifique os logs do contentor.",
+  "Changed the backup settings": "Alterou as definições de cópias"
 }

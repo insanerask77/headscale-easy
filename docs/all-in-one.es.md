@@ -105,7 +105,10 @@ también sirve.
 El contenedor hace una copia **cada noche a las 03:00** (zona horaria `TZ`) y
 guarda los últimos 14 días en `/data/backups`, sin ningún contenedor extra. Se
 desactiva con `BACKUP_SCHEDULE=off` y se cambia con `BACKUP_SCHEDULE` /
-`BACKUP_KEEP_DAYS` (o en el asistente). Si la hora programada pasó mientras el
+`BACKUP_KEEP_DAYS` (en el asistente, o después en **Ajustes → Estado → Ajustes de copias**, que
+activa o desactiva las copias programadas y cambia la programación y los días
+que se conservan; un valor fijado por una variable de entorno solo se cambia
+allí). Si la hora programada pasó mientras el
 contenedor estaba parado, se hace una copia poco después de arrancar.
 
 Cada copia es un `headscale-easy-<fecha>-<hora>.tar.gz` con:

@@ -247,6 +247,71 @@ class BackupCard(unittest.TestCase):
             self.assertIn(text, html, code)
 
 
+class BackupSettingsCard(unittest.TestCase):
+    def page(self, backup, session=ADMIN):
+        return Page.get(self, session, helper=dict(HELPER, **({"backup": backup} if backup is not None else {})))
+
+    def test_form_for_admins(self):
+        _c, html = self.page(BACKUP_OK)
+        self.assertIn(f'action="{B}/settings/status/backup-settings"', html)
+        self.assertIn('name="backup_enabled"', html)
+        self.assertIn('name="backup_schedule" value="0 3 * * *"', html)
+        self.assertIn('name="backup_keep_days" min="1" max="3650" value="14"', html)
+        self.assertNotIn("disabled", html.split("Backup settings", 1)[1].split("</section>", 1)[0])
+
+    def test_hidden_for_non_admins_and_without_the_backup_key(self):
+        self.assertNotIn("backup-settings", self.page(BACKUP_OK, MEMBER)[1])
+        self.assertNotIn("backup-settings", self.page(None)[1])
+
+    def test_off_state_offers_the_default_schedule(self):
+        _c, html = self.page(dict(BACKUP_OK, enabled=False, schedule="off"))
+        self.assertIn('<option value="off" selected>', html)
+        self.assertIn('name="backup_schedule" value="0 3 * * *"', html)
+
+    def test_environment_values_are_read_only(self):
+        _c, html = self.page(dict(BACKUP_OK, env_locked={"schedule": True, "keep_days": True}))
+        card = html.split("Backup settings", 1)[1].split("</section>", 1)[0]
+        self.assertEqual(card.count(" disabled"), 3)
+        self.assertNotIn('type="submit"', card)
+        self.assertIn("fixed by environment variables", card)
+
+
+class BackupSettingsSave(unittest.TestCase):
+    URL = f"{B}/settings/status/backup-settings"
+
+    def run_post(self, session, result=("saved", ""), csrf="tok", **form):
+        form = dict({"csrf": csrf, "backup_enabled": "on", "backup_schedule": "0 4 * * *", "backup_keep_days": "7"}, **form)
+        with mock.patch.object(hs, "helper_backup_settings", return_value=result) as call, \
+                mock.patch.object(app.audit, "request_event") as event:
+            code, head, _body = post(self.URL, session, form)
+        return code, head, call, event
+
+    def test_admin_saves_and_it_is_audited(self):
+        code, head, call, event = self.run_post(ADMIN)
+        self.assertEqual(code, 303)
+        self.assertIn("settings/status?m=backup-settings-saved", head)
+        call.assert_called_once()
+        self.assertEqual(call.call_args.args, (True, "0 4 * * *", "7"))
+        self.assertEqual(event.call_args.args[2], "backup.settings")
+
+    def test_off_is_passed_on(self):
+        _c, _h, call, _e = self.run_post(ADMIN, backup_enabled="off")
+        self.assertIs(call.call_args.args[0], False)
+
+    def test_other_results_redirect_with_their_message_and_are_not_audited(self):
+        for result in ("invalid", "locked", "unavailable", "error"):
+            code, head, _call, event = self.run_post(ADMIN, (result, "x"))
+            self.assertEqual(code, 303)
+            self.assertIn(f"m=backup-settings-{result}", head)
+            event.assert_not_called()
+
+    def test_only_admins_and_only_with_the_token(self):
+        for session, csrf in ((MEMBER, "tok"), (ADMIN, "bad")):
+            code, _head, call, _event = self.run_post(session, csrf=csrf)
+            self.assertEqual(code, 403)
+            call.assert_not_called()
+
+
 class BackupNow(unittest.TestCase):
     URL = f"{B}/settings/status/backup"
 

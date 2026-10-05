@@ -21,5 +21,20 @@
   "Backup started. This page shows the result when it finishes.": "Sauvegarde lancée. Cette page affiche le résultat à la fin.",
   "A backup is already running.": "Une sauvegarde est déjà en cours.",
   "Backups are not available here: this server does not run the all-in-one image.": "Les sauvegardes ne sont pas disponibles ici : ce serveur n'exécute pas l'image tout-en-un.",
-  "Could not start the backup. Check the logs of the container.": "Impossible de lancer la sauvegarde. Consultez les journaux du conteneur."
+  "Could not start the backup. Check the logs of the container.": "Impossible de lancer la sauvegarde. Consultez les journaux du conteneur.",
+  "Backup settings": "Réglages des sauvegardes",
+  "Scheduled backups": "Sauvegardes planifiées",
+  "On": "Activées",
+  "Off": "Désactivées",
+  "Schedule (cron)": "Planification (cron)",
+  "Days to keep backups": "Jours de conservation",
+  "Save": "Enregistrer",
+  "Some of these values are fixed by environment variables (BACKUP_SCHEDULE / BACKUP_KEEP_DAYS) and can only be changed there.": "Certaines de ces valeurs sont fixées par des variables d'environnement (BACKUP_SCHEDULE / BACKUP_KEEP_DAYS) et ne peuvent être changées que là.",
+  "Five fields: minute hour day month weekday. For example 0 3 * * * is every day at 03:00. The server time zone is TZ.": "Cinq champs : minute heure jour mois jour de la semaine. Par exemple, 0 3 * * * correspond à tous les jours à 03:00. Le fuseau horaire du serveur est TZ.",
+  "Backup settings saved.": "Réglages des sauvegardes enregistrés.",
+  "The backup settings are not valid: use five cron fields (for example 0 3 * * *) and 1 to 3650 days.": "Les réglages des sauvegardes ne sont pas valides : utilisez cinq champs cron (par exemple 0 3 * * *) et de 1 à 3650 jours.",
+  "These backup settings are fixed by environment variables (BACKUP_SCHEDULE / BACKUP_KEEP_DAYS); change them there.": "Ces réglages sont fixés par des variables d'environnement (BACKUP_SCHEDULE / BACKUP_KEEP_DAYS) ; modifiez-les là.",
+  "The backup settings cannot be changed from here.": "Les réglages des sauvegardes ne peuvent pas être modifiés ici.",
+  "The backup settings could not be saved. Check the container logs.": "Les réglages des sauvegardes n'ont pas pu être enregistrés. Consultez les logs du conteneur.",
+  "Changed the backup settings": "A modifié les réglages des sauvegardes"
 }

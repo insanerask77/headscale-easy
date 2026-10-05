@@ -121,7 +121,9 @@ works too.
 The container makes a backup **every night at 03:00** (time zone `TZ`) and keeps
 the last 14 days in `/data/backups`, with no extra container. Turn it off with
 `BACKUP_SCHEDULE=off`, change it with `BACKUP_SCHEDULE` / `BACKUP_KEEP_DAYS`
-(or in the wizard). A backup also runs once shortly after the container starts
+(in the wizard, or later in **Settings → Status → Backup settings**, which
+turns scheduled backups on or off and changes the schedule and the days kept;
+a value fixed by an environment variable can only be changed there). A backup also runs once shortly after the container starts
 if its scheduled time passed while it was stopped.
 
 Each backup is one `headscale-easy-<date>-<time>.tar.gz` with:

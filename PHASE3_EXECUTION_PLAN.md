@@ -561,8 +561,11 @@ restore) and the download/remote niceties, never verification or the round-trip 
       page. Default: later; `hse restore` on a fresh volume covers it.
 - [ ] **Encrypt archives** (passphrase)? Default: no in this phase; the volume and
       the remote's own encryption are the answer, and the docs say so.
-- [ ] **Editable schedule in the console** (instead of env / `settings.json` +
-      `hse reload`)? Default: read-only on the Status page for now.
+- [x] **Editable schedule in the console**: done. Status page → Backup settings
+      (on/off, schedule, days kept; admins, CSRF, audited). The console leaves the
+      values in `<run dir>/backup-settings.json` and calls `POST /backup-settings`;
+      the supervisor validates, writes `settings.json` and reloads the scheduler.
+      Values fixed by environment variables stay read-only.
 
 ---
 
