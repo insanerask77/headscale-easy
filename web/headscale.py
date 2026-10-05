@@ -409,6 +409,117 @@ def helper_status() -> dict | None:
     return data if code == 200 else None
 
 
+def helper_backup() -> str:
+    """Ask the all-in-one supervisor for a backup now (POST /backup).
+
+    'started', 'busy' (one is already running), 'unavailable' (no helper, or
+    the 1.x helper, which has no such route: 404) or 'error'."""
+    if not os.path.exists(HELPER_SOCKET):
+        return "unavailable"
+    try:
+        code, data = helper("POST", "/backup", timeout=20)
+    except OSError:
+        return "error"
+    if code == 404:
+        return "unavailable"
+    if code == 200 and data.get("ok"):
+        return "started"
+    if code == 200 and "already running" in str(data.get("error", "")):
+        return "busy"
+    return "error"
+
+
+def helper_backup_settings(enabled: bool, schedule: str, keep_days: str) -> tuple[str, str]:
+    """Turn scheduled backups on/off or change them (POST /backup-settings on the all-in-one supervisor).
+
+    The helper takes no body, so the values go in a file next to its socket. Returns (result, detail):
+    'saved', 'invalid' (detail says what), 'locked' (an environment variable fixes them), 'unavailable'
+    (no helper, or the 1.x one: 404) or 'error'."""
+    if not os.path.exists(HELPER_SOCKET):
+        return "unavailable", ""
+    path = os.path.join(os.path.dirname(HELPER_SOCKET), "backup-settings.json")
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"enabled": bool(enabled), "schedule": schedule, "keep_days": keep_days}, fh)
+        code, data = helper("POST", "/backup-settings", timeout=20)
+    except OSError:
+        return "error", ""
+    if code == 404:
+        return "unavailable", ""
+    if code == 200 and data.get("ok"):
+        return "saved", ""
+    if code == 200 and data.get("field") == "env":
+        return "locked", ""
+    if code == 200 and data.get("field"):
+        return "invalid", str(data.get("error", ""))
+    return "error", str(data.get("error", ""))
+
+
+def _run_dir() -> str:
+    return os.path.dirname(HELPER_SOCKET)
+
+
+def helper_restore(name: str) -> tuple[str, str]:
+    """Ask the all-in-one supervisor to restore one backup of /data/backups (POST /restore).
+
+    The helper takes no body, so the name goes in a file next to its socket. Returns (result, detail):
+    'started' (detail = the id of this restore, see restore_result), 'invalid' (not a valid backup),
+    'busy' (a backup or another restore is running), 'unavailable' (no helper, or the 1.x one) or 'error'."""
+    if not os.path.exists(HELPER_SOCKET):
+        return "unavailable", ""
+    path = os.path.join(_run_dir(), "restore-ui.json")
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"name": name}, fh)
+        code, data = helper("POST", "/restore", timeout=120)  # it checks the whole archive first
+    except OSError:
+        return "error", ""
+    if code == 404:
+        return "unavailable", ""
+    if code == 200 and data.get("ok"):
+        return "started", str(data.get("id", ""))
+    if code == 200 and data.get("field") in ("invalid", "busy"):
+        return str(data["field"]), str(data.get("error", ""))
+    return "error", str(data.get("error", ""))
+
+
+def helper_backup_upload(tmp: str, name: str) -> tuple[str, str]:
+    """Ask the all-in-one supervisor to check an uploaded file and keep it as a backup (POST /backup-upload).
+
+    ``tmp`` is the file name inside BACKUP_DIR where the console wrote it; ``name`` the name the user's file had.
+    Returns (result, detail): 'saved' (detail = the name it is kept under), 'invalid' (not a valid backup of this
+    kind; the file is deleted), 'unavailable' or 'error'."""
+    if not os.path.exists(HELPER_SOCKET):
+        return "unavailable", ""
+    path = os.path.join(_run_dir(), "backup-upload.json")
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"tmp": tmp, "name": name}, fh)
+        code, data = helper("POST", "/backup-upload", timeout=900)  # it checks every file of the archive
+    except OSError:
+        return "error", ""
+    if code == 404:
+        return "unavailable", ""
+    if code == 200 and data.get("ok"):
+        return "saved", str(data.get("name", ""))
+    if code == 200 and data.get("field") == "invalid":
+        return "invalid", str(data.get("error", ""))
+    return "error", str(data.get("error", ""))
+
+
+def restore_result() -> dict | None:
+    """The supervisor's answer to the last online restore (restore-result.json), None until it finished."""
+    try:
+        with open(os.path.join(_run_dir(), "restore-result.json"), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def docker_available() -> bool:
     """Can Headscale be validated and restarted from here?"""
     backend = _backend()

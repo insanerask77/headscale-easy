@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import status
 from i18n import _
-from ui import badge, esc, layout, page_head
+from ui import BASE, badge, esc, flash_html, layout, page_head
 
 
 def _kv(label: str, value: str) -> str:
@@ -83,10 +83,10 @@ def _metrics(metrics: dict | None, online: tuple[int, int] | None) -> str:
     return (f'<dl class="kvs">{rows}</dl>' if rows else "") + note
 
 
-def status_page(session: dict, ctx: dict, data: dict) -> str:
+def status_page(session: dict, ctx: dict, data: dict, flash: str = "") -> str:
     enabled = data["update_check"]
     off = "" if enabled else f'<p class="muted small">{esc(_("The update check is off (STATUS_UPDATE_CHECK=false)."))}</p>'
-    body = page_head(_("Status"), esc(_("The health of this server at a glance."))) + f"""
+    body = page_head(_("Status"), esc(_("The health of this server at a glance."))) + flash_html(flash) + f"""
     <section class="card"><h2>{esc(_("Versions"))}</h2>
       <dl class="kvs">{_version_row("Headscale", data["headscale"], enabled)}{_version_row("Headscale Easy", data["easy"], enabled)}</dl>
       <p class="muted small">{esc(_("The latest releases are looked up on GitHub and cached for 12 hours."))}</p>{off}</section>

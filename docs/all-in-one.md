@@ -50,8 +50,9 @@ Setup mode starts when there is no `/data/config/settings.json` and no
 7. **Relays (DERP)**: *this server* (default: DERP and STUN run in the
    container, UDP 3478, nothing third-party), Tailscale's public relays too,
    or your own DERP map.
-8. **Backups**: schedule and retention are stored for the built-in backups
-   that arrive in a later release.
+8. **Backups**: when to back up (cron syntax, default every night at 03:00;
+   `off` disables it) and how many days to keep (default 14). The wizard shows
+   when the next backup will run. See [Backups](#backups).
 
 Finishing creates the Headscale API key, the administrator's Headscale user and
 the isolation policy, then starts the console. If a step fails (for example the
@@ -95,7 +96,9 @@ Precedence is **environment > `/data/config/settings.json` > defaults**.
 | `HSE_DERP_MODE` | `embedded` | `embedded` (this container's own DERP + STUN, nothing third-party), `public` (also Tailscale's public map) or `custom` |
 | `HSE_DERP_URL` | | DERP map URL, with `HSE_DERP_MODE=custom` (you can also upload a map in the console) |
 | `DERP_USE_PUBLIC` | | Legacy alias: `true` = `public`, `false` = `embedded`; `HSE_DERP_MODE` wins |
-| `UI_LANG`, `TZ` | `en`, `UTC` | Console language and time zone |
+| `UI_LANG`, `TZ` | `en`, `UTC` | Console language and time zone (`TZ` is also the clock of the backup schedule) |
+| `BACKUP_SCHEDULE` | `0 3 * * *` | When to back up, cron syntax; `off` disables scheduled backups. An invalid value stops the container at start |
+| `BACKUP_KEEP_DAYS` | `14` | Backups older than this are deleted (the newest successful one is always kept) |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | | Sign in with an external OIDC provider |
 | `HEADSCALE_DB_TYPE`, `HEADSCALE_PG_*` | `sqlite` | Use an external PostgreSQL |
 
@@ -107,10 +110,116 @@ Precedence is **environment > `/data/config/settings.json` > defaults**.
 | `caddy/` | Certificates and access logs |
 | `console/` | Accounts, sessions and audit databases, Headscale API key |
 | `config/` | `settings.json`, rendered `config.yaml`, `Caddyfile`, `derp.yaml` |
-| `backups/` | Reserved for the built-in backups |
+| `backups/` | The built-in backups and `status.json` (last and next run) |
 
 Everything is created by the container with private permissions (700 / 600).
-Back up the volume to back up the server.
+The container backs itself up, see [Backups](#backups); a copy of the volume
+works too.
+
+## Backups { #backups }
+
+The container makes a backup **every night at 03:00** (time zone `TZ`) and keeps
+the last 14 days in `/data/backups`, with no extra container. Turn it off with
+`BACKUP_SCHEDULE=off`, change it with `BACKUP_SCHEDULE` / `BACKUP_KEEP_DAYS`
+(in the wizard, or later in the **Backups** menu (administrators), which
+turns scheduled backups on or off and changes the schedule and the days kept;
+a value fixed by an environment variable can only be changed there). A backup also runs once shortly after the container starts
+if its scheduled time passed while it was stopped.
+
+Each backup is one `headscale-easy-<date>-<time>.tar.gz` with:
+
+| Inside | What it is |
+|---|---|
+| `headscale/` | The database (a consistent copy taken while Headscale runs: `db.sqlite`, or `headscale.sql` from `pg_dump` on an external PostgreSQL) and its private keys, so devices stay registered after a restore |
+| `config/` | `settings.json`, `config.yaml`, `Caddyfile`, `derp.yaml`, session secret: your DNS edits live in `config.yaml` |
+| `console/` | Local accounts (password hashes and two-factor secrets), the Headscale API key, the two-factor mode |
+| `web/` | The activity log |
+| `caddy/pki/` | The internal CA, if you use `HSE_TLS=internal` |
+| `meta.json` | Format, versions and a SHA-256 of every file, checked before a restore |
+
+Active sessions are **not** saved: after a restore everyone signs in again
+(a restored session would revive logins that were revoked after the backup).
+Every backup is read back and verified before it counts, and old ones are
+deleted by age, never the newest successful one.
+
+!!! warning "A backup is a set of secrets"
+    It holds password hashes, two-factor secrets, the OIDC client secret and
+    Headscale's private keys. The archive and `/data/backups` are private
+    (600 / 700). Copy them somewhere safe and off this server, and treat the
+    copy like the server. Administrators can download a backup from the console
+    (**Backups** → Available backups); every download is audited.
+
+### Backing up and restoring
+
+```bash
+docker exec headscale-easy hse backup          # a backup right now
+docker exec headscale-easy hse backups         # list them: size, age, result
+docker exec headscale-easy hse restore /data/backups/headscale-easy-20261005-030000.tar.gz
+```
+
+The **Backups** menu (administrators) shows the last backup (time, size,
+result), the next run, a **Back up now** button, the schedule and retention, the
+list of backups with **Download** and **Restore**, and **Upload a backup** for
+one that comes from another server or from outside this one (*Upload* adds it to
+the list, *Upload and restore* does both in one step; the file is checked before
+it is kept, and the limit is `BACKUP_UPLOAD_MAX_MB`, 1024 by default). A failed
+scheduled backup also sends a notification if you configured one.
+
+Restore, in order of preference:
+
+1. **Stopped container (recommended).** Also how you restore on a *new* host:
+   use a new, empty volume and start the container normally afterwards. It starts
+   in run mode (no wizard) with the same users, machines, accounts and DNS.
+
+    ```bash
+    docker stop headscale-easy
+    docker run --rm -v hse:/data --entrypoint hse \
+      ghcr.io/insanerask77/headscale-easy-aio restore /data/backups/<file>.tar.gz
+    docker start headscale-easy
+    ```
+
+2. **From the console** (administrators): The **Backups** menu
+   lists every archive with **Download** and **Restore**, and takes an uploaded
+   one (**Upload and restore**). Restoring asks you to
+   type `RESTORE`, saves the current data first, restarts the console (a page
+   waits and brings you back, and reports whether it worked) and may ask you to
+   sign in again. It is the same restore as the command below.
+
+3. **Running container**: `docker exec headscale-easy hse restore <file>` stops
+   the three processes, restores, and starts them again. It is refused while
+   setup is not finished (use the stopped-container way).
+
+Both ways check the archive first (format, SHA-256 of every file, database
+integrity) and change nothing if it is not valid. Before replacing anything they
+make a `…-pre-restore-…` backup of the current data, and put it back if the
+restore fails half way. An archive from a 1.x install is refused: see the
+migration notes (phase 5). The reverse is also true: `scripts/restore.sh`
+(the 1.x tool) refuses an archive from this image and points to `hse restore`.
+
+### Where the backups go
+
+`/data/backups` is on the same volume as the data, so it does not survive losing
+the disk. Mount somewhere else (for example a NAS folder) over it:
+
+```bash
+docker run … -v hse:/data -v /mnt/nas/hse-backups:/data/backups …
+```
+
+The folder must be writable by uid 1000. For copies to S3, B2, SFTP or another
+server, use the `backup` image as a **sync sidecar** in the advanced edition:
+with `BACKUP_MODE=sync` it uploads each new archive it finds in `/backups`
+(mount the same folder, read-only) every `BACKUP_SYNC_INTERVAL` seconds and
+applies the remote retention. rclone and rsync are not bundled into the
+all-in-one image. See [Operations → Remote backups](operations.md#remote-backups)
+for the destination settings.
+
+### Schedule syntax
+
+Five fields, `minute hour day-of-month month day-of-week`, with `*`, lists
+(`1,15`), ranges (`1-5`) and steps (`*/6`, `0-20/5`); day of week is 0-7 (0 and 7
+are Sunday). When both day-of-month and day-of-week are set, either may match,
+as in cron. `off` (or empty) disables the schedule. For example `30 2 * * 1-5`
+is 02:30 on weekdays.
 
 ## Security and requirements
 
@@ -127,6 +236,7 @@ Back up the volume to back up the server.
 ```bash
 docker exec headscale-easy hse health   # healthy when all processes run
 docker exec headscale-easy hse reload   # re-render config, restart Caddy and Headscale
+docker exec headscale-easy hse backup   # back up now (see Backups)
 docker logs -f headscale-easy           # [supervisor] [headscale] [caddy] [console]
 ```
 
@@ -137,13 +247,13 @@ through it. To update, pull the new image and recreate the container: the data
 is in the volume.
 
 Measured on the CI runner: the image is about 55 MB and the idle container
-uses about 65 MB of RAM. CI fails above 250 MB and 100 MB.
+uses about 65 MB of RAM, also while a backup runs. CI fails above 250 MB and 100 MB.
 
 ## Limits of the preview
 
 - No bundled Authentik: use local accounts (with two-factor) or an external
   OIDC provider.
-- Scheduled backups are not built in yet; copy the `/data` volume for now.
+- Backups stay on the volume: for remote copies use the sync sidecar (see [Backups](#backups)).
 - Migrating an existing 1.x install is not automated yet.
 
 ## Users and sign-up

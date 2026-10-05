@@ -9,6 +9,32 @@ All notable changes to this project are documented here. The format follows
 Work in progress on the `next` branch: see `SIMPLIFICATION_PLAN.md`.
 
 ### Added
+- Built-in backups for the all-in-one image (plan phase 3). The container backs
+  itself up every night at 03:00 (`BACKUP_SCHEDULE`, `off` disables it) and keeps
+  14 days (`BACKUP_KEEP_DAYS`) in `/data/backups`, with no extra container. One
+  `.tar.gz` holds a consistent copy of Headscale's database (while it runs; a
+  `pg_dump` with an external PostgreSQL), its keys, the console's accounts and
+  activity log, `config/` and Caddy's internal CA, with a `meta.json` and a
+  SHA-256 of every file. Each backup is read back and verified, the newest
+  successful one is never pruned, and sessions are not included.
+  - `docker exec <c> hse backup`, `hse backups` and `hse restore <file>`. A
+    restore validates the archive first, takes a pre-restore backup and puts it
+    back if it fails; it works on a stopped volume (also on a new host) or on the
+    running container.
+  - A **Backups** menu (administrators) shows the last backup, the next run and a
+    **Back up now** button, lets you turn scheduled backups on/off and change the
+    schedule and days kept (values fixed by `BACKUP_SCHEDULE` / `BACKUP_KEEP_DAYS`
+    stay read-only), lists the backups with **Download** and **Restore** (typed
+    confirmation, safety copy first, a page waits for the restart) and takes an
+    uploaded backup (**Upload**, or **Upload and restore**; streamed to disk and
+    checked before it is kept, `BACKUP_UPLOAD_MAX_MB`). Everything is audited; a
+    failed scheduled backup sends a notification.
+  - The `backup` image gains `BACKUP_MODE=sync`: a sidecar that uploads the
+    archives of `/data/backups` to the remote (rclone / rsync) for the advanced edition.
+  - The archive keeps `backup/backup.sh`'s directories but adds `meta.json` and
+    `console/`; `scripts/restore.sh` (1.x) refuses it and points to `hse restore`.
+  - CI restores a backup for real (offline and online), waits for a scheduled
+    run and fails above 100 MB of RAM also while a backup runs.
 - Device sign-in without OIDC (plan phase 0). With `AUTH_PROVIDER=none` the
   link `tailscale up` prints (`<url>/register/<auth id>`) now opens an approval
   page in the console instead of Headscale's "run this command" page: Caddy

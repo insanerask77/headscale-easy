@@ -134,7 +134,33 @@ def load_settings(env=None, path=None):
     for key in COMPOSE_ONLY:
         if stored.get(key):
             out[key] = str(stored[key])
+    # A bad schedule must stop a headless start instead of silently never backing up
+    out["backup_schedule"] = check_backup_schedule(out.get("backup_schedule", ""))
+    out["backup_keep_days"] = check_backup_keep_days(out.get("backup_keep_days", ""))
     return out
+
+
+def check_backup_schedule(value):
+    """A five-field cron expression, normalised; "off" disables scheduled backups."""
+    try:  # aio/ on sys.path (the image, the wizard) or the repository root (tests)
+        import cron
+    except ImportError:
+        from aio import cron
+    text = " ".join((value or "").split())
+    if cron.is_off(text):
+        return "off"
+    try:
+        cron.parse(text)
+    except ValueError as exc:
+        raise ValueError("BACKUP_SCHEDULE: %s" % exc) from None
+    return text
+
+
+def check_backup_keep_days(value):
+    text = (value or "").strip()
+    if not text.isdigit() or not 1 <= int(text) <= 3650:
+        raise ValueError("BACKUP_KEEP_DAYS must be a number between 1 and 3650")
+    return str(int(text))
 
 
 def _domain(url):
@@ -580,6 +606,7 @@ def console_env(settings, data_dir=None):
         "HEADSCALE_DERP_FILE": p["derp"],
         "HEADSCALE_DERP_FILE_IN_CONFIG": p["derp"],
         "HELPER_SOCKET": "/run/hse/helper.sock",
+        "BACKUP_DIR": os.path.join(d, "backups"),
         "OIDC_ISSUER": v["OIDC_ISSUER_URL"],
         "OIDC_CLIENT_ID": v["OIDC_CLIENT_ID"],
         "OIDC_CLIENT_SECRET": v["OIDC_CLIENT_SECRET"],

@@ -582,7 +582,12 @@ div.keybox { margin: 0.75rem 0 1rem; padding: 0.9rem 1rem; border: 1px solid var
 .field .inline { display: flex; align-items: center; gap: 0.5rem; }
 .field input.short { width: 7rem; }
 .field input[name="name"], .field input[name="auth_id"], .field input[name="api_key"], .field input[name="tags"],
-.field input[name="base_domain"] { font-family: var(--mono); }
+.field input[name="base_domain"], .field input[name="backup_schedule"] { font-family: var(--mono); }
+.field input[type="file"] { height: auto; padding: 0.45rem 0.6rem; }
+.form-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+td.actions form { display: inline-block; margin: 0; }
+td.nowrap { white-space: nowrap; }
+td.actions .btn + .btn, td.actions form + .btn { margin-left: 0.4rem; }
 .field textarea, .code-editor { padding: 0.6rem 0.7rem; font: 0.8125rem/1.55 var(--mono); resize: vertical; }
 .field input:focus, .field select:focus, .field textarea:focus, .code-editor:focus { outline: none; border-color: var(--focus); }
 .field .muted { font-weight: 400; }

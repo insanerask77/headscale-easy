@@ -95,13 +95,16 @@ jobs:
 
   aio:
     # The all-in-one image: build, then headless and setup-mode smoke tests,
-    # and fail above the size / idle-RAM targets (scripts/aio-smoke.sh).
+    # the built-in backups (archive, offline and online restore, a scheduled
+    # run) and fail above the size / RAM targets, also during a backup
+    # (scripts/aio-smoke.sh).
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
       - name: Build the all-in-one image
         run: docker build -f aio/Dockerfile -t hse-aio:ci .
 
-      - name: Smoke tests, image size and idle RAM
+      - name: Smoke tests, backups, image size and RAM
         run: ./scripts/aio-smoke.sh hse-aio:ci

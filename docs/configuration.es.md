@@ -387,6 +387,19 @@ el navegador pide uno que la consola no tiene.
 
 Todos están en `.gitignore`. No los edites a mano: vuelve a ejecutar el instalador.
 
+## Copias de la imagen todo en uno { #all-in-one-backups }
+
+Ajustes de las copias integradas de la [imagen todo en uno](all-in-one.md#backups)
+(entorno o `settings.json`; el compose dividido no las lee):
+
+| Variable | Por defecto | Significado |
+|---|---|---|
+| `BACKUP_SCHEDULE` | `0 3 * * *` | Sintaxis cron, en la zona horaria `TZ`; `off` desactiva las copias programadas. Un valor inválido detiene el contenedor al arrancar |
+| `BACKUP_KEEP_DAYS` | `14` | Las copias más antiguas se borran; la última correcta nunca se borra |
+| `TZ` | `UTC` | Zona horaria de la programación |
+| `BACKUP_MODE` | `create` | Solo para la imagen `backup` usada como sidecar: `sync` sube los archivos que escribió la imagen todo en uno en vez de hacer los suyos |
+| `BACKUP_SYNC_INTERVAL` | `900` | Segundos entre dos subidas en modo `sync` |
+
 ## Referencia de `.env` { #env-reference }
 
 Ver [`.env.example`](https://github.com/insanerask77/headscale-easy/blob/main/.env.example): cada variable, documentada.

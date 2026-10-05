@@ -12,12 +12,15 @@ import unittest
 from pathlib import Path
 
 REMOTE_SH = Path(__file__).resolve().parent.parent / "backup" / "remote.sh"
+ENTRYPOINT = REMOTE_SH.parent / "entrypoint.sh"
 
 FAKE_RCLONE = r"""#!/bin/sh
-# copyto SRC DST | delete DIR --include PAT --min-age Nd -v   (local paths only)
+# lsf DIR --include PAT | copyto SRC DST | delete DIR --include PAT --min-age Nd -v   (local paths only)
 echo "rclone $*" >> "$FAKE_LOG"
 case "$1" in
-    copyto) mkdir -p "$(dirname "$3")" && cp "$2" "$3" ;;
+    lsf) find "$2" -maxdepth 1 -name "$4" -exec basename {} \; ;;
+    copyto) [ -n "${FAKE_FAIL:-}" ] && case "$2" in *"$FAKE_FAIL"*) exit 1 ;; esac
+        mkdir -p "$(dirname "$3")" && cp "$2" "$3" ;;
     delete)
         dir="$2"; pat="$4"; days="${6%d}"
         find "$dir" -maxdepth 1 -name "$pat" -mtime +"$days" | while read -r f; do
@@ -100,6 +103,77 @@ class RemoteCase(unittest.TestCase):
         self.assertNotEqual(self.run_remote("push", str(self.archive)).returncode, 0)
         r = self.run_remote("prune", BACKUP_REMOTE=str(self.dest), BACKUP_REMOTE_KEEP_DAYS="7; rm -rf /")
         self.assertNotEqual(r.returncode, 0)
+
+    def make_sync(self):
+        # the entrypoint calls "remote.sh" by name
+        scripts = self.tmp / "scripts"
+        scripts.mkdir()
+        (scripts / "remote.sh").symlink_to(REMOTE_SH)
+        self.src = self.tmp / "src"
+        self.src.mkdir()
+
+    def run_entrypoint(self, **env):
+        e = {"PATH": f"{self.bin}:{self.tmp / 'scripts'}:{os.environ['PATH']}", "FAKE_LOG": str(self.log),
+             "BACKUP_REMOTE_CONFIG_DIR": str(self.tmp / "conf"), "BACKUP_MODE": "sync",
+             "BACKUP_SYNC_ONCE": "1", "BACKUP_SYNC_DIR": str(self.src), "BACKUP_REMOTE": str(self.dest)}
+        e.update(env)
+        return subprocess.run(["sh", str(ENTRYPOINT)], env=e, capture_output=True, text=True)
+
+    def test_sync_pushes_new_archives_once(self):
+        self.make_sync()
+        a = self.src / "headscale-easy-20260101-030000.tar.gz"
+        b = self.src / "headscale-easy-20260102-030000.tar.gz"
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+        (self.src / ".headscale-easy-20260103-030000.tar.gz.part").write_bytes(b"x")
+        (self.src / "headscale-easy-20260103-pre-restore-x.tar.gz").write_bytes(b"x")
+        (self.dest / a.name).write_bytes(b"already")
+        r = self.run_entrypoint()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((self.dest / a.name).read_bytes(), b"already")  # not pushed again
+        self.assertEqual((self.dest / b.name).read_bytes(), b"b")
+        self.assertEqual(sorted(p.name for p in self.dest.iterdir()), sorted([a.name, b.name]))
+        self.assertEqual(self.calls().count("copyto"), 1)
+        self.log.unlink()
+        self.assertEqual(self.run_entrypoint().returncode, 0)
+        self.assertNotIn("copyto", self.calls())  # second pass: nothing to do
+
+    def test_sync_survives_a_failing_push_and_retries(self):
+        self.make_sync()
+        a = self.src / "headscale-easy-20260101-030000.tar.gz"
+        b = self.src / "headscale-easy-20260102-030000.tar.gz"
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+        r = self.run_entrypoint(FAKE_FAIL="20260101")
+        self.assertEqual(r.returncode, 0)  # the loop keeps going
+        self.assertIn("will retry", r.stdout + r.stderr)
+        self.assertFalse((self.dest / a.name).exists())
+        self.assertTrue((self.dest / b.name).exists())  # the others still went up
+        self.assertEqual(self.run_entrypoint().returncode, 0)  # next interval
+        self.assertEqual((self.dest / a.name).read_bytes(), b"a")
+
+    def test_sync_prunes_the_remote_but_never_the_source(self):
+        self.make_sync()
+        mine = self.src / "headscale-easy-20260101-030000.tar.gz"
+        mine.write_bytes(b"a")
+        old = self.dest / "headscale-easy-20250101-030000.tar.gz"
+        old.write_text("x")
+        os.utime(old, (1_000_000_000, 1_000_000_000))
+        r = self.run_entrypoint(BACKUP_REMOTE_KEEP_DAYS="7")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(old.exists())
+        self.assertTrue(mine.exists())
+
+    def test_sync_mode_validates_its_settings(self):
+        self.make_sync()
+        self.assertNotEqual(self.run_entrypoint(BACKUP_REMOTE="").returncode, 0)
+        self.assertNotEqual(self.run_entrypoint(BACKUP_SYNC_INTERVAL="5; rm -rf /").returncode, 0)
+        self.assertNotEqual(self.run_entrypoint(BACKUP_SYNC_INTERVAL="0").returncode, 0)
+
+    def test_default_mode_is_still_the_cron_scheduler(self):
+        text = ENTRYPOINT.read_text()
+        self.assertIn("exec crond -f", text)
+        self.assertIn("/usr/local/bin/backup.sh", text)
 
     def test_unknown_action(self):
         self.assertNotEqual(self.run_remote("explode", BACKUP_REMOTE=str(self.dest)).returncode, 0)

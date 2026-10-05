@@ -306,6 +306,27 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(render.load_settings({"HSE_DERP_MODE": "public"}, self.path)["derp_mode"], "public")
         self.assertNotIn("derp_mode", render.load_settings({}, self.path))
 
+    def test_backup_schedule_validation(self):
+        got = render.load_settings({}, self.path)
+        self.assertEqual((got["backup_schedule"], got["backup_keep_days"]), ("0 3 * * *", "14"))  # on by default
+        got = render.load_settings({"BACKUP_SCHEDULE": " */15  2-4 * * 1,3 ", "BACKUP_KEEP_DAYS": "30"}, self.path)
+        self.assertEqual((got["backup_schedule"], got["backup_keep_days"]), ("*/15 2-4 * * 1,3", "30"))
+        self.assertEqual(render.load_settings({"BACKUP_SCHEDULE": "off"}, self.path)["backup_schedule"], "off")
+        self.assertEqual(render.load_settings({"BACKUP_SCHEDULE": "OFF"}, self.path)["backup_schedule"], "off")
+        # a bad value stops a headless start instead of silently never backing up
+        for env in ({"BACKUP_SCHEDULE": "0 3 * *"}, {"BACKUP_SCHEDULE": "0 3 * * * *"}, {"BACKUP_SCHEDULE": "a b c d e"},
+                    {"BACKUP_SCHEDULE": "61 3 * * *"}, {"BACKUP_SCHEDULE": "*/0 * * * *"},
+                    {"BACKUP_KEEP_DAYS": "0"}, {"BACKUP_KEEP_DAYS": "x"}, {"BACKUP_KEEP_DAYS": "99999"}):
+            with self.subTest(env=env):
+                with self.assertRaises(ValueError):
+                    render.load_settings(env, self.path)
+        # settings.json goes through the same check; the environment still wins over it
+        with open(self.path, "w") as fh:
+            json.dump({"tailnet_name": "myorg", "backup_schedule": "nope"}, fh)
+        with self.assertRaises(ValueError):
+            render.load_settings({}, self.path)
+        self.assertEqual(render.load_settings({"BACKUP_SCHEDULE": "off"}, self.path)["backup_schedule"], "off")
+
     def test_missing_or_corrupt_file_is_ignored(self):
         self.assertEqual(render.load_settings({}, self.path)["tailnet_name"], "myorg")
         with open(self.path, "w") as fh:

@@ -329,16 +329,19 @@ Add device has a Docker tab to start Tailscale as a container.
 
 Detailed plan: `PHASE3_EXECUTION_PLAN.md`.
 
-- [ ] Scheduler in the supervisor (it can read every file in `/data`):
+- [x] Scheduler in the supervisor (it can read every file in `/data`):
       `BACKUP_SCHEDULE`, `BACKUP_KEEP_DAYS` as today.
-- [ ] Consistent copies with `sqlite3.Connection.backup()` (Headscale's
+- [x] Consistent copies with `sqlite3.Connection.backup()` (Headscale's
       `db.sqlite` while running, plus the console's DBs), `pg_dump` only with
       external PostgreSQL, plus keys, `config/` and Caddy's CA → one
-      `.tar.gz`. **Same archive layout as `backup/backup.sh`**, so
-      `scripts/restore.sh` keeps working.
-- [ ] `docker exec <c> hse backup` / `hse restore <file>` subcommands.
-- [ ] Status page: last backup, size, "Back up now" button.
-- [ ] Remote copies stay in the advanced edition (current `backup` image as a
+      `.tar.gz`. **Same top-level directories as `backup/backup.sh`** plus
+      `console/` and a `meta.json` (`edition: aio`). `scripts/restore.sh` cannot
+      restore it (it maps `config/` onto the 1.x project directory and restores
+      Docker volumes): it refuses an AIO archive and points to `hse restore`,
+      which in turn refuses a 1.x archive (phase 5 migrates those).
+- [x] `docker exec <c> hse backup` / `hse restore <file>` subcommands.
+- [x] Status page: last backup, size, "Back up now" button.
+- [x] Remote copies stay in the advanced edition (current `backup` image as a
       sidecar reading `/data/backups`).
 
 ### Phase 4 — Advanced edition · M
@@ -428,5 +431,6 @@ Phase 0 ──▶ Phase 1 ──▶ Phase 2 ──▶ Phase 2.5 ──▶ Phase 
       console image used by the split compose.)
 - [ ] Keep the split compose after 2.0 if people ask for it, or drop it?
 - [ ] Passkeys (WebAuthn) for local accounts: in 2.0 or later?
-- [ ] Remote backups inside the AIO image (bundle rclone, +~50 MB) or only
-      through the sidecar?
+- [x] Remote backups inside the AIO image (bundle rclone, +~50 MB) or only
+      through the sidecar? **Only through the sidecar** (`BACKUP_MODE=sync`):
+      rclone and rsync are not bundled.

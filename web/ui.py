@@ -67,6 +67,7 @@ _ICONS = {
     "plus": '<path d="M5 12h14"/><path d="M12 5v14"/>',
     "copy": '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
     "x": '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    "archive": '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
     "logs": '<path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/>',
 }
 
@@ -88,7 +89,7 @@ LOGO = """<svg class="logo" viewBox="0 0 48 48" aria-hidden="true">
 # -----------------------------------------------------------------------------
 
 def parse_time(value: str | None) -> datetime | None:
-    if not value or value.startswith("0001-"):
+    if not isinstance(value, str) or not value or value.startswith("0001-"):
         return None
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -220,6 +221,28 @@ def flash_html(code: str) -> str:
         "notify-test-ok": ("ok", _("Test notification sent to every destination.")),
         "notify-test-failed": ("error", _("The test notification could not be delivered to at least one destination. Check the logs of the web container.")),
         "notify-none": ("error", _("No notification destination is configured: set NOTIFY_URLS in .env.")),
+        "backup-started": ("ok", _("Backup started. This page shows the result when it finishes.")),
+        "backup-busy": ("error", _("A backup is already running.")),
+        "backup-uploaded": ("ok", _("Backup uploaded. It is in the list below.")),
+        "backup-upload-invalid": ("error", _("That file is not a valid Headscale Easy backup of this kind, so it was not kept. See the container logs.")),
+        "backup-upload-none": ("error", _("Choose a backup file first.")),
+        "backup-upload-toolarge": ("error", _("That file is too large to upload here.")),
+        "backup-upload-unavailable": ("error", _("Backups cannot be uploaded here.")),
+        "backup-upload-error": ("error", _("The upload failed. Check the container logs and the free disk space.")),
+        "backup-restore-ok": ("ok", _("Backup restored. Sign in again if you are asked to.")),
+        "backup-restore-failed": ("error", _("The restore failed and the previous data was put back. See the container logs for the reason.")),
+        "backup-restore-invalid": ("error", _("That backup cannot be restored: it is not a valid Headscale Easy backup of this kind. See the container logs.")),
+        "backup-restore-busy": ("error", _("A backup or another restore is running. Try again in a moment.")),
+        "backup-restore-confirm": ("error", _("Type RESTORE in the box to confirm the restore.")),
+        "backup-restore-unavailable": ("error", _("Backups cannot be restored from here.")),
+        "backup-restore-error": ("error", _("The restore could not be started. Check the container logs.")),
+        "backup-settings-saved": ("ok", _("Backup settings saved.")),
+        "backup-settings-invalid": ("error", _("The backup settings are not valid: use five cron fields (for example 0 3 * * *) and 1 to 3650 days.")),
+        "backup-settings-locked": ("error", _("These backup settings are fixed by environment variables (BACKUP_SCHEDULE / BACKUP_KEEP_DAYS); change them there.")),
+        "backup-settings-unavailable": ("error", _("The backup settings cannot be changed from here.")),
+        "backup-settings-error": ("error", _("The backup settings could not be saved. Check the container logs.")),
+        "backup-unavailable": ("error", _("Backups are not available here: this server does not run the all-in-one image.")),
+        "backup-error": ("error", _("Could not start the backup. Check the logs of the container.")),
         "bad-name": ("error", _("Invalid name: lowercase letters, digits and dashes only (max. 63).")),
         "bad-user": ("error", _("Invalid user name: lowercase letters, digits, dots, dashes and @.")),
         "not-found": ("error", _("That item does not exist or is not yours.")),
@@ -276,6 +299,9 @@ def sidebar(active: str, session: dict, ctx: dict) -> str:
     if sees_all:
         groups.append(f"""
       <a class="nav-top {"active" if active == "logs" else ""}" href="{BASE}/logs">{icon("logs")}<span>{esc(_("Logs"))}</span></a>""")
+    if admin and os.environ.get("BACKUP_DIR"):  # the all-in-one image (the console env sets it)
+        groups.append(f"""
+      <a class="nav-top {"active" if active == "backups" else ""}" href="{BASE}/backups">{icon("archive")}<span>{esc(_("Backups"))}</span></a>""")
     settings_items = [
         ("general", "settings/general", _("General")),
         ("keys", "settings/keys", _("Keys")),
