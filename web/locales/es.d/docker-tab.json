@@ -1,0 +1,22 @@
+{
+  "There is no Headscale user to own the key.": "No hay ningún usuario de Headscale que sea dueño de la clave.",
+  "Invalid host name: lowercase letters, digits and dashes only (max. 63).": "Nombre de host no válido: solo minúsculas, dígitos y guiones (máx. 63).",
+  "“{route}” is not a valid route. Use networks like 192.168.1.0/24.": "«{route}» no es una ruta válida. Usa redes como 192.168.1.0/24.",
+  "At most {n} routes.": "Como máximo {n} rutas.",
+  "Auth key generated. It is in the snippets below and is not shown again: copy them now.": "Clave de autenticación generada. Está en los fragmentos de abajo y no se vuelve a mostrar: cópialos ahora.",
+  "Without an auth key, leave TS_AUTHKEY out and run {cmd}: it prints a link to sign in.": "Sin clave de autenticación, quita TS_AUTHKEY y ejecuta {cmd}: muestra un enlace para iniciar sesión.",
+  "Host name": "Nombre de host",
+  "Offer to be an exit node": "Ofrecerse como nodo de salida",
+  "Subnet routes to advertise (optional)": "Rutas de subred a anunciar (opcional)",
+  "Userspace networking (no /dev/net/tun, no extra permissions)": "Red en espacio de usuario (sin /dev/net/tun ni permisos extra)",
+  "Use this tailnet's DNS settings": "Usar los ajustes de DNS de este tailnet",
+  "Generate a single-use auth key": "Generar una clave de autenticación de un solo uso",
+  "The key is valid for": "La clave es válida durante",
+  "Update the snippets": "Actualizar los fragmentos",
+  "Replace {placeholder} with an auth key from {link}, or generate one above.": "Sustituye {placeholder} por una clave de autenticación de {link}, o genera una arriba.",
+  "Set it up:": "Configúralo:",
+  "Start it with Docker:": "Arráncalo con Docker:",
+  "Or save this as docker-compose.yml and run docker compose up -d:": "O guarda esto como docker-compose.yml y ejecuta docker compose up -d:",
+  "Owner of the device": "Dueño del dispositivo",
+  "This server's address is {url}. Inside a container “localhost” is the container itself, so it cannot reach the server. Use the server's real address (a name or IP the container can reach), or on Linux add --network host to the container (and drop --hostname and --sysctl).": "La dirección de este servidor es {url}. Dentro de un contenedor «localhost» es el propio contenedor, así que no puede llegar al servidor. Usa la dirección real del servidor (un nombre o IP que el contenedor alcance) o, en Linux, añade --network host al contenedor (y quita --hostname y --sysctl)."
+}

@@ -44,6 +44,7 @@ log = logging.getLogger("headscale-easy")
 
 import accounts  # noqa: E402  (after logging is configured)
 import admin_pages  # noqa: E402
+import docker_tab  # noqa: E402
 import local_accounts as lac  # noqa: E402
 import derp  # noqa: E402
 import derp_pages  # noqa: E402
@@ -126,7 +127,7 @@ EXIT_ROUTES = ["0.0.0.0/0", "::/0"]
 # policy from the visual editor; saving it from Advanced is checked in do_POST)
 # or removes data.
 DEMO_BLOCKED = re.compile(
-    rf"{BASE}/(keys|apikeys(/\d+/expire)?|machines/(register|remove-inactive)|register/[^/]+|machines/\d+/(delete|expire)"
+    rf"{BASE}/(keys|add/docker|apikeys(/\d+/expire)?|machines/(register|remove-inactive)|register/[^/]+|machines/\d+/(delete|expire)"
     rf"|machines/bulk/(expire|remove)|settings/(key-expiry|mfa|notify-test|sessions/revoke(-all)?)|users(/\d+/(rename|delete))?"
     rf"|invitations(/[0-9a-f-]+/revoke)?|accounts/\d+/recovery|dns|derp"
     rf"|acl/(rules|groups|tags|autoapprove/(routes|exit-node)|ssh))")
@@ -668,6 +669,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.redirect(dest, [self.set_cookie("hse_lang", lang if lang in LANGUAGES else "", 31536000)])
             if path == f"{BASE}/keys":
                 return self.create_key(session, form)
+            if path == f"{BASE}/add/docker":
+                return self.add_docker(session, form)
             m = re.fullmatch(rf"{BASE}/keys/(\d+)/revoke", path)
             if m:
                 return self.revoke_key(session, m.group(1))
@@ -1603,6 +1606,36 @@ class Handler(BaseHTTPRequestHandler):
         audit.request_event(self, session, "authkey.create", user["name"], {"key": key.get("key"), "reusable": key.get("reusable"), "ephemeral": key.get("ephemeral"), "days": int(days)}, f"user:{user['id']}")
         # Shown in this very response: Headscale never returns it again
         self.keys_view(session, "", new_key=key)
+
+    def add_docker(self, session: dict, form: dict):
+        """Docker tab of Add device: validate the form, optionally make a single-use auth key,
+        and show the page again with the snippets filled in."""
+        if is_auditor(session):
+            return self.fail(403, _("No permission"), _("Auditors cannot add devices."))
+        values, error = docker_tab.parse(form)
+        admin = bool(session.get("admin"))
+        users = hs.all_users() if admin else None
+        key = ""
+        if not error and values["generate"]:
+            if admin:
+                user = next((u for u in users if str(u["id"]) == values["user_id"]), None)
+            else:
+                user = my_user(session)
+            if not user:
+                error = _("There is no Headscale user to own the key.")
+            else:
+                created = hs.api("POST", "/preauthkey", {
+                    "user": str(user["id"]), "reusable": False, "ephemeral": False,
+                    "expiration": iso_in(int(values["days"]))})["preAuthKey"]
+                key = created.get("key") or ""
+                log.info("%s generated a single-use auth key for %s (Docker tab, %s d)", session["username"],
+                         user["name"], values["days"])
+                # Never the key itself
+                audit.request_event(self, session, "authkey.create", user["name"],
+                                    {"reusable": False, "ephemeral": False, "days": int(values["days"]), "source": "docker"},
+                                    f"user:{user['id']}")
+        page = pages.add_page(session, CTX, docker={"values": values, "key": key, "error": error, "users": users})
+        return self.send(400 if error else 200, page)
 
     def revoke_key(self, session: dict, key_id: str):
         if session.get("admin"):

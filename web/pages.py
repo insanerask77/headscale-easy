@@ -15,6 +15,7 @@ import expiry
 import notify
 from i18n import LANGUAGES, _, get_lang, ngettext
 from qr import qr_figure
+import docker_tab
 from ui import (BASE, LOGO, badge, bare_page, copy_btn, csrf_input, docs_url, esc, flash_html, icon, initials, layout, live_indicator,
                 notice, page_head, parse_time, relative, time_tag, user_label)
 
@@ -540,7 +541,8 @@ def machine_page(session: dict, ctx: dict, m: Machine, flash: str, error: str = 
 # Add device
 # -----------------------------------------------------------------------------
 
-def add_page(session: dict, ctx: dict) -> str:
+def add_page(session: dict, ctx: dict, docker: dict | None = None) -> str:
+    """docker: what the Docker tab shows after its form was sent (values, key, error, users)."""
     url = ctx["public_url"]
     login = f"tailscale up --login-server={url}"
 
@@ -591,9 +593,13 @@ def add_page(session: dict, ctx: dict) -> str:
           </div>
           <p class="muted small">{_("To connect without signing in, set the server first and then choose Use an auth key in the same ⋮ menu, with a key from {link}.", link=f'<a class="link" href="{BASE}/settings/keys">' + esc(_("Settings → Keys")) + "</a>")}</p>"""),
     }
-    tabs = "".join(f'<button type="button" role="tab" data-tab="{k}" class="{"active" if k == "linux" else ""}">{label}</button>'
+    docker = docker or {}
+    panels["docker"] = ("Docker", docker_tab.panel(session, url, docker.get("values"), docker.get("key", ""),
+                                                   docker.get("error", ""), docker.get("users")))
+    first = "docker" if docker else "linux"
+    tabs = "".join(f'<button type="button" role="tab" data-tab="{k}" class="{"active" if k == first else ""}">{label}</button>'
                    for k, (label, _c) in panels.items())
-    bodies = "".join(f'<div class="tab-panel" data-panel="{k}" {"" if k == "linux" else "hidden"}>{content}</div>'
+    bodies = "".join(f'<div class="tab-panel" data-panel="{k}" {"" if k == first else "hidden"}>{content}</div>'
                      for k, (_l, content) in panels.items())
     body = page_head(_("Add device"), esc(_("Install Tailscale and point it at this server instead of Tailscale's."))) + f"""
     <section class="card"><div class="ostabs" role="tablist">{tabs}</div>{bodies}</section>
