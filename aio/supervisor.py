@@ -11,6 +11,7 @@ Standard library only (plus aio/render.py and helper/helper.py).
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -20,11 +21,14 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "aio"))
 sys.path.insert(0, os.environ.get("HSE_HELPER_DIR") or os.path.join(ROOT, "helper"))
 
+import cron  # noqa: E402
 import helper as helper_mod  # noqa: E402
 import render  # noqa: E402
 
@@ -38,6 +42,11 @@ RUN_DIR = os.environ.get("HSE_RUN_DIR", "/run/hse")
 RESTART_WAIT = float(os.environ.get("RESTART_WAIT", "120"))
 START_TIMEOUT = float(os.environ.get("HSE_START_TIMEOUT", "90"))
 HEALTH_TTL = 10.0
+# The backup runs as its own process (aio/backup.py): a slow tar or an OOM must not take the supervisor down.
+BACKUP_CMD = [sys.executable, os.environ.get("HSE_BACKUP_APP", os.path.join(ROOT, "aio", "backup.py"))]
+BACKUP_TICK = 30.0       # how often the scheduler looks at the clock (it is woken early by reload / shutdown)
+BACKUP_CATCHUP = 60.0    # delay before the one catch-up run after a missed slot
+BACKUP_TIMEOUT = 3600.0  # a backup that runs longer than this is killed
 
 BACKOFF_MIN, BACKOFF_MAX, HEALTHY_AFTER = 1.0, 30.0, 60.0
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -249,6 +258,18 @@ class Supervisor:
         self._health = {"at": 0.0, "ok": False}
         self._version = {"at": 0.0, "value": None}
         self.helper_socket = os.path.join(self.run_dir, "helper.sock")
+        # scheduled backups (see "Backups" below)
+        self.clock = None  # test hook: callable returning the naive local time
+        self.sched_tick = BACKUP_TICK
+        self.catchup_delay = BACKUP_CATCHUP
+        self.backup_cfg = {"schedule": "off", "keep_days": 14}
+        self._backup_lock = threading.Lock()
+        self._backup_running = False
+        self._backup_proc = None
+        self._backup_next = None
+        self._sched_wake = threading.Event()
+        self._sched_thread = None
+        self._tz_warned = False
 
     # -- mode and settings ----------------------------------------------------
     def load(self) -> dict:
@@ -349,6 +370,7 @@ class Supervisor:
             self._child("headscale", prepare=self.headscale_prepare).start()
             self._child("caddy", prepare=self.caddy_prepare).start()
             self._child("console", prepare=self.console_prepare).start()
+            self.start_scheduler()
         else:
             render.render_setup(self.data_dir)
             self._child("caddy", prepare=self.caddy_prepare).start()
@@ -373,6 +395,7 @@ class Supervisor:
             if caddy:
                 caddy.restart()
             self._child("console", prepare=self.console_prepare).start()
+            self.start_scheduler()
         except Exception:  # noqa: BLE001
             log.exception("could not switch to run mode")
 
@@ -437,6 +460,185 @@ class Supervisor:
         with open(os.path.join(self.run_dir, "supervisor.pid"), "w", encoding="utf-8") as fh:
             fh.write(str(os.getpid()))
 
+    # -- Backups ---------------------------------------------------------------------
+    # The supervisor only decides *when*: aio/backup.py does the work in a child
+    # process. Run mode only; nothing is scheduled while the wizard is running.
+    def _tz(self):
+        name = str(self.settings.get("tz") or self.env.get("TZ") or "").strip()
+        if not name:
+            return None
+        try:
+            return ZoneInfo(name)
+        except (ZoneInfoNotFoundError, ValueError, OSError):
+            if not self._tz_warned:
+                self._tz_warned = True
+                self.log("time zone %r is unknown here (is tzdata installed?): the schedule uses the system time" % name)
+            return None
+
+    def now_local(self) -> datetime:
+        """Naive wall-clock time in the configured time zone (what the cron expression is read in)."""
+        if self.clock:
+            return self.clock()
+        return datetime.now(self._tz()).replace(tzinfo=None)
+
+    def configure_backup(self):
+        """Read BACKUP_SCHEDULE / BACKUP_KEEP_DAYS from the loaded settings (start and ``hse reload``).
+
+        An invalid value is logged and the previous configuration stays.
+        """
+        schedule = str(self.settings.get("backup_schedule") or "").strip()
+        try:
+            keep = int(self.settings.get("backup_keep_days") or 14)
+        except (TypeError, ValueError):
+            self.log("backups: invalid BACKUP_KEEP_DAYS %r, keeping %s" % (
+                self.settings.get("backup_keep_days"), self.backup_cfg["keep_days"]))
+            return
+        if not cron.is_off(schedule):
+            try:
+                cron.parse(schedule)
+            except ValueError as exc:
+                self.log("backups: %s (keeping %r)" % (exc, self.backup_cfg["schedule"]))
+                return
+        schedule = "off" if cron.is_off(schedule) else schedule
+        if schedule != self.backup_cfg["schedule"] or keep != self.backup_cfg["keep_days"]:
+            if schedule == "off":
+                self.log("scheduled backups: off")
+            else:
+                self.log("scheduled backups: %r (keeping %d days)" % (schedule, keep))
+        self.backup_cfg = {"schedule": schedule, "keep_days": keep}
+        self._backup_next = None
+        self._sched_wake.set()
+
+    def start_scheduler(self):
+        self.configure_backup()
+        if self._sched_thread is not None and self._sched_thread.is_alive():
+            return
+        self._sched_thread = threading.Thread(target=self._scheduler_loop, name="backup-scheduler", daemon=True)
+        self._sched_thread.start()
+
+    def _last_backup_at(self):
+        """When the last backup was attempted (naive local time), from status.json; None without history."""
+        status = self._read_backup_status()
+        entry = status.get("last") or status.get("last_ok") or {}
+        raw = entry.get("at")
+        try:
+            if isinstance(raw, (int, float)):
+                moment = datetime.fromtimestamp(raw, self._tz())
+            else:
+                moment = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            if moment.tzinfo is not None:
+                moment = moment.astimezone(self._tz())
+            return moment.replace(tzinfo=None)
+        except (TypeError, ValueError, OSError, OverflowError):
+            return None
+
+    def _scheduler_loop(self):
+        # A slot missed while the container was down is made up once, shortly after start
+        # (not once per missed slot, and not on a fresh install with no history).
+        catchup_at = None
+        schedule = self.backup_cfg["schedule"]
+        if not cron.is_off(schedule):
+            last = self._last_backup_at()
+            if last is not None and cron.next_run(schedule, last) <= self.now_local():
+                catchup_at = time.monotonic() + self.catchup_delay
+        while not self.stopping.is_set():
+            self._sched_wake.clear()  # before reading the config: a reload in between wakes the wait below
+            schedule = self.backup_cfg["schedule"]
+            if cron.is_off(schedule):
+                catchup_at = None
+                self._backup_next = None
+            else:
+                now = self.now_local()
+                if self._backup_next is None:
+                    self._backup_next = cron.next_run(schedule, now)
+                if now >= self._backup_next:
+                    # next slot from *now*: a repeated hour (DST) or a clock jump never fires twice
+                    self._backup_next = cron.next_run(schedule, now)
+                    catchup_at = None
+                    if not self.start_backup("scheduled"):
+                        self.log("backup slot skipped: another backup is still running")
+                elif catchup_at is not None and time.monotonic() >= catchup_at:
+                    catchup_at = None
+                    self.log("a scheduled backup was missed while stopped: running it now")
+                    self.start_backup("scheduled")
+            self._sched_wake.wait(self.sched_tick)
+
+    def _backup_env(self) -> dict:
+        extra = {k: v for k, v in self.env.items() if k.startswith(("HSE_", "BACKUP_", "HEADSCALE_", "PG"))}
+        extra.update(HSE_DATA_DIR=self.data_dir, BACKUP_SCHEDULE=self.backup_cfg["schedule"],
+                     BACKUP_KEEP_DAYS=str(self.backup_cfg["keep_days"]))
+        if self.settings.get("tz"):
+            extra["TZ"] = str(self.settings["tz"])
+        return base_env(extra)
+
+    def start_backup(self, trigger: str = "manual") -> bool:
+        """Start ``aio/backup.py create`` in the background. False when one is already running
+        (or in setup mode / while stopping). A run started outside the supervisor
+        (``hse backup``) holds the same lock in backup.py and makes this run exit 3: it is logged, not retried."""
+        if self.mode != "run" or self.stopping.is_set():
+            return False
+        with self._backup_lock:
+            if self._backup_running:
+                return False
+            self._backup_running = True
+        threading.Thread(target=self._backup_worker, args=(trigger,), name="backup", daemon=True).start()
+        return True
+
+    def _backup_worker(self, trigger: str):
+        timer = None
+        try:
+            argv = [*BACKUP_CMD, "create", "--trigger", trigger]
+            self.log("backup started (%s)" % trigger)
+            try:
+                proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                        stderr=subprocess.STDOUT, env=self._backup_env())
+            except OSError as exc:
+                self.log("backup could not start: %s" % exc)
+                return
+            self._backup_proc = proc
+            timer = threading.Timer(BACKUP_TIMEOUT, proc.kill)
+            timer.daemon = True
+            timer.start()
+            for raw in proc.stdout:
+                line = _ANSI.sub("", raw.decode(errors="replace")).rstrip()
+                if line:
+                    self.sink(line if line.startswith("[backup]") else "[backup] " + line)
+            code = proc.wait()
+            if code == 0:
+                self.log("backup finished")
+            elif code == 3:
+                self.log("backup skipped: another backup is running")
+            else:
+                self.log("backup FAILED (exit %s)" % code)
+        except Exception:  # noqa: BLE001
+            log.exception("backup worker crashed")
+        finally:
+            if timer:
+                timer.cancel()
+            self._backup_proc = None
+            with self._backup_lock:
+                self._backup_running = False
+
+    def _read_backup_status(self) -> dict:
+        try:
+            with open(os.path.join(self.data_dir, "backups", "status.json"), encoding="utf-8") as fh:
+                data = json.load(fh)
+            return data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def backup_summary(self) -> dict:
+        cfg = self.backup_cfg
+        enabled = not cron.is_off(cfg["schedule"])
+        nxt = None
+        if enabled:
+            nxt = self._backup_next or cron.next_run(cfg["schedule"], self.now_local())
+        status = self._read_backup_status()
+        return {"enabled": enabled, "schedule": cfg["schedule"], "next_run": nxt.isoformat() if nxt else None,
+                "keep_days": cfg["keep_days"], "running": self._backup_running,
+                "last": status.get("last"), "last_ok": status.get("last_ok"),
+                "count": status.get("count", 0), "bytes": status.get("bytes", 0)}
+
     # -- reload and shutdown -------------------------------------------------------
     def reload(self):
         """``hse reload``: re-render, test the config, restart Caddy and Headscale."""
@@ -449,6 +651,7 @@ class Supervisor:
         except ValueError as exc:
             self.log("reload: invalid settings: %s" % exc)
             return
+        self.configure_backup()
         code, out = run_cmd(self.headscale_argv("configtest"), timeout=60, env=base_env())
         if code != 0:
             self.log("reload: configtest failed, Headscale not restarted: %s" % out)
@@ -460,7 +663,13 @@ class Supervisor:
 
     def shutdown(self):
         self.stopping.set()
+        self._sched_wake.set()
         self.log("shutting down")
+        proc = self._backup_proc
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+        if self._sched_thread is not None:
+            self._sched_thread.join(timeout=2)
         self.stop_children()
         if self.server:
             self.server.shutdown()
