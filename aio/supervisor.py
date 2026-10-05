@@ -6,6 +6,8 @@ ordered shutdown, and serves the hs-helper protocol (configtest / restart /
 status) on a local Unix socket so the console needs no Docker socket.
 
     SIGHUP   re-render the config, restart Caddy and Headscale (``hse reload``)
+    SIGUSR1  online restore: read <run dir>/restore.json, stop everything, restore the
+             archive into /data, start again, write <run dir>/restore-result.json
 
 Standard library only (plus aio/render.py and helper/helper.py).
 """
@@ -31,6 +33,7 @@ sys.path.insert(0, os.environ.get("HSE_HELPER_DIR") or os.path.join(ROOT, "helpe
 import cron  # noqa: E402
 import helper as helper_mod  # noqa: E402
 import render  # noqa: E402
+import restore as restore_mod  # noqa: E402
 
 log = logging.getLogger("supervisor")
 
@@ -253,6 +256,7 @@ class Supervisor:
         self.children: dict[str, Child] = {}
         self.stopping = threading.Event()
         self.reload_requested = threading.Event()
+        self.restore_requested = threading.Event()
         self.server = None
         self._op_lock = threading.Lock()
         self._health = {"at": 0.0, "ok": False}
@@ -661,6 +665,60 @@ class Supervisor:
             self.children["caddy"].restart()
         self.log("reload done")
 
+    def online_restore(self):
+        """``hse restore`` on a running container (SIGUSR1).
+
+        ``hse`` validated the archive and wrote restore.json; only this method changes /data:
+        stop console -> caddy -> headscale, restore, start everything again, report the result.
+        The stack is started again whatever happens (a failed restore rolls itself back).
+        """
+        req_path = os.path.join(self.run_dir, restore_mod.RESTORE_REQUEST)
+        res_path = os.path.join(self.run_dir, restore_mod.RESTORE_RESULT)
+        try:
+            with open(req_path, encoding="utf-8") as fh:
+                req = json.load(fh)
+            archive = req["archive"]
+            if not isinstance(archive, str):
+                raise TypeError("archive")
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            self.log("restore requested but %s is unusable: %s" % (restore_mod.RESTORE_REQUEST, exc))
+            return
+        result = {"ok": False, "requested": req.get("requested")}
+        if self.mode != "run":
+            result["error"] = "the stack is in setup mode: restore offline (stop the container first)"
+        else:
+            with self._op_lock:
+                self.log("restore: stopping the stack")
+                self.stop_children()
+                try:
+                    done = restore_mod.restore(archive, self.data_dir, offline=True,
+                                               with_postgres=bool(req.get("with_postgres")), run_dir=self.run_dir)
+                    result.update(ok=True, safety_copy=done.get("safety_copy"), files=done.get("files"),
+                                  warnings=done.get("warnings", []))
+                    self.log("restore: done (%s files)" % done.get("files"))
+                except restore_mod.RestoreError as exc:
+                    result["error"] = str(exc)
+                    self.log("restore failed: %s" % exc)
+                except Exception as exc:  # noqa: BLE001
+                    log.exception("restore crashed")
+                    result["error"] = "unexpected error: %s" % exc
+                finally:
+                    self.children = {}
+                    self._health["at"] = 0.0
+                    self._version["at"] = 0.0
+                    if not self.stopping.is_set():
+                        try:
+                            self.start_children()
+                        except Exception:  # noqa: BLE001
+                            log.exception("could not start the stack after the restore")
+                            result.setdefault("error", "restored, but the stack did not start: see the logs")
+                            result["ok"] = False
+        try:
+            os.unlink(req_path)
+        except OSError:
+            pass
+        render.write_file(res_path, json.dumps(result))
+
     def shutdown(self):
         self.stopping.set()
         self._sched_wake.set()
@@ -684,6 +742,7 @@ class Supervisor:
         signal.signal(signal.SIGTERM, lambda *_: self.stopping.set())
         signal.signal(signal.SIGINT, lambda *_: self.stopping.set())
         signal.signal(signal.SIGHUP, lambda *_: self.reload_requested.set())
+        signal.signal(signal.SIGUSR1, lambda *_: self.restore_requested.set())
         try:
             self.serve_helper()
             self.start_children()
@@ -691,6 +750,9 @@ class Supervisor:
                 if self.reload_requested.is_set():
                     self.reload_requested.clear()
                     self.reload()
+                if self.restore_requested.is_set():
+                    self.restore_requested.clear()
+                    self.online_restore()
         finally:
             self.shutdown()
         return 0
