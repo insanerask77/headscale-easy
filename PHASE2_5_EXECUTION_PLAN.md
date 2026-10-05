@@ -1,6 +1,6 @@
 # Phase 2.5 Execution Plan — Findings from testing the AIO image
 
-**Status:** ⏳ Not started.
+**Status:** ✅ Done (PRs #59, #60, #62-#65 and the wrap-up PR).
 
 Detailed implementation plan for SIMPLIFICATION_PLAN.md Phase 2.5.  
 **Estimated effort:** M-L (several days)  
@@ -54,11 +54,11 @@ phase 3 (built-in backups) starts.
 
 ## Pre-flight checks
 
-- [ ] On `next`, CI passing, working tree clean
-- [ ] Phase 2 merged (it is)
-- [ ] Reproduce each reported issue on the running `hse-aio` image and note
+- [x] On `next`, CI passing, working tree clean
+- [x] Phase 2 merged (it is)
+- [x] Reproduce each reported issue on the running `hse-aio` image and note
       the exact steps in the PR (language selector, DNS name, no live updates)
-- [ ] Confirm what a fresh Headscale does with `derp.server.enabled` and
+- [x] Confirm what a fresh Headscale does with `derp.server.enabled` and
       whether the AIO container can expose STUN 3478/udp without extra flags
 
 ---
@@ -316,12 +316,12 @@ or compose file that starts a Tailscale container registered on this tailnet.
 
 ## Block 7: Docs, i18n, release notes (S, ~2h)
 
-- [ ] `docs/all-in-one.md` / `.es.md`: DERP modes, sign-up modes, base
+- [x] `docs/all-in-one.md` / `.es.md`: DERP modes, sign-up modes, base
       domain, Docker tab, new env vars (`HSE_DERP_MODE`, `HSE_SIGNUP`, `HSE_BASE_DOMAIN`)
-- [ ] Every new string translated; `scripts/check_i18n.py` green
-- [ ] `CHANGELOG.md` entry (unreleased); mark Phase 2.5 ✅ in
+- [x] Every new string translated; `scripts/check_i18n.py` green
+- [x] `CHANGELOG.md` entry (unreleased); mark Phase 2.5 ✅ in
       `SIMPLIFICATION_PLAN.md` and set the status line here
-- [ ] `scripts/aio-smoke.sh` extended: embedded DERP present in the config,
+- [x] `scripts/aio-smoke.sh` extended: embedded DERP present in the config,
       sign-up `off` → 404, image/RAM limits still respected
 
 ---
@@ -351,10 +351,10 @@ but testing it is nicer once Block 5 shows the new device live.
 | Poller loads Headscale | One poller shared by all clients, short but fixed interval |
 | Changing `base_domain` on a live tailnet renames devices | Warn in the DNS page; the wizard only sets it at first run |
 
-## Open questions
+## Open questions (all answered)
 
-- [ ] Temporary password forced to change on first sign-in? (recommended: yes)
-- [ ] Final default slug for the base domain (`headscale-easy`?) and its suffix
-- [ ] Invitation keys: single use, multi use, or both? (plan assumes both)
-- [ ] Should sign-up require e-mail verification? (no mailer in the AIO image;
-      plan assumes no)
+- [x] Temporary password forced to change on first sign-in? **Yes.**
+- [x] Final default slug for the base domain: **`hse.net`**, editable in the wizard
+      and on the console's DNS page.
+- [x] Invitation keys: **both** single and multi use.
+- [x] Should sign-up require e-mail verification? **No** (no mailer in the AIO image).

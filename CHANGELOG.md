@@ -38,6 +38,32 @@ Work in progress on the `next` branch: see `SIMPLIFICATION_PLAN.md`.
   - `web/status.py` reads its disks from `STATUS_DISKS`.
   - See `docs/all-in-one.md`. The 1.x installer and the split compose are
     unchanged.
+- All-in-one image, findings from testing it (plan phase 2.5):
+  - **Embedded DERP by default.** `HSE_DERP_MODE` = `embedded` (default: the
+    container's own DERP + STUN on 3478/udp, no third-party relay), `public`
+    or `custom` (+ `HSE_DERP_URL`); `DERP_USE_PUBLIC` still works as an alias.
+    New wizard step; the console's DERP page shows the mode in use.
+  - **Users with a password.** Users → Create local user takes an email, a
+    password and a role; a temporary password forces a change at first sign-in.
+    **Set password** per user signs out their open sessions.
+  - **Self-registration.** `HSE_SIGNUP` = `off` (default; `/admin/signup`
+    answers 404) | `invite` | `open`, also in the wizard and Settings → General.
+    Self-registered accounts are always Members. Invitation keys (Users page):
+    single or multi use, optional expiry, revocable, stored hashed and shown
+    once; a wrong, expired or used-up key gets one generic error. Rate limited
+    and CSRF protected.
+  - **MagicDNS base domain** is configurable (`HSE_BASE_DOMAIN`, wizard field),
+    default `hse.net` in this image; still editable on the DNS page.
+  - **Live device status** over Server-Sent Events (`/admin/events`): one shared
+    poller, per-user filtering, "Live" indicator, falls back to polling.
+  - **Add device → Docker**: `docker run` / `docker-compose.yml` for the official
+    `tailscale/tailscale` image against this server, with host name, exit node,
+    subnet routes and userspace options, and an optional single-use auth key
+    that is shown once. It warns when the server address is `localhost`.
+  - The console's language selector works again with five languages (the
+    buttons overflowed the user menu).
+  - `scripts/aio-smoke.sh` also checks the embedded DERP config, STUN, sign-up
+    off and the event stream's authentication.
 
 ## [Unreleased]
 
