@@ -39,9 +39,9 @@ BOB_NODE = {"id": "7", "givenName": "bob-laptop", "user": BOB}
 
 
 def request(method: str, path: str, session: dict | None = None, form: dict | None = None,
-            headers: dict | None = None) -> tuple[int, dict, str]:
-    """Run one request through app.Handler; (status, headers, body)."""
-    body = urllib.parse.urlencode(form or {}, doseq=True).encode()
+            headers: dict | None = None, raw: bytes | None = None) -> tuple[int, dict, str]:
+    """Run one request through app.Handler; (status, headers, body). ``raw`` replaces the form-encoded body."""
+    body = raw if raw is not None else urllib.parse.urlencode(form or {}, doseq=True).encode()
     msg = email.message.Message()
     if session is not None and "sid" not in session:
         session = dict(session, sid=sessions.create(session))  # a live server-side session
@@ -124,9 +124,9 @@ class Unauthenticated(Base):
             self.assertEqual((status, location(headers)), (303, f"{B}/login"), path)
 
     def test_actions_redirect_to_sign_in(self):
-        for path in ("/keys", "/users", "/acl", "/dns", "/apikeys", "/machines/1/delete", "/settings/status/backup",
-                     "/settings/status/backup-settings", "/settings/status/backup/restore",
-                     "/settings/status/backup/download"):
+        for path in ("/keys", "/users", "/acl", "/dns", "/apikeys", "/machines/1/delete", "/backups/run",
+                     "/backups/settings", "/backups/restore",
+                     "/backups/download"):
             status, headers, _ = request("POST", B + path, form={"csrf": "tok"})
             self.assertEqual((status, location(headers)), (303, f"{B}/login"), path)
         self.api.assert_not_called()
@@ -141,9 +141,9 @@ class Csrf(Base):
     def test_backup_now_needs_the_token_and_an_admin(self):
         with mock.patch.object(app.hs, "helper_backup", return_value="started") as run:
             for form in ({}, {"csrf": ""}, {"csrf": "other"}):
-                status, _, _ = request("POST", f"{B}/settings/status/backup", ADMIN, form)
+                status, _, _ = request("POST", f"{B}/backups/run", ADMIN, form)
                 self.assertEqual(status, 403, form)
-            status, _, _ = request("POST", f"{B}/settings/status/backup", MEMBER, {"csrf": "tok"})
+            status, _, _ = request("POST", f"{B}/backups/run", MEMBER, {"csrf": "tok"})
             self.assertEqual(status, 403)
         run.assert_not_called()
 

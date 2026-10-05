@@ -39,7 +39,7 @@ class WithBackupDir(Base):
 
 
 class Download(WithBackupDir):
-    URL = f"{B}/settings/status/backup/download"
+    URL = f"{B}/backups/download"
 
     def get(self, session=ADMIN, **form):
         return request("POST", self.URL, session, dict({"csrf": "tok", "name": NAME}, **form))
@@ -99,7 +99,7 @@ class Download(WithBackupDir):
 
 
 class Restore(WithBackupDir):
-    URL = f"{B}/settings/status/backup/restore"
+    URL = f"{B}/backups/restore"
 
     def post(self, session=ADMIN, result=("started", "1791209576.5"), **form):
         form = dict({"csrf": "tok", "name": NAME, "confirm": "RESTORE"}, **form)
@@ -111,7 +111,7 @@ class Restore(WithBackupDir):
         status, _h, body, call = self.post()
         self.assertEqual(status, 200)
         call.assert_called_once_with(NAME)
-        self.assertIn('data-await-restore="/admin/settings/status?m=backup-restore-done"', body)
+        self.assertIn('data-await-restore="/admin/backups?m=backup-restore-done"', body)
         self.assertIn('data-probe="/admin/restore-status?id=1791209576.5"', body)
         self.assertNotIn("<script>", body)
         event = app.audit.request_event.call_args.args
@@ -138,7 +138,7 @@ class Restore(WithBackupDir):
         app.audit.request_event.assert_not_called()
 
     def test_waiting_page_ignores_a_strange_id(self):
-        from status_pages import restoring_page
+        from backup_pages import restoring_page
         html = restoring_page('1"><script>alert(1)</script>')
         self.assertNotIn("<script>alert", html)
         self.assertIn('data-probe="/admin/restore-status?id="', html)
@@ -168,6 +168,192 @@ class ClientAndFlash(unittest.TestCase):
                 with open(os.path.join(tmp, "restore-result.json"), "w") as fh:
                     fh.write("not json")
                 self.assertIsNone(hs.restore_result())
+
+
+def _mp(*parts, boundary="----hseTestBoundary"):
+    """A multipart body: parts are (name, value) or (name, value, filename)."""
+    out = b""
+    for part in parts:
+        name, value = part[0], part[1]
+        filename = part[2] if len(part) > 2 else None
+        head = f'Content-Disposition: form-data; name="{name}"' + (f'; filename="{filename}"' if filename is not None else "")
+        out += f"--{boundary}\r\n{head}\r\n\r\n".encode() + (value if isinstance(value, bytes) else value.encode()) + b"\r\n"
+    return out + f"--{boundary}--\r\n".encode(), f"multipart/form-data; boundary={boundary}"
+
+
+class Upload(WithBackupDir):
+    URL = f"{B}/backups/upload"
+
+    def setUp(self):
+        super().setUp()
+        self.seen = []
+
+        def saved(tmp, name):  # what the supervisor would be asked: the file is on disk by now
+            with open(os.path.join(self.dir, tmp), "rb") as fh:
+                self.seen.append((tmp, name, fh.read()))
+            return ("saved", "headscale-easy-uploaded-20261005-120000.tar.gz")
+        self.saved = saved
+
+    def post(self, parts, session=ADMIN, upload=None, restore=None, **kw):
+        raw, ctype = _mp(*parts)
+        upload = upload or mock.Mock(side_effect=self.saved)
+        restore = restore or mock.Mock(return_value=("started", "1791209576.5"))
+        with mock.patch.object(hs, "helper_backup_upload", upload), mock.patch.object(hs, "helper_restore", restore):
+            status, headers, body = request("POST", self.URL, session, headers={"Content-Type": ctype}, raw=raw)
+        return status, headers, body, upload, restore
+
+    def left(self):
+        return sorted(n for n in os.listdir(self.dir) if n.startswith(".upload-"))
+
+    def test_upload_keeps_the_file_in_the_list_and_audits(self):
+        status, headers, _b, upload, restore = self.post([("csrf", "tok"), ("action", "upload"),
+                                                          ("file", b"\x1f\x8b-archive", "my backup.tar.gz")])
+        self.assertEqual((status, location(headers)), (303, f"{B}/backups?m=backup-uploaded"))
+        tmp, name, content = self.seen[0]
+        self.assertRegex(tmp, r"^\.upload-[0-9a-f]{24}\.part$")
+        self.assertEqual((name, content), ("my backup.tar.gz", b"\x1f\x8b-archive"))
+        restore.assert_not_called()
+        event = app.audit.request_event.call_args.args
+        self.assertEqual((event[2], event[3]), ("backup.upload", "headscale-easy-uploaded-20261005-120000.tar.gz"))
+
+    def test_upload_and_restore_goes_on_to_the_waiting_page(self):
+        status, _h, body, _u, restore = self.post([("csrf", "tok"), ("action", "restore"), ("confirm", "RESTORE"),
+                                                   ("file", b"data", "a.tar.gz")])
+        self.assertEqual(status, 200)
+        restore.assert_called_once_with("headscale-easy-uploaded-20261005-120000.tar.gz")
+        self.assertIn('data-await-restore="/admin/backups?m=backup-restore-done"', body)
+        self.assertEqual([c.args[2] for c in app.audit.request_event.call_args_list], ["backup.upload", "backup.restore"])
+
+    def test_restore_needs_the_typed_confirmation_and_the_file_is_not_kept(self):
+        for confirm in ("", "restore", "yes"):
+            status, headers, _b, upload, restore = self.post([("csrf", "tok"), ("action", "restore"),
+                                                              ("confirm", confirm), ("file", b"data", "a.tar.gz")])
+            self.assertEqual((status, location(headers)), (303, f"{B}/backups?m=backup-restore-confirm"))
+            upload.assert_not_called()
+            restore.assert_not_called()
+        self.assertEqual(self.left(), [])
+
+    def test_a_restore_that_cannot_start_leaves_the_file_in_the_list(self):
+        restore = mock.Mock(return_value=("busy", "x"))
+        status, headers, _b, _u, _r = self.post([("csrf", "tok"), ("action", "restore"), ("confirm", "RESTORE"),
+                                                 ("file", b"data", "a.tar.gz")], restore=restore)
+        self.assertEqual((status, location(headers)), (303, f"{B}/backups?m=backup-restore-busy"))
+
+    def test_no_token_wrong_token_or_token_after_the_file_writes_nothing(self):
+        for parts in ([("file", b"data", "a.tar.gz")],
+                      [("csrf", "bad"), ("file", b"data", "a.tar.gz")],
+                      [("csrf", ""), ("file", b"data", "a.tar.gz")],
+                      [("file", b"data", "a.tar.gz"), ("csrf", "tok")]):
+            status, _h, _b, upload, restore = self.post(parts)
+            self.assertEqual(status, 403, parts[0][0])
+            upload.assert_not_called()
+            restore.assert_not_called()
+            self.assertEqual(self.left(), [])
+        app.audit.request_event.assert_not_called()
+
+    def test_only_admins(self):
+        status, _h, _b, upload, _r = self.post([("csrf", "tok"), ("file", b"data", "a.tar.gz")], session=MEMBER)
+        self.assertEqual(status, 403)
+        upload.assert_not_called()
+        self.assertEqual(self.left(), [])
+        raw, ctype = _mp(("csrf", "tok"), ("file", b"x", "a"))
+        status, headers, _b = request("POST", self.URL, None, headers={"Content-Type": ctype}, raw=raw)
+        self.assertEqual((status, location(headers)), (303, f"{B}/login"))
+
+    def test_a_refused_file_is_deleted(self):
+        upload = mock.Mock(return_value=("invalid", "not a backup"))
+        status, headers, _b, _u, _r = self.post([("csrf", "tok"), ("file", b"junk", "a.tar.gz")], upload=upload)
+        self.assertEqual((status, location(headers)), (303, f"{B}/backups?m=backup-upload-invalid"))
+        self.assertEqual(self.left(), [])
+        app.audit.request_event.assert_not_called()
+
+    def test_helper_unavailable_or_failing_leaves_nothing_behind(self):
+        for result in ("unavailable", "error"):
+            upload = mock.Mock(return_value=(result, ""))
+            status, headers, _b, _u, _r = self.post([("csrf", "tok"), ("file", b"junk", "a.tar.gz")], upload=upload)
+            self.assertEqual((status, location(headers)), (303, f"{B}/backups?m=backup-upload-{result}"))
+            self.assertEqual(self.left(), [])
+
+    def test_empty_and_missing_files(self):
+        for parts in ([("csrf", "tok"), ("file", b"", "a.tar.gz")], [("csrf", "tok"), ("action", "upload")]):
+            status, headers, _b, upload, _r = self.post(parts)
+            self.assertEqual((status, location(headers)), (303, f"{B}/backups?m=backup-upload-none"))
+            upload.assert_not_called()
+        self.assertEqual(self.left(), [])
+
+    def test_too_large_is_refused_and_leaves_nothing(self):
+        with mock.patch.object(app, "BACKUP_UPLOAD_MAX", 1000):
+            status, headers, _b, upload, _r = self.post([("csrf", "tok"), ("file", b"x" * 5000, "a.tar.gz")])
+            self.assertEqual((status, location(headers)), (303, f"{B}/backups?m=backup-upload-toolarge"))
+            self.assertEqual(self.left(), [])
+            upload.assert_not_called()
+        with mock.patch.object(app, "BACKUP_UPLOAD_MAX", 10):  # refused from Content-Length, before reading
+            raw, ctype = _mp(("csrf", "tok"), ("file", b"x" * (2 << 20), "a.tar.gz"))
+            status, headers, _b = request("POST", self.URL, ADMIN, headers={"Content-Type": ctype}, raw=raw)
+            self.assertEqual(location(headers), f"{B}/backups?m=backup-upload-toolarge")
+
+    def test_a_broken_form_is_an_error_and_leaves_nothing(self):
+        raw, _ctype = _mp(("csrf", "tok"), ("file", b"x" * 100, "a.tar.gz"))
+        for ctype, body in (("multipart/form-data; boundary=zzz", raw), ("application/x-www-form-urlencoded", raw),
+                            ("multipart/form-data; boundary=----hseTestBoundary", raw[:-30])):
+            with mock.patch.object(hs, "helper_backup_upload") as upload:
+                status, headers, _b = request("POST", self.URL, ADMIN, headers={"Content-Type": ctype}, raw=body)
+            self.assertEqual((status, location(headers)), (303, f"{B}/backups?m=backup-upload-error"), ctype)
+            upload.assert_not_called()
+            self.assertEqual(self.left(), [])
+
+    def test_old_work_files_are_cleaned_and_recent_ones_kept(self):
+        old = os.path.join(self.dir, ".upload-" + "a" * 24 + ".part")
+        new = os.path.join(self.dir, ".upload-" + "b" * 24 + ".part")
+        other = os.path.join(self.dir, ".upload-not-ours.part")
+        for path in (old, new, other):
+            with open(path, "wb") as fh:
+                fh.write(b"x")
+        os.utime(old, (1, 1))
+        self.post([("csrf", "tok"), ("file", b"data", "a.tar.gz")])
+        self.assertFalse(os.path.exists(old))
+        self.assertTrue(os.path.exists(new) and os.path.exists(other))
+
+    def test_the_original_name_is_sanitized_before_it_travels(self):
+        for sent, expect in (("../../etc/passwd", "passwd"), ("C:\\evil\\x.tar.gz", "x.tar.gz"),
+                             ("na\u00efve\x01.tar.gz", "na?ve?.tar.gz"), ("a" * 300 + ".tar.gz", ("a" * 120))):
+            self.seen.clear()
+            self.post([("csrf", "tok"), ("file", b"data", sent)])
+            self.assertEqual(self.seen[0][1], expect, sent)
+
+    def test_not_available_without_a_backup_dir(self):
+        with mock.patch.dict(os.environ, {"BACKUP_DIR": ""}):
+            status, _h, _b, upload, _r = self.post([("csrf", "tok"), ("file", b"data", "a.tar.gz")])
+        self.assertEqual(status, 404)
+        upload.assert_not_called()
+
+
+class Page(WithBackupDir):
+    def get(self, session=ADMIN, backup=True, path="/backups"):
+        helper = {"backup": {"enabled": True, "schedule": "0 3 * * *", "keep_days": 14, "running": False, "files": [],
+                             "last": None, "last_ok": None, "count": 0, "bytes": 0}} if backup else {}
+        with mock.patch.object(hs, "helper_status", return_value=helper):
+            return request("GET", f"{B}{path}", session)
+
+    def test_menu_entry_for_admins_when_the_image_has_backups(self):
+        _s, _h, body = self.get()
+        self.assertIn(f'<a class="nav-top active" href="{B}/backups">', body)
+        with mock.patch.dict(os.environ, {"BACKUP_DIR": ""}):  # 1.x: no entry
+            self.assertNotIn(f'href="{B}/backups"', self.get()[2])
+        self.assertNotIn(f'href="{B}/backups"', self.get(MEMBER)[2])
+
+    def test_page_is_for_admins(self):
+        status, _h, body = self.get()
+        self.assertEqual(status, 200)
+        self.assertIn("Upload a backup", body)
+        self.assertIn('enctype="multipart/form-data"', body)
+        self.assertEqual(self.get(MEMBER)[0], 403)
+
+    def test_status_page_no_longer_carries_the_backup_cards(self):
+        with mock.patch.object(hs, "helper_status", return_value={"backup": {"enabled": True, "files": []}}):
+            _s, _h, body = request("GET", f"{B}/settings/status", ADMIN)
+        self.assertNotIn("Back up now", body)
+        self.assertNotIn("Available backups", body)
 
 
 if __name__ == "__main__":

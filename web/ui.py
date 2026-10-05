@@ -67,6 +67,7 @@ _ICONS = {
     "plus": '<path d="M5 12h14"/><path d="M12 5v14"/>',
     "copy": '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
     "x": '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    "archive": '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
     "logs": '<path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/>',
 }
 
@@ -222,6 +223,12 @@ def flash_html(code: str) -> str:
         "notify-none": ("error", _("No notification destination is configured: set NOTIFY_URLS in .env.")),
         "backup-started": ("ok", _("Backup started. This page shows the result when it finishes.")),
         "backup-busy": ("error", _("A backup is already running.")),
+        "backup-uploaded": ("ok", _("Backup uploaded. It is in the list below.")),
+        "backup-upload-invalid": ("error", _("That file is not a valid Headscale Easy backup of this kind, so it was not kept. See the container logs.")),
+        "backup-upload-none": ("error", _("Choose a backup file first.")),
+        "backup-upload-toolarge": ("error", _("That file is too large to upload here.")),
+        "backup-upload-unavailable": ("error", _("Backups cannot be uploaded here.")),
+        "backup-upload-error": ("error", _("The upload failed. Check the container logs and the free disk space.")),
         "backup-restore-ok": ("ok", _("Backup restored. Sign in again if you are asked to.")),
         "backup-restore-failed": ("error", _("The restore failed and the previous data was put back. See the container logs for the reason.")),
         "backup-restore-invalid": ("error", _("That backup cannot be restored: it is not a valid Headscale Easy backup of this kind. See the container logs.")),
@@ -292,6 +299,9 @@ def sidebar(active: str, session: dict, ctx: dict) -> str:
     if sees_all:
         groups.append(f"""
       <a class="nav-top {"active" if active == "logs" else ""}" href="{BASE}/logs">{icon("logs")}<span>{esc(_("Logs"))}</span></a>""")
+    if admin and os.environ.get("BACKUP_DIR"):  # the all-in-one image (the console env sets it)
+        groups.append(f"""
+      <a class="nav-top {"active" if active == "backups" else ""}" href="{BASE}/backups">{icon("archive")}<span>{esc(_("Backups"))}</span></a>""")
     settings_items = [
         ("general", "settings/general", _("General")),
         ("keys", "settings/keys", _("Keys")),

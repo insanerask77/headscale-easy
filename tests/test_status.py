@@ -197,7 +197,9 @@ BACKUP_FAILED = dict(BACKUP_OK, last={"at": "2026-10-05T03:00:04Z", "ok": False,
 
 class BackupCard(unittest.TestCase):
     def page(self, backup, session=ADMIN):
-        return Page.get(self, session, helper=dict(HELPER, **({"backup": backup} if backup is not None else {})))
+        helper = dict(HELPER, **({"backup": backup} if backup is not None else {}))
+        with sources(helper=helper):
+            return request("GET", f"{B}/backups", session)
 
     def test_hidden_without_the_backup_key(self):
         _c, html = self.page(None)
@@ -228,7 +230,7 @@ class BackupCard(unittest.TestCase):
         self.assertIn("14 days", html)
         self.assertIn("3 backups", html)
         self.assertIn("/data/backups", html)
-        self.assertIn(f'action="{B}/settings/status/backup"', html)
+        self.assertIn(f'action="{B}/backups/run"', html)
 
     def test_failed_state_shows_the_error_escaped_and_the_last_good_one(self):
         _c, html = self.page(BACKUP_FAILED)
@@ -244,37 +246,45 @@ class BackupCard(unittest.TestCase):
         self.assertIn("Running", html)
         self.assertIn("disabled", html)  # no second run from the button
         _c, html = self.page(dict(BACKUP_OK, enabled=False, schedule="off", next_run=None))
-        self.assertIn("BACKUP_SCHEDULE=off", html)
+        self.assertIn('<span class="muted">Off</span>', html)
         self.assertIn("Back up now", html)  # manual backups still work
 
-    def test_auditor_sees_the_card_without_the_button(self):
-        _c, html = self.page(BACKUP_OK, AUDITOR)
-        self.assertIn("headscale-easy-20261005-030000.tar.gz", html)
-        self.assertNotIn("Back up now", html)
+    def test_the_page_is_for_admins_only(self):
+        for session in (AUDITOR, MEMBER):
+            code, html = self.page(BACKUP_OK, session)
+            self.assertEqual(code, 403)
+            self.assertNotIn("headscale-easy-20261005-030000.tar.gz", html)
+            self.assertNotIn("Back up now", html)
 
     def test_flash_messages(self):
         for code, text in (("backup-started", "Backup started"), ("backup-busy", "already running"),
                            ("backup-unavailable", "not available"), ("backup-error", "Could not start")):
             with sources(dict(HELPER, backup=BACKUP_OK)):
-                _c, html = request("GET", f"{B}/settings/status?m={code}", ADMIN)
+                _c, html = request("GET", f"{B}/backups?m={code}", ADMIN)
             self.assertIn(text, html, code)
 
 
 class BackupSettingsCard(unittest.TestCase):
     def page(self, backup, session=ADMIN):
-        return Page.get(self, session, helper=dict(HELPER, **({"backup": backup} if backup is not None else {})))
+        helper = dict(HELPER, **({"backup": backup} if backup is not None else {}))
+        with sources(helper=helper):
+            return request("GET", f"{B}/backups", session)
 
     def test_form_for_admins(self):
         _c, html = self.page(BACKUP_OK)
-        self.assertIn(f'action="{B}/settings/status/backup-settings"', html)
+        self.assertIn(f'action="{B}/backups/settings"', html)
         self.assertIn('name="backup_enabled"', html)
         self.assertIn('name="backup_schedule" value="0 3 * * *"', html)
         self.assertIn('name="backup_keep_days" min="1" max="3650" value="14"', html)
-        self.assertNotIn("disabled", html.split("Backup settings", 1)[1].split("</section>", 1)[0])
+        self.assertNotIn("disabled", html.split("<h2>Schedule</h2>", 1)[1].split("</section>", 1)[0])
+        self.assertIn('<h1>Backups</h1>', html)
 
-    def test_hidden_for_non_admins_and_without_the_backup_key(self):
-        self.assertNotIn("backup-settings", self.page(BACKUP_OK, MEMBER)[1])
-        self.assertNotIn("backup-settings", self.page(None)[1])
+    def test_no_forms_without_the_backup_key_and_none_for_non_admins(self):
+        code, html = self.page(None)
+        self.assertEqual(code, 200)
+        self.assertIn("not available here", html)
+        self.assertNotIn("/backups/settings", html)
+        self.assertEqual(self.page(BACKUP_OK, MEMBER)[0], 403)
 
     def test_off_state_offers_the_default_schedule(self):
         _c, html = self.page(dict(BACKUP_OK, enabled=False, schedule="off"))
@@ -283,7 +293,7 @@ class BackupSettingsCard(unittest.TestCase):
 
     def test_environment_values_are_read_only(self):
         _c, html = self.page(dict(BACKUP_OK, env_locked={"schedule": True, "keep_days": True}))
-        card = html.split("Backup settings", 1)[1].split("</section>", 1)[0]
+        card = html.split("<h2>Schedule</h2>", 1)[1].split("</section>", 1)[0]
         self.assertEqual(card.count(" disabled"), 3)
         self.assertNotIn('type="submit"', card)
         self.assertIn("fixed by environment variables", card)
@@ -295,7 +305,9 @@ FILES = [{"name": "headscale-easy-20261005-030000.tar.gz", "size": 2097152, "mti
 
 class BackupFilesCard(unittest.TestCase):
     def page(self, backup, session=ADMIN):
-        return Page.get(self, session, helper=dict(HELPER, **({"backup": backup} if backup is not None else {})))
+        helper = dict(HELPER, **({"backup": backup} if backup is not None else {}))
+        with sources(helper=helper):
+            return request("GET", f"{B}/backups", session)
 
     def card(self, html):
         return html.split("Available backups", 1)[1].split("</section>", 1)[0]
@@ -306,8 +318,8 @@ class BackupFilesCard(unittest.TestCase):
         self.assertIn("headscale-easy-20261005-030000.tar.gz", card)
         self.assertIn("2.0 MB", card)
         self.assertIn("pre-restore", card)
-        self.assertEqual(card.count(f'action="{B}/settings/status/backup/download"'), 2)
-        self.assertEqual(card.count(f'action="{B}/settings/status/backup/restore"'), 2)
+        self.assertEqual(card.count(f'action="{B}/backups/download"'), 2)
+        self.assertEqual(card.count(f'action="{B}/backups/restore"'), 2)
         self.assertIn('name="name" value="headscale-easy-20261005-030000.tar.gz"', card)
         self.assertIn('name="confirm" required pattern="RESTORE"', card)
         self.assertEqual(card.count('name="csrf"'), 4)  # every form carries the token
@@ -331,13 +343,13 @@ class BackupFilesCard(unittest.TestCase):
         for result, text in (({"ok": True, "requested": 1.0}, "Backup restored"),
                              ({"ok": False, "requested": 1.0}, "restore failed"), (None, "restore failed")):
             with mock.patch.object(hs, "restore_result", return_value=result), sources(dict(HELPER)):
-                code, html = request("GET", f"{B}/settings/status?m=backup-restore-done", ADMIN)
+                code, html = request("GET", f"{B}/backups?m=backup-restore-done", ADMIN)
             self.assertEqual(code, 200)
             self.assertIn(text, html, result)
 
 
 class BackupSettingsSave(unittest.TestCase):
-    URL = f"{B}/settings/status/backup-settings"
+    URL = f"{B}/backups/settings"
 
     def run_post(self, session, result=("saved", ""), csrf="tok", **form):
         form = dict({"csrf": csrf, "backup_enabled": "on", "backup_schedule": "0 4 * * *", "backup_keep_days": "7"}, **form)
@@ -349,7 +361,7 @@ class BackupSettingsSave(unittest.TestCase):
     def test_admin_saves_and_it_is_audited(self):
         code, head, call, event = self.run_post(ADMIN)
         self.assertEqual(code, 303)
-        self.assertIn("settings/status?m=backup-settings-saved", head)
+        self.assertIn("backups?m=backup-settings-saved", head)
         call.assert_called_once()
         self.assertEqual(call.call_args.args, (True, "0 4 * * *", "7"))
         self.assertEqual(event.call_args.args[2], "backup.settings")
@@ -373,7 +385,7 @@ class BackupSettingsSave(unittest.TestCase):
 
 
 class BackupNow(unittest.TestCase):
-    URL = f"{B}/settings/status/backup"
+    URL = f"{B}/backups/run"
 
     def run_post(self, session, result="started", csrf="tok"):
         with mock.patch.object(hs, "helper_backup", return_value=result) as call, \
@@ -384,7 +396,7 @@ class BackupNow(unittest.TestCase):
     def test_admin_starts_a_backup_and_it_is_audited(self):
         code, head, call, event = self.run_post(ADMIN)
         self.assertEqual(code, 303)
-        self.assertIn("settings/status?m=backup-started", head)
+        self.assertIn("backups?m=backup-started", head)
         call.assert_called_once_with()
         self.assertEqual(event.call_args.args[2], "backup.run")
 

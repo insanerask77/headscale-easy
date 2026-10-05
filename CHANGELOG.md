@@ -21,12 +21,14 @@ Work in progress on the `next` branch: see `SIMPLIFICATION_PLAN.md`.
     restore validates the archive first, takes a pre-restore backup and puts it
     back if it fails; it works on a stopped volume (also on a new host) or on the
     running container.
-  - Settings → Status shows the last backup, the next run, a **Back up now**
-    button and a **Backup settings** card (turn scheduled backups on/off, schedule,
-    days kept; values fixed by `BACKUP_SCHEDULE` / `BACKUP_KEEP_DAYS` stay read-only)
-    and an **Available backups** list with **Download** and **Restore** (typed
-    confirmation, safety copy first, a page waits for the restart; both audited)
-    (administrators, audited); a failed scheduled backup sends a notification.
+  - A **Backups** menu (administrators) shows the last backup, the next run and a
+    **Back up now** button, lets you turn scheduled backups on/off and change the
+    schedule and days kept (values fixed by `BACKUP_SCHEDULE` / `BACKUP_KEEP_DAYS`
+    stay read-only), lists the backups with **Download** and **Restore** (typed
+    confirmation, safety copy first, a page waits for the restart) and takes an
+    uploaded backup (**Upload**, or **Upload and restore**; streamed to disk and
+    checked before it is kept, `BACKUP_UPLOAD_MAX_MB`). Everything is audited; a
+    failed scheduled backup sends a notification.
   - The `backup` image gains `BACKUP_MODE=sync`: a sidecar that uploads the
     archives of `/data/backups` to the remote (rclone / rsync) for the advanced edition.
   - The archive keeps `backup/backup.sh`'s directories but adds `meta.json` and

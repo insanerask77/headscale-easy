@@ -1241,5 +1241,78 @@ class RestoreFromConsoleTest(SupervisorMixin, FakeCase):
             self.assertEqual(len(self.s.backup_files()), 2)
 
 
+class BackupUploadTest(SupervisorMixin, FakeCase):
+    """POST /backup-upload: a file the console received becomes one of the backups, if it is a valid one."""
+    TMP = ".upload-0123456789abcdef0123.part"
+
+    def setUp(self):
+        super().setUp()
+        self.s = self.make()
+        self.s.mode = "run"
+        os.makedirs(self.fakes.run, exist_ok=True)
+        self.backups = os.path.join(self.fakes.data, "backups")
+        os.makedirs(self.backups, exist_ok=True)
+
+    def put(self, builder=None, tmp=None):
+        path = os.path.join(self.backups, tmp or self.TMP)
+        (builder or (lambda p: fx.build_aio_archive(p, fx.data_tree("up"))))(path)
+        return path
+
+    def ask(self, tmp=None, name="headscale-easy-20260301-030000.tar.gz"):
+        with open(os.path.join(self.fakes.run, "backup-upload.json"), "w", encoding="utf-8") as fh:
+            json.dump({"tmp": tmp or self.TMP, "name": name}, fh)
+        return self.s.be_backup_upload()[1]
+
+    def test_valid_file_is_kept_under_its_own_name(self):
+        tmp = self.put()
+        res = self.ask()
+        self.assertEqual(res, {"ok": True, "name": "headscale-easy-20260301-030000.tar.gz"})
+        self.assertFalse(os.path.exists(tmp))
+        final = os.path.join(self.backups, res["name"])
+        self.assertEqual(oct(os.stat(final).st_mode & 0o777), "0o600")
+        self.assertEqual([f["name"] for f in self.s.backup_files()], [res["name"]])
+        self.assertFalse(os.path.exists(os.path.join(self.fakes.run, "backup-upload.json")))  # consumed
+
+    def test_other_names_get_a_fresh_valid_one_and_nothing_is_overwritten(self):
+        for orig in ("my backup.tar.gz", "../../x.tar.gz", "/etc/cron.d/x", "", "backup.zip", None):
+            self.put()
+            res = self.ask(name=orig)
+            self.assertTrue(res["ok"], orig)
+            self.assertRegex(res["name"], r"^headscale-easy-uploaded-\d{8}-\d{6}(-\d+)?\.tar\.gz$")
+        self.assertEqual(len(self.s.backup_files()), 6)  # same second: suffixes keep them apart
+        self.put()
+        self.assertTrue(self.ask()["ok"])
+        self.put()
+        res = self.ask()  # that name is taken now
+        self.assertNotEqual(res["name"], "headscale-easy-20260301-030000.tar.gz")
+        self.assertEqual(len(self.s.backup_files()), 8)
+
+    def test_a_file_that_is_not_a_valid_backup_is_refused_and_deleted(self):
+        def garbage(p):
+            with open(p, "wb") as fh:
+                fh.write(b"not a tarball")
+        for builder in (garbage, fx.build_1x_archive):
+            tmp = self.put(builder)
+            res = self.ask()
+            self.assertEqual((res["ok"], res.get("field")), (False, "invalid"))
+            self.assertFalse(os.path.exists(tmp))
+        self.assertEqual(self.s.backup_files(), [])
+
+    def test_only_the_consoles_work_files_are_accepted(self):
+        victim = self.put(tmp="headscale-easy-20260101-030000.tar.gz")  # an existing backup must not be moved/deleted
+        os.symlink(victim, os.path.join(self.backups, self.TMP))
+        for tmp in ("headscale-easy-20260101-030000.tar.gz", "../x", "/etc/passwd", ".upload-xyz.part", self.TMP, "", None, 5):
+            res = self.ask(tmp=tmp)
+            self.assertEqual((res["ok"], res.get("field")), (False, "invalid"), repr(tmp))
+        self.assertTrue(os.path.exists(victim))
+
+    def test_setup_mode_and_no_request(self):
+        self.assertEqual(self.s.be_backup_upload()[1], {"ok": False, "error": "no request"})
+        tmp = self.put()
+        self.s.mode = "setup"
+        self.assertFalse(self.ask()["ok"])
+        self.assertFalse(os.path.exists(tmp))
+
+
 if __name__ == "__main__":
     unittest.main()

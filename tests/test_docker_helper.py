@@ -314,6 +314,13 @@ class BackupRouteTest(unittest.TestCase):
         self.assertEqual(call(self.sock, "POST", "/backup-settings", body=b'{"a": 1}')[0], 400)
         self.assertEqual(call(self.sock, "GET", "/backup-settings")[0], 405)
 
+    def test_upload_route_is_404_on_the_docker_helper_and_takes_no_body(self):
+        self.serve(None)
+        self.assertEqual(call(self.sock, "POST", "/backup-upload")[0], 404)
+        self.serve({"backup_upload": lambda: (200, {"ok": True})})
+        self.assertEqual(call(self.sock, "POST", "/backup-upload")[0], 200)
+        self.assertEqual(call(self.sock, "POST", "/backup-upload", body=b"x")[0], 400)
+
     def test_restore_route_is_404_on_the_docker_helper_and_takes_no_body(self):
         self.serve(None)
         self.assertEqual(call(self.sock, "POST", "/restore")[0], 404)
@@ -429,6 +436,27 @@ class WebClientTest(unittest.TestCase):
         self.assertEqual(hs.helper_restore("a"), ("invalid", "bad"))
         self.assertEqual(hs.helper_restore("a"), ("busy", "busy"))
         self.assertEqual(hs.helper_restore("a")[0], "error")
+
+    def test_helper_backup_upload_results_and_request_file(self):
+        answers = iter([(200, {"ok": True, "name": "headscale-easy-x.tar.gz"}),
+                        (200, {"ok": False, "error": "bad", "field": "invalid"}), (200, {"ok": False, "error": "x"})])
+        server = helper.serve(self.helper_sock, {"backup_upload": lambda: next(answers)})
+        threading.Thread(target=server.serve_forever, args=(0.05,), daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.assertEqual(hs.helper_backup_upload(".upload-0123456789abcdef.part", "mine.tar.gz"),
+                         ("saved", "headscale-easy-x.tar.gz"))
+        path = os.path.join(os.path.dirname(self.helper_sock), "backup-upload.json")
+        with open(path, encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh), {"tmp": ".upload-0123456789abcdef.part", "name": "mine.tar.gz"})
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+        self.assertEqual(hs.helper_backup_upload("t", "n"), ("invalid", "bad"))
+        self.assertEqual(hs.helper_backup_upload("t", "n")[0], "error")
+
+    def test_helper_backup_upload_unavailable_without_helper_or_on_the_docker_helper(self):
+        self.assertEqual(hs.helper_backup_upload("t", "n")[0], "unavailable")
+        self.start_helper()
+        self.assertEqual(hs.helper_backup_upload("t", "n")[0], "unavailable")
 
     def test_helper_restore_unavailable_without_helper_or_on_the_docker_helper(self):
         self.assertEqual(hs.helper_restore("a")[0], "unavailable")  # no socket

@@ -50,6 +50,7 @@ BACKUP_CMD = [sys.executable, os.environ.get("HSE_BACKUP_APP", os.path.join(ROOT
 DEFAULT_BACKUP_SCHEDULE = "0 3 * * *"
 BACKUP_NAME_RE = re.compile(r"^headscale-easy-[0-9A-Za-z][0-9A-Za-z._-]*\.tar\.gz$")  # what backup.py writes; no path separators
 BACKUP_LIST_MAX = 100
+UPLOAD_TMP_RE = re.compile(r"^\.upload-[0-9a-f]{16,64}\.part$")  # what the console writes while a file is arriving
 RESTORE_DELAY = 1.5      # lets the console answer the request that started a restore from its page
 BACKUP_TICK = 30.0       # how often the scheduler looks at the clock (it is woken early by reload / shutdown)
 BACKUP_CATCHUP = 60.0    # delay before the one catch-up run after a missed slot
@@ -583,6 +584,52 @@ class Supervisor:
         timer.start()
         return 200, {"ok": True, "id": repr(requested)}
 
+    def be_backup_upload(self):
+        """POST /backup-upload: the console received a backup file; check it and put it with the others.
+
+        The console streams the file into ``/data/backups/.upload-<random>.part`` and leaves
+        ``{"tmp": ..., "name": <name the user's file had>}`` in ``<run dir>/backup-upload.json``. Here it gets the
+        same checks as a restore (format, SHA-256 of every file, database integrity): a file that fails is deleted.
+        It is kept under its own name when that is a valid, free backup name, else under a new one."""
+        path = os.path.join(self.run_dir, "backup-upload.json")
+        try:
+            with open(path, encoding="utf-8") as fh:
+                req = json.load(fh)
+            os.unlink(path)
+            tmp_name, orig = req["tmp"], req.get("name") or ""
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return 200, {"ok": False, "error": "no request"}
+        if not isinstance(tmp_name, str) or not UPLOAD_TMP_RE.match(tmp_name):
+            return 200, {"ok": False, "error": "unknown upload", "field": "invalid"}
+        backups = os.path.join(self.data_dir, "backups")
+        tmp = os.path.join(backups, tmp_name)
+        if os.path.islink(tmp) or not os.path.isfile(tmp):
+            return 200, {"ok": False, "error": "unknown upload", "field": "invalid"}
+
+        def discard():
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+        if self.mode != "run":
+            discard()
+            return 200, {"ok": False, "error": "backups are not available in setup mode"}
+        try:
+            restore_mod.inspect(tmp)
+        except restore_mod.RestoreError as exc:
+            self.log("uploaded backup refused: %s" % exc)
+            discard()
+            return 200, {"ok": False, "error": str(exc), "field": "invalid"}
+        name = orig if isinstance(orig, str) and BACKUP_NAME_RE.match(orig) else ""
+        n = 0
+        while not name or os.path.exists(os.path.join(backups, name)):
+            n += 1
+            name = "headscale-easy-uploaded-%s%s.tar.gz" % (time.strftime("%Y%m%d-%H%M%S"), "" if n == 1 else "-%d" % n)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, os.path.join(backups, name))
+        self.log("backup uploaded from the console: %s" % name)
+        return 200, {"ok": True, "name": name}
+
     def backup_files(self) -> list:
         """The archives in /data/backups, newest first (name, size, mtime): what the console lists."""
         out = []
@@ -607,7 +654,7 @@ class Supervisor:
         self.server = helper_mod.serve(self.helper_socket, {
             "configtest": self.be_configtest, "restart": self.be_restart, "status": self.be_status,
             "backup": self.be_backup, "backup_settings": self.be_backup_settings,
-            "restore": self.be_restore})
+            "restore": self.be_restore, "backup_upload": self.be_backup_upload})
         threading.Thread(target=self.server.serve_forever, name="helper-socket", daemon=True).start()
         with open(os.path.join(self.run_dir, "supervisor.pid"), "w", encoding="utf-8") as fh:
             fh.write(str(os.getpid()))

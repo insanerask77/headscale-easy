@@ -105,7 +105,7 @@ también sirve.
 El contenedor hace una copia **cada noche a las 03:00** (zona horaria `TZ`) y
 guarda los últimos 14 días en `/data/backups`, sin ningún contenedor extra. Se
 desactiva con `BACKUP_SCHEDULE=off` y se cambia con `BACKUP_SCHEDULE` /
-`BACKUP_KEEP_DAYS` (en el asistente, o después en **Ajustes → Estado → Ajustes de copias**, que
+`BACKUP_KEEP_DAYS` (en el asistente, o después en el menú **Backups** (administradores), que
 activa o desactiva las copias programadas y cambia la programación y los días
 que se conservan; un valor fijado por una variable de entorno solo se cambia
 allí). Si la hora programada pasó mientras el
@@ -133,7 +133,7 @@ antiguas se borran por edad, nunca la última correcta.
     `/data/backups` son privados (600 / 700). Guárdalas en un sitio seguro y
     fuera de este servidor, y trata la copia como al servidor. Los
     administradores pueden descargar una copia desde la consola (Ajustes →
-    Estado → Copias disponibles); cada descarga queda en el registro de actividad.
+    **Backups** → Copias disponibles); cada descarga queda en el registro de actividad.
 
 ### Copiar y restaurar
 
@@ -143,9 +143,14 @@ docker exec headscale-easy hse backups         # lista: tamaño, antigüedad, re
 docker exec headscale-easy hse restore /data/backups/headscale-easy-20261005-030000.tar.gz
 ```
 
-**Ajustes → Estado** muestra la última copia (hora, tamaño, resultado), la
-próxima ejecución y un botón **Copiar ahora** (administradores). Si falla una
-copia programada, también envía una notificación si la tienes configurada.
+El menú **Backups** (administradores) muestra la última copia (hora, tamaño,
+resultado), la próxima ejecución, un botón **Back up now**, la programación y la
+retención, la lista de copias con **Descargar** y **Restaurar**, y **Subir una
+copia** para una que viene de otro servidor o de fuera de este (*Subir* la añade
+a la lista, *Subir y restaurar* hace las dos cosas de una vez; el archivo se
+comprueba antes de guardarlo, y el límite es `BACKUP_UPLOAD_MAX_MB`, 1024 por
+defecto). Si falla una copia programada, también envía una notificación si la
+tienes configurada.
 
 Restaurar, por orden de preferencia:
 
@@ -161,8 +166,9 @@ Restaurar, por orden de preferencia:
     docker start headscale-easy
     ```
 
-2. **Desde la consola** (administradores): *Ajustes → Estado → Copias
-   disponibles* lista cada archivo con **Descargar** y **Restaurar**. Restaurar
+2. **Desde la consola** (administradores): El menú **Backups**
+   lista cada archivo con **Descargar** y **Restaurar**, y admite uno subido
+   (**Subir y restaurar**). Restaurar
    pide escribir `RESTORE`, guarda antes los datos actuales, reinicia la consola
    (una página espera y te devuelve, e indica si funcionó) y puede pedirte que
    vuelvas a entrar. Es la misma restauración que el comando de abajo.

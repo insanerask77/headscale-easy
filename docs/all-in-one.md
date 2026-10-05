@@ -121,7 +121,7 @@ works too.
 The container makes a backup **every night at 03:00** (time zone `TZ`) and keeps
 the last 14 days in `/data/backups`, with no extra container. Turn it off with
 `BACKUP_SCHEDULE=off`, change it with `BACKUP_SCHEDULE` / `BACKUP_KEEP_DAYS`
-(in the wizard, or later in **Settings → Status → Backup settings**, which
+(in the wizard, or later in the **Backups** menu (administrators), which
 turns scheduled backups on or off and changes the schedule and the days kept;
 a value fixed by an environment variable can only be changed there). A backup also runs once shortly after the container starts
 if its scheduled time passed while it was stopped.
@@ -147,7 +147,7 @@ deleted by age, never the newest successful one.
     Headscale's private keys. The archive and `/data/backups` are private
     (600 / 700). Copy them somewhere safe and off this server, and treat the
     copy like the server. Administrators can download a backup from the console
-    (Settings → Status → Available backups); every download is audited.
+    (**Backups** → Available backups); every download is audited.
 
 ### Backing up and restoring
 
@@ -157,9 +157,13 @@ docker exec headscale-easy hse backups         # list them: size, age, result
 docker exec headscale-easy hse restore /data/backups/headscale-easy-20261005-030000.tar.gz
 ```
 
-**Settings → Status** shows the last backup (time, size, result), the next run
-and a **Back up now** button (administrators). A failed scheduled backup also
-sends a notification if you configured one.
+The **Backups** menu (administrators) shows the last backup (time, size,
+result), the next run, a **Back up now** button, the schedule and retention, the
+list of backups with **Download** and **Restore**, and **Upload a backup** for
+one that comes from another server or from outside this one (*Upload* adds it to
+the list, *Upload and restore* does both in one step; the file is checked before
+it is kept, and the limit is `BACKUP_UPLOAD_MAX_MB`, 1024 by default). A failed
+scheduled backup also sends a notification if you configured one.
 
 Restore, in order of preference:
 
@@ -174,8 +178,9 @@ Restore, in order of preference:
     docker start headscale-easy
     ```
 
-2. **From the console** (administrators): *Settings → Status → Available backups*
-   lists every archive with **Download** and **Restore**. Restoring asks you to
+2. **From the console** (administrators): The **Backups** menu
+   lists every archive with **Download** and **Restore**, and takes an uploaded
+   one (**Upload and restore**). Restoring asks you to
    type `RESTORE`, saves the current data first, restarts the console (a page
    waits and brings you back, and reports whether it worked) and may ask you to
    sign in again. It is the same restore as the command below.

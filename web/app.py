@@ -51,6 +51,10 @@ import derp  # noqa: E402
 import derp_pages  # noqa: E402
 import status as server_status  # noqa: E402
 import status_pages  # noqa: E402
+import backup_pages  # noqa: E402
+import multipart  # noqa: E402
+
+BACKUP_UPLOAD_MAX = backup_pages.UPLOAD_MAX_MB * 1024 * 1024  # bytes of a backup file the console accepts
 import headscale as hs  # noqa: E402
 import live  # noqa: E402
 import apikey  # noqa: E402
@@ -532,9 +536,13 @@ class Handler(BaseHTTPRequestHandler):
             if path == f"{BASE}/settings/status":
                 if not sees_all:
                     return self.fail(403, _("No permission"), _("This section is for admins only."))
+                return self.send(200, status_pages.status_page(session, CTX, server_status.collect(), flash))
+            if path == f"{BASE}/backups":
+                if not session.get("admin"):
+                    return self.fail(403, _("No permission"), _("This section is for admins only."))
                 if flash == "backup-restore-done":  # the page that waited for the restore sends us here
                     flash = "backup-restore-ok" if (hs.restore_result() or {}).get("ok") else "backup-restore-failed"
-                return self.send(200, status_pages.status_page(session, CTX, server_status.collect(), flash))
+                return self.send(200, backup_pages.backups_page(session, CTX, (hs.helper_status() or {}).get("backup"), flash))
             if path == f"{BASE}/logs":
                 return self.send(200, audit.page(session, CTX, params))
             if path == f"{BASE}/logs.csv":
@@ -640,6 +648,8 @@ class Handler(BaseHTTPRequestHandler):
             session = self.session()
             if not session:
                 return self.redirect(f"{BASE}/login")
+            if path == f"{BASE}/backups/upload":  # multipart: streamed to disk, its CSRF field is checked on the way
+                return self.backup_upload(session)
             form = self.form()
             # CSRF: the form token must match the session's
             if not hmac.compare_digest(str(form.get("csrf", "")), session["csrf"]):
@@ -733,13 +743,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.set_user_password(session, m.group(1), form)
             if path == f"{BASE}/settings/notify-test":
                 return self.notify_test(session)
-            if path == f"{BASE}/settings/status/backup":
+            if path == f"{BASE}/backups/run":
                 return self.backup_now(session)
-            if path == f"{BASE}/settings/status/backup-settings":
+            if path == f"{BASE}/backups/settings":
                 return self.backup_settings(session, form)
-            if path == f"{BASE}/settings/status/backup/restore":
+            if path == f"{BASE}/backups/restore":
                 return self.backup_restore(session, form)
-            if path == f"{BASE}/settings/status/backup/download":
+            if path == f"{BASE}/backups/download":
                 return self.backup_download(session, form)
             if path == f"{BASE}/users":
                 return self.create_user(session, form)
@@ -815,7 +825,7 @@ class Handler(BaseHTTPRequestHandler):
         result = hs.helper_backup()
         if result in ("started", "busy"):
             audit.request_event(self, session, "backup.run", _("Backup"), {"result": result})
-        return self.redirect(f"{BASE}/settings/status?m=backup-{result}")
+        return self.redirect(f"{BASE}/backups?m=backup-{result}")
 
     def backup_settings(self, session: dict, form: dict):
         """Status page > Backup settings (admins only): scheduled backups on/off, schedule, days to keep."""
@@ -831,22 +841,108 @@ class Handler(BaseHTTPRequestHandler):
                                 {"enabled": enabled, "schedule": schedule if enabled else None, "keep_days": keep})
         elif result == "invalid":
             log.info("%s sent invalid backup settings: %s", session["username"], detail)
-        return self.redirect(f"{BASE}/settings/status?m=backup-settings-{result}")
+        return self.redirect(f"{BASE}/backups?m=backup-settings-{result}")
+
+    def backup_upload(self, session: dict):
+        """Backups > Upload a backup (admins only): the file is streamed to a work file in the backups directory
+        (never held in memory), the supervisor checks it as it would a restore and keeps it under a safe name;
+        with ``action=restore`` and the typed confirmation it is restored right away."""
+        self.close_connection = True  # a big body that is not read to the end must not poison the connection
+        if session.get("must_change"):
+            return self.redirect(f"{BASE}/settings/account?m=must-change")
+        if not session.get("admin"):
+            return self.fail(403, _("No permission"), _("This action is for admins only."))
+        directory = os.environ.get("BACKUP_DIR", "")
+        if not directory or not os.path.isdir(directory):
+            return self.fail(404, _("Not found"), _("Backups cannot be uploaded here."))
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        if length <= 0:
+            return self.redirect(f"{BASE}/backups?m=backup-upload-none")
+        if length > BACKUP_UPLOAD_MAX + (1 << 20):
+            return self.redirect(f"{BASE}/backups?m=backup-upload-toolarge")
+        for stale in os.listdir(directory):  # work files of uploads that died half way
+            path = os.path.join(directory, stale)
+            if re.fullmatch(r"\.upload-[0-9a-f]{24}\.part", stale) and time.time() - os.path.getmtime(path) > 3600:
+                os.unlink(path)
+        tmp_name = ".upload-" + secrets.token_hex(12) + ".part"
+        tmp_path = os.path.join(directory, tmp_name)
+        sink = []
+
+        def on_file(name, filename, fields):
+            if name != "file":
+                raise multipart.MultipartError("unexpected file")
+            if not hmac.compare_digest(str(fields.get("csrf", "")), session["csrf"]):
+                raise multipart.MultipartError("session", 403)  # nothing is written for a forged request
+            fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            sink.append(os.fdopen(fd, "wb"))
+            return sink[0]
+
+        def discard():
+            for fh in sink:
+                fh.close()
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+        try:
+            fields, files = multipart.read_form(self.rfile, self.headers.get("Content-Type", ""), length, on_file,
+                                                max_file=BACKUP_UPLOAD_MAX)
+        except multipart.MultipartError as exc:
+            discard()
+            if exc.status == 403:
+                return self.fail(403, _("Session expired"), _("Reload the page and try again."))
+            log.info("%s sent a bad backup upload: %s", session["username"], exc)
+            return self.redirect(f"{BASE}/backups?m=backup-upload-" + ("toolarge" if exc.status == 413 else "error"))
+        except OSError as exc:  # no space left, or the backups directory is gone
+            discard()
+            log.error("could not store an uploaded backup: %s", exc)
+            return self.redirect(f"{BASE}/backups?m=backup-upload-error")
+        for fh in sink:
+            fh.close()
+        if not hmac.compare_digest(str(fields.get("csrf", "")), session["csrf"]):
+            discard()
+            return self.fail(403, _("Session expired"), _("Reload the page and try again."))
+        if "file" not in files or files["file"][1] == 0:
+            discard()
+            return self.redirect(f"{BASE}/backups?m=backup-upload-none")
+        restore = fields.get("action") == "restore"
+        if restore and fields.get("confirm") != "RESTORE":
+            discard()
+            return self.redirect(f"{BASE}/backups?m=backup-restore-confirm")
+        original = re.sub(r"[^\x20-\x7e]", "?", os.path.basename(files["file"][0].replace("\\", "/")))[:120]
+        result, detail = hs.helper_backup_upload(tmp_name, original)
+        if result != "saved":
+            discard()  # (the supervisor already deleted a file it refused)
+            log.info("%s uploaded %r and it was refused: %s %s", session["username"], original, result, detail)
+            return self.redirect(f"{BASE}/backups?m=backup-upload-{result}")
+        audit.request_event(self, session, "backup.upload", detail,
+                            {"file": detail, "original": original, "size": files["file"][1]})
+        log.warning("%s uploaded the backup %s (%s bytes)", session["username"], detail, files["file"][1])
+        if not restore:
+            return self.redirect(f"{BASE}/backups?m=backup-uploaded")
+        started, rid = hs.helper_restore(detail)
+        if started != "started":  # the file stays in the list: it can be restored from there
+            return self.redirect(f"{BASE}/backups?m=backup-restore-{started}")
+        audit.request_event(self, session, "backup.restore", detail, {"file": detail})
+        return self.send(200, backup_pages.restoring_page(rid))
 
     def backup_restore(self, session: dict, form: dict):
         """Status page > Restore (admins only, typed confirmation): the supervisor restores one backup and restarts us."""
         if not session.get("admin"):
             return self.fail(403, _("No permission"), _("This action is for admins only."))
         if form.get("confirm") != "RESTORE":
-            return self.redirect(f"{BASE}/settings/status?m=backup-restore-confirm")
+            return self.redirect(f"{BASE}/backups?m=backup-restore-confirm")
         name = form.get("name", "")
         result, detail = hs.helper_restore(name)
         if result != "started":
             log.info("%s could not restore %r: %s %s", session["username"], name, result, detail)
-            return self.redirect(f"{BASE}/settings/status?m=backup-restore-{result}")
+            return self.redirect(f"{BASE}/backups?m=backup-restore-{result}")
         log.warning("%s restores the backup %s", session["username"], name)
         audit.request_event(self, session, "backup.restore", name, {"file": name})
-        return self.send(200, status_pages.restoring_page(detail))
+        return self.send(200, backup_pages.restoring_page(detail))
 
     def backup_download(self, session: dict, form: dict):
         """Status page > Download (admins only, POST with the CSRF token): the archive as an attachment."""
