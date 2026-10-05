@@ -85,7 +85,7 @@ wait_for 60 "setup mode did not become healthy" \
     bash -c "[ \"\$(docker inspect -f '{{.State.Health.Status}}' $NAME)\" = healthy ]"
 token=$(docker exec "$NAME" cat /data/config/setup-token)
 [ -n "$token" ] || fail "no setup token"
-docker logs "$NAME" 2>&1 | grep -qF "$token" || fail "the setup token is not in the logs"
+docker logs "$NAME" 2>&1 | grep -qF -e "$token" || fail "the setup token is not in the logs"
 [ "$(http_code /admin/setup)" = 200 ] || fail "/admin/setup did not answer 200"
 [ "$(http_code /admin/setup/language)" = 403 ] || fail "a wizard step answered without the token"
 [ "$(http_code /admin/machines)" = 302 ] || fail "the console is reachable in setup mode"
