@@ -225,37 +225,45 @@ means the Headscale Easy default; the DNS page still edits it later.
 ## Block 5: Live device status (M, ~6-8h)
 
 ### 5.1 Spike: transport (S, ~1h)
-- [ ] Check what the stdlib/WSGI-or-HTTP server in `web/app.py` supports.
+- [x] Check what the stdlib/WSGI-or-HTTP server in `web/app.py` supports.
       WebSocket by hand (RFC 6455 handshake + frames) vs SSE. Pick SSE if
       WebSocket would mean new dependencies or a lot of protocol code; record
       the decision in this file
 
+> **Spike decision: SSE.** `ThreadingHTTPServer` already gives one thread per
+> connection, so a stream needs no dependency. WebSocket by hand (handshake,
+> framing, masking, ping/pong) is a lot of protocol for a one-way feed. Each
+> message carries only `type`, `id`, `name`, `online`; the page then re-fetches
+> its own, already filtered, HTML and patches the rows (the existing `data-live`
+> machinery), so rendering stays in one place. Without the stream the page falls
+> back to polling every 5 s as before.
+
 ### 5.2 Event source (server)
 **Files:** `web/headscale.py`, `web/app.py`
 
-- [ ] A single background poller (not one per client) lists nodes every few
+- [x] A single background poller (not one per client) lists nodes every few
       seconds and diffs them: `online`, `offline`, `added`, `removed`, `renamed`
-- [ ] Fan out to subscribers with per-user filtering (reuse `visible_nodes`
+- [x] Fan out to subscribers with per-user filtering (reuse `visible_nodes`
       so members only see their own devices)
-- [ ] Endpoint behind the session + CSRF/Origin checks; limit connections per
+- [x] Endpoint behind the session + CSRF/Origin checks; limit connections per
       session; heartbeat to detect dead clients; clean shutdown with the
       supervisor's SIGTERM
-- [ ] Back off and keep going when Headscale is restarting
+- [x] Back off and keep going when Headscale is restarting
 
 ### 5.3 Front-end
 **Files:** `web/static/app.js`, `web/pages.py`
 
-- [ ] The machines list subscribes and patches rows in place (status dot,
+- [x] The machines list subscribes and patches rows in place (status dot,
       last seen, new/removed rows) without a reload
-- [ ] Reconnect with backoff; visible "live"/"reconnecting" indicator; fall
+- [x] Reconnect with backoff; visible "live"/"reconnecting" indicator; fall
       back to the current manual refresh
-- [ ] Respect `prefers-reduced-motion` for any highlight animation
+- [x] Respect `prefers-reduced-motion` for any highlight animation
 
 ### 5.4 Tests
-- [ ] Unit tests for the diff logic and the per-user filtering with a fake
+- [x] Unit tests for the diff logic and the per-user filtering with a fake
       Headscale; auth tests for the endpoint (no session → 401/403)
-- [ ] Manual check on `hse-aio`: connect and disconnect a Tailscale client,
-      the row changes within seconds
+- [x] Manual check on the AIO image with a real `tailscale/tailscale` container: `added` and
+      `online` within ~2 s of `docker run`, `offline` after `docker stop`; stream works through Caddy
 
 **Done when:** a device connecting or disconnecting shows up in the UI within
 seconds with no page refresh.

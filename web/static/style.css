@@ -793,3 +793,15 @@ th.bulk-col, td.bulk-col { width: 2.25rem; }
 /* ---- demo instance (DEMO_MODE=true) ---- */
 .notice.demo { font-weight: 600; text-align: center; }
 .bare-main > .notice.demo { max-width: 32rem; }
+
+/* ---- Live updates -------------------------------------------------------------- */
+.live-ind { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0 0 0.9rem 0.5rem; font-size: 0.75rem; color: var(--muted); vertical-align: top; line-height: 1.5rem; }
+.live-ind[hidden] { display: none; }
+.live-ind i { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--warn, #d97706); }
+.live-ind.on i { background: var(--ok, #16a34a); }
+.live-ind b { font-weight: 500; }
+tr.changed > td { animation: none; }
+@media (prefers-reduced-motion: no-preference) {
+    tr.changed > td { animation: row-changed 1.6s ease-out; }
+    @keyframes row-changed { from { background: var(--hover); } to { background: transparent; } }
+}

@@ -21,5 +21,7 @@
   "{n} machine removed.": "Se eliminó {n} dispositivo.",
   "{n} machines removed.": "Se eliminaron {n} dispositivos.",
   "Tag added to {n} machine.": "Etiqueta añadida a {n} dispositivo.",
-  "Tag added to {n} machines.": "Etiqueta añadida a {n} dispositivos."
+  "Tag added to {n} machines.": "Etiqueta añadida a {n} dispositivos.",
+  "Live": "En vivo",
+  "Reconnecting…": "Reconectando…"
 }

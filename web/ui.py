@@ -124,6 +124,12 @@ def time_tag(value: str | None, empty: str | None = None, fmt: str = "long") -> 
             f'{esc(dt.strftime("%Y-%m-%d %H:%M UTC"))}</time>')
 
 
+def live_indicator() -> str:
+    """Small "Live" pill; app.js shows whether the event stream is connected."""
+    return (f'<span class="live-ind" data-live-indicator data-on="{esc(_("Live"))}" '
+            f'data-off="{esc(_("Reconnecting…"))}" hidden><i></i><b></b></span>')
+
+
 def initials(name: str) -> str:
     parts = [p for p in (name or "?").replace(".", " ").replace("@", " ").split() if p]
     return esc("".join(p[0] for p in parts[:2]).upper() or "?")
