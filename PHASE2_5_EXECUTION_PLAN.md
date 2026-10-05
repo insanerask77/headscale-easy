@@ -140,47 +140,51 @@ container's own DERP, and the wizard lets you pick another mode.
 **Files:** `web/app.py` (create-user form/handler), `web/admin_pages.py`,
 `web/local_accounts.py`
 
-- [ ] Create-user form gets `username` and `password` (or "send an invitation
+- [x] Create-user form gets `username` and `password` (or "send an invitation
       / set a temporary password" choice) and `role`
-- [ ] Reuse `create_account` and the existing password rules; create the
+- [x] Reuse `create_account` and the existing password rules; create the
       matching Headscale user
-- [ ] "Set / reset password" action on an existing user
+- [x] "Set / reset password" action on an existing user
       (`update_password`, invalidates their sessions)
-- [ ] Decide with the owner whether a temporary password forces a change on
+- [x] Decide with the owner whether a temporary password forces a change on
       first sign-in (recommended: yes)
-- [ ] Tests in `tests/test_local_accounts.py`, `test_local_accounts_e2e.py`,
+- [x] Tests in `tests/test_local_accounts.py`, `test_local_accounts_e2e.py`,
       `test_security.py` (no password in logs/audit, role checks, only admins)
 
 ### 3.2 Sign-up modes
 **Files:** `web/local_accounts.py`, `web/app.py`, `web/pages.py` (login page),
 `aio/render.py` / settings
 
-- [ ] Setting `signup_mode`: `off` (default) | `invite` | `open`
+- [x] Setting `signup_mode`: `off` (default) | `invite` | `open`
       (env `HSE_SIGNUP`)
-- [ ] `off`: no link on the login page and `/signup` answers 404
-- [ ] `open`: sign-up form (username, email, password); regular user only,
+- [x] `off`: no link on the login page and `/signup` answers 404
+- [x] `open`: sign-up form (username, email, password); regular user only,
       never admin
-- [ ] `invite`: the same form plus an **invitation key**. Keys are created
+- [x] `invite`: the same form plus an **invitation key**. Keys are created
       and revoked in the console (Users → Invitation keys), single or
       multi use, optional expiry, stored **hashed** (reuse the token helpers
       `_hash_token`/`verify_token`), shown once on creation
-- [ ] Wrong, expired or used-up key → the same generic error
-- [ ] Rate limit the endpoint (reuse the login limiter), CSRF on the form
-- [ ] Sign-up link on the main/login page according to the mode
-- [ ] Audit entries for sign-ups and key create/revoke
+- [x] Wrong, expired or used-up key → the same generic error
+- [x] Rate limit the endpoint (reuse the login limiter), CSRF on the form
+- [x] Sign-up link on the main/login page according to the mode
+- [x] Audit entries for sign-ups and key create/revoke
 
 ### 3.3 Wizard step
 **Files:** `aio/wizard.py`
 
-- [ ] New step `signup` (after `admin`): off / restricted / open
-- [ ] Choosing *restricted* offers to create the first invitation key and
+- [x] New step `signup` (after `admin`): off / restricted / open
+- [x] Choosing *restricted* offers to create the first invitation key and
       shows it once on the finish page
-- [ ] Settings page gets the same control
+- [x] Settings page gets the same control
 
 ### 3.4 Tests
-- [ ] `tests/test_security.py`: `off` returns 404, `invite` rejects missing /
+- [x] `tests/test_security.py`: `off` returns 404, `invite` rejects missing /
       wrong / expired / revoked keys, `open` never creates an admin, rate
       limit kicks in, keys are never stored in plain text
+
+> **Decisions (owner OK):** a temporary password forces a change at first sign-in;
+> keys are single or multi use; no e-mail verification. Create-user without a
+> password still makes a Headscale-only user (for servers).
 
 **Done when:** an admin can create users with credentials, and people can
 register from the login page according to the chosen mode, set from the

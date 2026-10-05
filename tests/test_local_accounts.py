@@ -44,7 +44,7 @@ class SchemaTests(unittest.TestCase):
             columns = [desc[0] for desc in cursor.description]
             expected = ['id', 'username', 'email', 'headscale_user', 'role', 'pw_hash',
                        'totp_secret', 'totp_confirmed', 'totp_last_step', 'recovery_codes',
-                       'disabled', 'created', 'updated']
+                       'disabled', 'must_change', 'created', 'updated']
             self.assertEqual(columns, expected)
 
     def test_tokens_table_exists(self):
@@ -849,6 +849,76 @@ class RoleTests(unittest.TestCase):
 
         # Timestamp should have changed
         self.assertNotEqual(account_before['updated'], account_after['updated'])
+
+
+class MustChangeAndSignupKeys(unittest.TestCase):
+    def setUp(self):
+        la.configure(":memory:")
+
+    def test_must_change_flag(self):
+        a = la.create_account("tmp1", "t@example.com", "password123", must_change=True)
+        self.assertEqual(la.get_account(id=a)["must_change"], 1)
+        la.update_password(a, "password456")  # the person chose their own
+        self.assertEqual(la.get_account(id=a)["must_change"], 0)
+        la.update_password(a, "password789", must_change=True)  # an admin reset
+        self.assertEqual(la.get_account(id=a)["must_change"], 1)
+
+    def test_migrates_a_database_without_the_column(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "old.db")
+            con = sqlite3.connect(path)
+            con.execute("""CREATE TABLE accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE,
+                email TEXT NOT NULL UNIQUE, headscale_user TEXT, role TEXT NOT NULL DEFAULT 'member',
+                pw_hash TEXT NOT NULL, totp_secret TEXT, totp_confirmed INTEGER NOT NULL DEFAULT 0,
+                totp_last_step INTEGER, recovery_codes TEXT, disabled INTEGER NOT NULL DEFAULT 0,
+                created TEXT NOT NULL, updated TEXT NOT NULL)""")
+            con.execute("INSERT INTO accounts (username, email, pw_hash, created, updated) VALUES ('old','o@x.com','x','t','t')")
+            con.commit()
+            con.close()
+            la.configure(path)
+            self.assertEqual(la.get_account(username="old")["must_change"], 0)
+
+    def test_lookup_by_headscale_user(self):
+        la.create_account("amy", "amy@example.com", "password123", headscale_user="amy-hs")
+        self.assertEqual(la.get_account_by_headscale_user("amy-hs")["username"], "amy")
+        self.assertIsNone(la.get_account_by_headscale_user("nobody"))
+
+    def test_signup_key_single_use_and_stored_hashed(self):
+        key = la.create_signup_key("friends")
+        self.assertTrue(key.startswith("hse-"))
+        with la._db() as db:
+            stored = [tuple(r) for r in db.execute("SELECT * FROM signup_keys")]
+        self.assertNotIn(key, repr(stored))
+        self.assertIsNotNone(la.use_signup_key(key))
+        self.assertIsNone(la.use_signup_key(key))  # used up
+        self.assertIsNone(la.use_signup_key("hse-wrong"))
+        self.assertIsNone(la.use_signup_key(""))
+
+    def test_signup_key_multi_use_unlimited_expiry_revoke(self):
+        key = la.create_signup_key(max_uses=3)
+        self.assertEqual([la.use_signup_key(key) is not None for _ in range(4)], [True, True, True, False])
+        free = la.create_signup_key(max_uses=0)
+        self.assertTrue(all(la.use_signup_key(free) for _ in range(20)))
+        old = la.create_signup_key(expires_hours=1)
+        with la._db() as db:
+            db.execute("UPDATE signup_keys SET expires = '2000-01-01T00:00:00+00:00' WHERE key_hash = ?",
+                       (la._hash_token(old),))
+        self.assertIsNone(la.use_signup_key(old))
+        gone = la.create_signup_key(max_uses=5)
+        key_id = [k for k in la.list_signup_keys() if k["active"]][0]["id"]
+        self.assertTrue(la.revoke_signup_key(key_id))
+        self.assertFalse(la.revoke_signup_key(key_id))
+        self.assertIsNone(la.use_signup_key(gone))
+        with self.assertRaises(ValueError):
+            la.create_signup_key(max_uses=-1)
+
+    def test_release_gives_a_use_back(self):
+        key = la.create_signup_key()
+        key_id = la.use_signup_key(key)
+        la.release_signup_key(key_id)
+        self.assertIsNotNone(la.use_signup_key(key))
+        self.assertNotIn("key_hash", la.list_signup_keys()[0])
 
 
 if __name__ == "__main__":

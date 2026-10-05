@@ -5,7 +5,7 @@ Started by the supervisor instead of the console while there is no
 behind the setup-mode Caddy (plain HTTP on :80) and answers only
 /admin/setup* and /admin/static/*; everything else redirects to /admin/setup.
 
-    token -> language -> server URL + TLS -> admin account ->
+    token -> language -> server URL + TLS -> admin account -> sign-up mode ->
     tailnet + isolation -> relays (DERP) -> backups -> finish
 
 A one-time token (data/config/setup-token, also printed in the logs) gates
@@ -43,6 +43,7 @@ sys.path.insert(0, os.environ.get("HSE_WEB_DIR") or os.path.join(ROOT, "web"))
 
 import local_accounts as lac  # noqa: E402
 import render  # noqa: E402
+import signup  # noqa: E402
 from i18n import LANGUAGES, _, pick_lang, set_lang  # noqa: E402
 from ui import BASE, LOGO, bare_page, esc, message_page, notice  # noqa: E402
 
@@ -60,7 +61,7 @@ EXIT_DELAY = float(os.environ.get("HSE_WIZARD_EXIT_DELAY", "3"))
 SESSION_TTL = 2 * 3600
 MAX_BODY = 16 * 1024
 
-STEPS = ("language", "server", "admin", "network", "derp", "backups", "finish")
+STEPS = ("language", "server", "admin", "signup", "network", "derp", "backups", "finish")
 TLS_MODES = ("auto", "internal", "off")
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -129,6 +130,12 @@ def check_server(url: str, tls: str, acme_email: str) -> dict:
             raise SetupError(_("Let's Encrypt does not issue certificates for IP addresses or localhost."))
         out["acme_email"] = check_email(acme_email)
     return out
+
+
+def check_signup(mode: str, first_key: bool = False) -> dict:
+    if mode not in signup.MODES:
+        raise SetupError(_("Choose who can register."))
+    return {"signup_mode": mode, "first_key": first_key and mode == "invite"}
 
 
 def check_derp(mode: str, url: str = "") -> dict:
@@ -485,6 +492,14 @@ def network_page(sess: dict, v: dict, error: str | None = None) -> str:
                  "network", error)
 
 
+def signup_page(sess: dict, v: dict, error: str | None = None) -> str:
+    inner = (signup.mode_radios(v.get("signup_mode") or "off") +
+             f'<label class="check"><input type="checkbox" name="first_key" value="1"{" checked" if v.get("first_key") else ""}>'
+             f'<span>{esc(_("With an invitation key: create a first key (single use, valid for 7 days) and show it when setup ends"))}</span></label>')
+    return _card(_("Sign-up"), _("Let people create their own account from the sign-in page."), inner, sess,
+                 "signup", error)
+
+
 def derp_page(sess: dict, v: dict, error: str | None = None) -> str:
     mode = v.get("derp_mode") or "embedded"
     options = (("embedded", _("This server (recommended)"),
@@ -515,6 +530,7 @@ def finish_page(sess: dict, data: dict, error: str | None = None) -> str:
     s = data["server"]
     rows = [(_("Public URL"), s["public_url"]), (_("HTTPS certificates"), s["tls"]),
             (_("Administrator"), data["admin"]["email"]), (_("Tailnet name"), data["network"]["tailnet_name"]),
+            (_("Sign-up"), signup.mode_label(data["signup"]["signup_mode"])),
             (_("Relays (DERP)"), data["derp"]["derp_mode"])]
     summary = "".join(f'<div class="kv"><dt>{esc(k)}</dt><dd>{esc(v)}</dd></div>' for k, v in rows)
     return _card(_("Review and finish"), _("Everything is ready. Finishing starts the server; this can take a minute."),
@@ -522,14 +538,17 @@ def finish_page(sess: dict, data: dict, error: str | None = None) -> str:
                  submit=_("Retry") if error else _("Finish setup"))
 
 
-def done_page(public_url: str) -> str:
+def done_page(public_url: str, first_key: str = "") -> str:
     url = public_url + BASE + "/"
+    key_html = (f'<div class="code"><code>{esc(first_key)}</code></div>'
+                f'<p class="muted small">{esc(_("Invitation key: copy it now, it is not shown again."))}</p>') if first_key else ""
     return bare_page(_("Setup complete"), f"""
     <section class="card narrow center login setup">
       <div class="big-logo">{LOGO}</div>
       <h1>{esc(_("Setup complete"))}</h1>
       <p class="muted">{esc(_("Headscale Easy is starting. Sign in with the administrator account you just created."))}</p>
       <p class="muted small">{esc(_("With automatic certificates the first load can take a few seconds."))}</p>
+      {key_html}
       <a class="btn wide primary" href="{esc(url)}">{esc(_("Open the console"))}</a>
     </section>""")
 
@@ -552,7 +571,7 @@ class Wizard:
     def next_step(self, data: dict) -> str:
         """First step that is not done yet."""
         for step, key in (("language", "lang"), ("server", "server"), ("admin", "admin"),
-                          ("network", "network"), ("derp", "derp"), ("backups", "backups")):
+                          ("signup", "signup"), ("network", "network"), ("derp", "derp"), ("backups", "backups")):
             if not data.get(key):
                 return step
         return "finish"
@@ -725,6 +744,17 @@ class Handler(BaseHTTPRequestHandler):
         except (SetupError, ValueError) as exc:
             return self.send(400, admin_page(sess, values, str(exc)))
         data["admin"] = {"email": email, "username": username, "account_id": account_id}
+        return self.redirect(f"{SETUP}/signup")
+
+    def step_signup(self, method, sess, form, headers):
+        data = sess["data"]
+        if method == "GET":
+            return self.send(200, signup_page(sess, data.get("signup", {})))
+        try:
+            data["signup"] = check_signup(form.get("mode", ""), form.get("first_key") == "1")
+        except SetupError as exc:
+            return self.send(400, signup_page(sess, {"signup_mode": form.get("mode", ""),
+                                                     "first_key": form.get("first_key") == "1"}, str(exc)))
         return self.redirect(f"{SETUP}/network")
 
     def step_network(self, method, sess, form, headers):
@@ -771,6 +801,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             # two-factor is optional here: the console recommends it after the first sign-in
             stored = {"ui_lang": data["lang"], "mfa_required": "optional", **data["server"], **data["network"], **data["derp"], **data["backups"],
+                      "signup_mode": data["signup"]["signup_mode"],
                       "admin_email": data["admin"]["email"]}
             try:
                 wiz.finisher.run({k: v for k, v in stored.items() if v != ""}, data["admin"]["username"])
@@ -781,7 +812,13 @@ class Handler(BaseHTTPRequestHandler):
                 log.exception("finish failed")
                 return self.send(500, finish_page(sess, data, _("Unexpected error: {detail}", detail=str(exc))))
             wiz.finished = True
-            page = done_page(data["server"]["public_url"])
+            first_key = ""
+            if data["signup"].get("first_key"):
+                try:  # shown on the next page only; the database keeps just its hash
+                    first_key = lac.create_signup_key(_("First key"), 1, 168)
+                except Exception:  # noqa: BLE001 - setup is done; the admin can create keys in the console
+                    log.exception("could not create the first sign-up key")
+            page = done_page(data["server"]["public_url"], first_key)
             threading.Timer(EXIT_DELAY, wiz.exit_callback).start()
             return self.send(200, page)
         finally:

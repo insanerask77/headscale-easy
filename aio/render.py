@@ -52,6 +52,7 @@ SETTINGS = {
     "tailnet_name": ("TAILNET_NAME", "myorg"),
     "base_domain": ("HSE_BASE_DOMAIN", ""),  # MagicDNS domain; empty = DEFAULT_BASE_DOMAIN
     "node_key_expiry": ("NODE_KEY_EXPIRY", "180d"),
+    "signup_mode": ("HSE_SIGNUP", "off"),  # off | invite | open: self-registration on the sign-in page
     "derp_use_public": ("DERP_USE_PUBLIC", None),  # alias of derp_mode: true = public, false = embedded
     "derp_mode": ("HSE_DERP_MODE", None),  # embedded (default) | public | custom
     "derp_url": ("HSE_DERP_URL", ""),  # custom: a DERP map served over http(s)
@@ -251,6 +252,9 @@ def to_vars(settings, target="aio"):
         raise ValueError("ACME_EMAIL is required with HSE_TLS=auto")
     if auth != "none" and not (v["OIDC_ISSUER_URL"] and v["OIDC_CLIENT_ID"]):
         raise ValueError("OIDC needs OIDC_ISSUER and OIDC_CLIENT_ID")
+    if settings.get("signup_mode", "off") not in ("off", "invite", "open"):
+        raise ValueError("HSE_SIGNUP must be off, invite or open")
+    v["SIGNUP_MODE"] = settings.get("signup_mode", "off")
     if target == "aio":
         v["DERP_MODE"] = derp_mode(settings)
         v["DERP_URL"] = check_derp_url(settings.get("derp_url"))
@@ -557,6 +561,8 @@ def console_env(settings, data_dir=None):
         "PUBLIC_URL": v["SERVER_URL"],
         "TAILNET_NAME": v["TAILNET_NAME"],
         "HSE_DERP_MODE": v["DERP_MODE"],
+        "HSE_SIGNUP": v["SIGNUP_MODE"],
+        "SIGNUP_MODE_FILE": os.path.join(d, "console", "signup-mode"),
         "DEFAULT_LANG": settings.get("ui_lang", "en"),
         "TZ": settings.get("tz", "UTC"),
         "SESSION_SECRET": settings.get("session_secret", ""),
