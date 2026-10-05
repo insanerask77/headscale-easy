@@ -1,6 +1,6 @@
 # Phase 3 Execution Plan — Built-in Backups
 
-**Status:** ⏳ Not started.
+**Status:** ✅ Done (PR #68). Left over: the PostgreSQL client in the image (phase 4, block 5).
 
 Detailed implementation plan for SIMPLIFICATION_PLAN.md Phase 3.  
 **Estimated effort:** M (3-4 days, ~28-36h)  
