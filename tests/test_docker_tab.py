@@ -29,7 +29,9 @@ class Snippets(unittest.TestCase):
         v, err = parsed(dns="1")
         self.assertEqual(err, "")
         run = docker_tab.docker_run(URL, v, "")
-        self.assertIn("tailscale/tailscale:latest", run)
+        self.assertIn("tailscale/tailscale:v1.102.5", run)
+        self.assertNotIn(":latest", run)
+        self.assertIn("image: tailscale/tailscale:v1.102.5", docker_tab.compose(URL, v, ""))
         self.assertIn("--login-server=https://vpn.example.com", run)
         self.assertIn("TS_AUTHKEY=<auth-key>", run)
         self.assertIn("--device /dev/net/tun", run)
@@ -43,6 +45,14 @@ class Snippets(unittest.TestCase):
         self.assertIn("restart: unless-stopped", yml)
         self.assertIn("/dev/net/tun", yml)
         self.assertIn("tailscale-state:/var/lib/tailscale", yml)
+
+    def test_version_can_be_chosen_and_unknown_ones_fall_back_to_the_tested_tag(self):
+        v, _e = parsed(version="latest")
+        self.assertTrue(docker_tab.docker_run(URL, v, "").endswith("tailscale/tailscale:latest"))
+        self.assertIn("image: tailscale/tailscale:latest", docker_tab.compose(URL, v, ""))
+        v, _e = parsed(version="evil; rm -rf /")
+        self.assertEqual(v["version"], docker_tab.TS_VERSIONS[0])
+        self.assertNotIn("evil", docker_tab.docker_run(URL, v, ""))
 
     def test_options_change_the_snippet(self):
         v, err = parsed(hostname="Edge-1", exit="1", routes="192.168.1.0/24, 10.0.0.0/8", dns="")
