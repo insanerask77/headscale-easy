@@ -30,6 +30,9 @@ def read(path):
         return fh.read()
 
 
+VERSION = read(os.path.join(ROOT, "VERSION")).strip()  # the pinned image is the release's own version
+
+
 def active_lines(text):
     return [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
 
@@ -106,7 +109,7 @@ class ComposeConfig(unittest.TestCase):
     def test_it_parses_without_an_env_file(self):
         cfg = self.config()
         self.assertEqual(list(cfg["services"]), ["headscale-easy"])
-        self.assertEqual(cfg["services"]["headscale-easy"]["image"], "ghcr.io/insanerask77/headscale-easy:2.0.0")
+        self.assertEqual(cfg["services"]["headscale-easy"]["image"], f"ghcr.io/insanerask77/headscale-easy:{VERSION}")
         self.assertEqual(cfg["services"]["headscale-easy"]["container_name"], "headscale-easy")
         self.assertEqual(sorted(cfg["volumes"]), ["hse-backups", "hse-data"])
 
@@ -129,7 +132,7 @@ class ComposeConfig(unittest.TestCase):
     def test_the_remote_backup_overlay_adds_the_sidecar(self):
         cfg = self.config("advanced/backup-remote.yaml")
         self.assertEqual(sorted(cfg["services"]), ["backup-remote", "headscale-easy"])
-        self.assertTrue(cfg["services"]["backup-remote"]["image"].endswith(":2.0.0"))
+        self.assertTrue(cfg["services"]["backup-remote"]["image"].endswith(f":{VERSION}"))
         self.assertEqual(cfg["services"]["backup-remote"]["cap_drop"], ["ALL"])
 
 
