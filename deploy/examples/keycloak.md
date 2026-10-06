@@ -64,7 +64,7 @@ Sign in at `https://vpn.example.com/admin/` with *Sign in with SSO*; devices wit
 
 | In the console | Comes from |
 |---|---|
-| administrator | a member of the group `vpn-admins` (or `authentik Admins`), or an address in `PORTAL_ADMIN_EMAILS` |
+| administrator | a member of the group `vpn-admins` (or the ones in `PORTAL_ADMIN_GROUPS`), or an address in `PORTAL_ADMIN_EMAILS` |
 | member | everybody else: their own machines |
 
 Other group names, and the narrower roles (*network admin*, *auditor*), go in `PORTAL_ADMIN_GROUPS`,

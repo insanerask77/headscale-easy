@@ -170,10 +170,11 @@ class RemoteCase(unittest.TestCase):
         self.assertNotEqual(self.run_entrypoint(BACKUP_SYNC_INTERVAL="5; rm -rf /").returncode, 0)
         self.assertNotEqual(self.run_entrypoint(BACKUP_SYNC_INTERVAL="0").returncode, 0)
 
-    def test_default_mode_is_still_the_cron_scheduler(self):
-        text = ENTRYPOINT.read_text()
-        self.assertIn("exec crond -f", text)
-        self.assertIn("/usr/local/bin/backup.sh", text)
+    def test_only_the_sync_mode_exists(self):
+        self.make_sync()
+        r = self.run_entrypoint(BACKUP_MODE="create")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("only syncs", r.stderr)
 
     def test_unknown_action(self):
         self.assertNotEqual(self.run_remote("explode", BACKUP_REMOTE=str(self.dest)).returncode, 0)

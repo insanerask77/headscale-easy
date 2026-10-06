@@ -5,7 +5,8 @@ No Docker needed, except where a test says so (it is skipped without it). What i
 - every link in a README points at a file that exists;
 - the front-proxy files keep what a proxy must do for Headscale (the upgrade, no buffering, an HTTP/1.1 upstream)
   and no leftover envsubst placeholders from the 1.x templates;
-- the Authentik blueprint is the 1.x one plus the console's redirect URIs, and nothing taken away;
+- the Authentik blueprint accepts the console's redirect URIs and has nothing the console would call (no service
+  account, no invitation or reset flows), and every reference in it resolves;
 - the redirect URIs the documents give are the ones the code uses;
 - the all-in-one image's configuration rendered from each example's variables has the expected OIDC / route lines;
 - every example compose file parses, and the values that have to agree with each other do.
@@ -54,8 +55,8 @@ def compose_files():
 def render_for(env):
     """The image's three outputs for an environment, as the supervisor would render them."""
     settings = render.load_settings(env, "/nonexistent/settings.json")
-    v = render.to_vars(settings, "aio")
-    return (v, render.render_caddyfile(v, "aio", "/data"), render.render_headscale_config(v, "aio"),
+    v = render.to_vars(settings)
+    return (v, render.render_caddyfile(v, "/data"), render.render_headscale_config(v),
             render.console_env(settings, "/data"))
 
 
@@ -164,18 +165,10 @@ class FrontProxy(unittest.TestCase):
 
 
 class Blueprint(unittest.TestCase):
-    def test_it_is_the_1x_blueprint_plus_the_consoles_redirect_uris(self):
-        old = read("authentik", "blueprints", "headscale.yaml").splitlines()
-        new = read("deploy", "examples", "authentik", "blueprints", "headscale.yaml").splitlines()
-        kept = set(new)
-        removed = [l for l in old if l not in kept]
-        self.assertEqual(removed, ["# Headscale Easy — Authentik blueprint"])  # only the title line was reworded
-        added = [l for l in new if l not in set(old)]
-        self.assertTrue(any("/admin/callback" in l for l in added))
-        self.assertTrue(any("redirect_uri_type: logout" in l or "/admin/" in l for l in added))
+    PATH = ("deploy", "examples", "authentik", "blueprints", "headscale.yaml")
 
     def test_the_headscale_provider_accepts_headscales_and_the_consoles_addresses(self):
-        text = read("deploy", "examples", "authentik", "blueprints", "headscale.yaml")
+        text = read(*self.PATH)
         block = text[text.index("    id: provider\n"):text.index("    id: app\n")]
         self.assertIn("name: headscale", block)
         self.assertIn('url: !Format ["%s/oidc/callback", !Context public_url]', block)
@@ -184,21 +177,25 @@ class Blueprint(unittest.TestCase):
         self.assertEqual(block.count("redirect_uri_type: authorization"), 2)
         self.assertEqual(block.count("redirect_uri_type: logout"), 1)
 
-    def test_the_issuer_path_matches_the_1x_stack(self):
-        text = read("deploy", "examples", "authentik", "blueprints", "headscale.yaml")
-        self.assertIn("# Issuer = <public_url>/authentik/application/o/headscale/", text)
+    def test_the_issuer_path_is_kept(self):
+        self.assertIn("# Issuer = <public_url>/authentik/application/o/headscale/", read(*self.PATH))
 
-    def test_branding_is_a_copy(self):
-        for name in os.listdir(os.path.join(ROOT, "authentik", "branding")):
-            with open(os.path.join(ROOT, "authentik", "branding", name), "rb") as a, \
-                    open(os.path.join(EXAMPLES, "authentik", "branding", name), "rb") as b:
-                self.assertEqual(a.read(), b.read(), name)
+    def test_nothing_the_console_called_is_left(self):
+        text = read(*self.PATH)
+        for gone in ("headscale-easy-web", "PORTAL_AUTHENTIK_TOKEN", "MFA_REQUIRED", "headscale-easy-invitation",
+                     "headscale-easy-recovery", "headscale-easy-add-user", "headscale-easy-sign-out", "SMTP_HOST",
+                     "PORTAL_OIDC"):
+            self.assertNotIn(gone, text, gone)
 
-    def test_the_original_is_untouched(self):
-        # 1.x keeps using it until phase 6: it must still carry only the Headscale callback on that provider
-        text = read("authentik", "blueprints", "headscale.yaml")
-        block = text[text.index("    id: provider\n"):text.index("    id: app\n")]
-        self.assertNotIn("/admin/callback", block)
+    def test_every_reference_resolves(self):
+        text = read(*self.PATH)
+        ids = set(re.findall(r"(?m)^\s+id: (\S+)", text))
+        self.assertEqual(sorted(set(re.findall(r"!KeyOf (\S+)", text)) - ids), [])
+        defined = set(re.findall(r"(?m)^  (\w+): !Env", text))
+        self.assertEqual(sorted(set(re.findall(r"!Context (\w+)", text)) - defined), [])
+
+    def test_the_old_top_level_directory_is_gone(self):
+        self.assertFalse(os.path.exists(os.path.join(ROOT, "authentik")))
 
 
 class RedirectUris(unittest.TestCase):
@@ -220,16 +217,15 @@ class RenderedConfigurations(unittest.TestCase):
     def test_authentik_example(self):
         env = {"HSE_PUBLIC_URL": "https://vpn.example.com", "HSE_TLS": "auto", "ACME_EMAIL": "admin@example.com",
                "OIDC_ISSUER": "https://vpn.example.com/authentik/application/o/headscale/", "OIDC_CLIENT_ID": "headscale",
-               "OIDC_CLIENT_SECRET": "secret", "HSE_AUTHENTIK_UPSTREAM": "authentik-server:9000",
-               "AUTHENTIK_URL": "http://authentik-server:9000/authentik", "AUTHENTIK_API_TOKEN": "token"}
+               "OIDC_CLIENT_SECRET": "secret", "HSE_AUTHENTIK_UPSTREAM": "authentik-server:9000"}
         v, caddy, config, console = render_for(env)
         self.assertEqual(v["AUTH_PROVIDER"], "authentik")
         self.assertIn("handle /authentik/* {\n        reverse_proxy authentik-server:9000 {", caddy)
-        self.assertIn("redir /add-user /authentik/if/flow/headscale-easy-add-user/ 302", caddy)
+        self.assertNotIn("/add-user", caddy)
         self.assertIn('issuer: "https://vpn.example.com/authentik/application/o/headscale/"', config)
         self.assertIn("email_verified_required: false", config)
-        self.assertEqual(console["AUTHENTIK_URL"], "http://authentik-server:9000/authentik")
-        self.assertEqual(console["AUTHENTIK_API_TOKEN"], "token")
+        for name in ("AUTHENTIK_URL", "AUTHENTIK_API_TOKEN"):  # the console never calls Authentik's API
+            self.assertNotIn(name, console)
         self.assertEqual(console["OIDC_ISSUER"], console["HEADSCALE_OIDC_ISSUER"])  # the console finds users by it
 
     def test_the_issuer_of_a_1x_stack_is_kept_byte_for_byte(self):
@@ -269,7 +265,7 @@ class RenderedConfigurations(unittest.TestCase):
     def test_no_example_asks_for_a_setting_the_image_ignores(self):
         known = {name for name, _default in render.SETTINGS.values()}
         known |= {"HSE_ADMIN_PASSWORD", "HSE_HTTP_PORT", "HSE_HTTPS_PORT", "HSE_VERSION", "HSE_DOMAIN", "HSE_SELF_IP",
-                  "ID_DOMAIN", "AUTHENTIK_API_TOKEN"}
+                  "ID_DOMAIN"}
         # what the image reads through load_settings, in the AIO service of every example compose file
         for path in compose_files():
             text = read(os.path.relpath(path, ROOT))
@@ -314,13 +310,12 @@ class ComposeFiles(unittest.TestCase):
         self.assertEqual(aio["HSE_AUTHENTIK_UPSTREAM"], "authentik-server:9000")
         self.assertTrue(aio["OIDC_ISSUER"].endswith("/authentik/application/o/headscale/"))
         self.assertIn("/authentik/application/o/headscale/", aio["OIDC_ISSUER"])
-        self.assertEqual(aio["AUTHENTIK_URL"], "http://authentik-server:9000/authentik")
+        for name in ("AUTHENTIK_URL", "AUTHENTIK_API_TOKEN"):  # the console never calls Authentik's API
+            self.assertNotIn(name, aio)
         for name in ("authentik-server", "authentik-worker"):
             self.assertEqual(cfg["services"][name]["environment"]["AUTHENTIK_WEB__PATH"], "/authentik/")
             sources = [v["source"] for v in cfg["services"][name]["volumes"]]
             self.assertTrue(any(s.endswith("/blueprints") for s in sources), name)
-        # the console token and the one Authentik creates for its service account are the same variable
-        self.assertEqual(cfg["services"]["authentik-server"]["environment"]["PORTAL_AUTHENTIK_TOKEN"], aio["AUTHENTIK_API_TOKEN"])
         # the AIO must not wait for Authentik to be *healthy* (its first start outlasts the health check)
         dep = cfg["services"]["headscale-easy"]["depends_on"]["authentik-server"]
         self.assertEqual(dep["condition"], "service_started")

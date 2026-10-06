@@ -238,10 +238,10 @@ class RestoreOffline(Case):
         self.assertEqual(self.rs.inspect.call_args.args[0], os.path.realpath(self.file))
 
     def test_refuses_an_archive_that_does_not_validate_and_changes_nothing(self):
-        self.rs.inspect.side_effect = RestoreError("this is a 1.x backup: use scripts/restore.sh")
+        self.rs.inspect.side_effect = RestoreError("this is not a Headscale Easy 2 backup (no meta.json)")
         code, _out, err = self.run_cli("restore", self.file, "--yes")
         self.assertEqual(code, 1)
-        self.assertIn("1.x backup", err)
+        self.assertIn("not a Headscale Easy 2 backup", err)
         self.rs.restore.assert_not_called()
 
     def test_no_terminal_and_no_yes_is_refused(self):

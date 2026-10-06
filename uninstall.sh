@@ -6,7 +6,7 @@
 #    ./uninstall.sh [--dir DIR]            stop and remove the container; the data stays
 #    ./uninstall.sh [--dir DIR] --purge    also delete the volumes: users, devices, keys,
 #                                          certificates AND the backups (IRREVERSIBLE)
-#    --yes skips the question of --purge. The 1.x stack is legacy/uninstall-1x.sh.
+#    --yes skips the question of --purge.
 # =============================================================================
 set -euo pipefail
 
@@ -26,9 +26,9 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-[[ -f "$DIR/docker-compose.yml" ]] || die "no installation in $DIR (--dir). A 1.x install: ./legacy/uninstall-1x.sh"
+[[ -f "$DIR/docker-compose.yml" ]] || die "no installation in $DIR (--dir)."
 if [[ -f "$DIR/headscale-config.yaml" ]] || grep -qE '^(SSL_MODE|AUTH_PROVIDER)=' "$DIR/.env" 2>/dev/null; then
-    die "$DIR holds a 1.x installation: use ./legacy/uninstall-1x.sh"
+    die "$DIR holds a 1.x installation, which this script does not manage"
 fi
 
 if $PURGE && ! $YES; then

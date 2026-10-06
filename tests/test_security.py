@@ -344,8 +344,8 @@ class DemoMode(Base):
 
     def test_blocked_actions(self):
         for path in ("/keys", "/apikeys", "/apikeys/1/expire", "/machines/register", "/machines/remove-inactive",
-                     "/machines/7/delete", "/machines/7/expire", "/settings/key-expiry", "/settings/mfa", "/users",
-                     "/users/1/delete", "/invitations", "/accounts/1/recovery", "/dns", "/machines/bulk/expire",
+                     "/machines/7/delete", "/machines/7/expire", "/settings/key-expiry", "/users",
+                     "/users/1/delete", "/invitations", "/dns", "/machines/bulk/expire",
                      "/machines/bulk/remove", "/acl/rules", "/acl/ssh", "/acl/autoapprove/routes",
                      "/register/hskey-authreq-abcdefgh"):
             status, _, body = request("POST", B + path, ADMIN, {"csrf": "tok"})

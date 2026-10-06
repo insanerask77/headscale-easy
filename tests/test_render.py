@@ -1,9 +1,9 @@
-"""aio/render.py: the Python port of install.sh's config generators.
+"""aio/render.py: the config renderer of the all-in-one image.
 
-The compose target must be byte-identical to install.sh: the golden files in
-tests/fixtures/render/<case>/ come from install.sh itself
-(scripts/gen_render_goldens.sh). The aio target and the settings precedence are
-checked by assertions.
+The golden files in tests/fixtures/render/<case>/ are frozen outputs: any change to the
+rendered config.yaml / Caddyfile shows up as a diff. After an intended change, render the case by hand
+(render.render_headscale_config / render.render_caddyfile with the case's env.sh), replace the file and
+review the diff: the test never writes them itself. The settings precedence and the rest are checked by assertions.
 
     python3 -m unittest tests.test_render
 """
@@ -37,7 +37,7 @@ def read(path):
 
 
 def case_vars(case):
-    """The install.sh variables of a case (its env.sh: KEY=value; KEY=value)."""
+    """The template variables of a case (its env.sh: KEY=value; KEY=value)."""
     v = dict(DEFAULTS)
     for key, value in re.findall(r"([A-Z0-9_]+)=([^;\n]*)", read(os.path.join(FIXTURES, case, "env.sh"))):
         v[key] = value.strip().strip('"')
@@ -53,7 +53,10 @@ CASES = sorted(d for d in os.listdir(FIXTURES) if os.path.exists(os.path.join(FI
 
 
 class GoldenTest(unittest.TestCase):
-    """compose target == install.sh, byte for byte."""
+    """The rendered files equal the frozen ones, byte for byte."""
+
+    def check(self, name, case, got):
+        self.assertEqual(got, read(os.path.join(FIXTURES, case, name)))
 
     def test_there_are_cases(self):
         self.assertTrue({"sqlite_off", "letsencrypt_oidc", "postgres_selfsigned", "existing_dns"} <= set(CASES))
@@ -61,21 +64,21 @@ class GoldenTest(unittest.TestCase):
     def test_headscale_config(self):
         for case in CASES:
             with self.subTest(case=case):
-                got = render.render_headscale_config(case_vars(case), "compose", case_existing(case))
-                self.assertEqual(got, read(os.path.join(FIXTURES, case, "headscale-config.yaml")))
+                got = render.render_headscale_config(case_vars(case), case_existing(case), "/data")
+                self.check("headscale-config.yaml", case, got)
 
     def test_caddyfile(self):
         for case in CASES:
             with self.subTest(case=case):
-                got = render.render_caddyfile(case_vars(case), "compose")
-                self.assertEqual(got, read(os.path.join(FIXTURES, case, "Caddyfile")))
+                got = render.render_caddyfile(case_vars(case), "/data")
+                self.check("Caddyfile", case, got)
 
     def test_existing_dns_without_markers_keeps_base_domain_and_magic_dns(self):
-        got = render.render_headscale_config(case_vars("existing_dns"), "compose", case_existing("existing_dns"))
+        got = render.render_headscale_config(case_vars("existing_dns"), case_existing("existing_dns"), "/data")
         self.assertIn("  magic_dns: false\n  base_domain: corp.internal\n", got)
 
     def test_marked_blocks_survive_regeneration(self):
-        got = render.render_headscale_config(case_vars("existing_marked"), "compose", case_existing("existing_marked"))
+        got = render.render_headscale_config(case_vars("existing_marked"), case_existing("existing_marked"), "/data")
         self.assertIn("base_domain: edited.example", got)
         self.assertIn("  expiry: 30d\n", got)
         self.assertIn("    - /etc/headscale/derp.yaml\n", got)
@@ -97,8 +100,8 @@ def aio_settings(**over):
 
 class AioTargetTest(unittest.TestCase):
     def conf(self, **over):
-        v = render.to_vars(aio_settings(**over), "aio")
-        return render.render_headscale_config(v, "aio", None, "/data"), render.render_caddyfile(v, "aio", "/data")
+        v = render.to_vars(aio_settings(**over))
+        return render.render_headscale_config(v, None, "/data"), render.render_caddyfile(v, "/data")
 
     def test_headscale_config_paths_and_listeners(self):
         cfg, _ = self.conf()
@@ -164,7 +167,7 @@ class AioTargetTest(unittest.TestCase):
             {"public_url": "http://localhost", "oidc_issuer": "https://idp.example.com"},  # no client id
         ):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
-                render.to_vars(bad, "aio")
+                render.to_vars(bad)
 
     def test_postgres(self):
         cfg, _ = self.conf(db_type="postgres", pg_host="db", pg_pass="fake", pg_sslmode="require")
@@ -184,7 +187,7 @@ class ConsoleEnvTest(unittest.TestCase):
         env = render.console_env(aio_settings(session_secret="fake-session", admin_email="a@example.com"), "/data")
         self.assertEqual(env["PUBLIC_URL"], "http://localhost")
         self.assertEqual(env["SESSION_SECRET"], "fake-session")
-        for key in ("SESSIONS_DB", "AUDIT_DB", "ACCOUNTS_DB", "API_KEY_FILE", "MFA_MODE_FILE"):
+        for key in ("SESSIONS_DB", "AUDIT_DB", "ACCOUNTS_DB", "API_KEY_FILE"):
             self.assertTrue(env[key].startswith("/data/console/"), key)
         self.assertEqual(env["HEADSCALE_DB"], "/data/headscale/db.sqlite")
         self.assertEqual(env["HEADSCALE_CONFIG"], "/data/config/config.yaml")
@@ -255,7 +258,6 @@ class SettingsTest(unittest.TestCase):
     def test_base_domain_default_setting_and_env(self):
         base = {"public_url": "https://vpn.example.com", "tailnet_name": "acme", "acme_email": "a@example.com"}
         self.assertEqual(render.to_vars(base)["BASE_DOMAIN"], "hse.net")
-        self.assertEqual(render.to_vars(base, "compose")["BASE_DOMAIN"], "acme.headscale.net")
         self.assertEqual(render.to_vars(dict(base, base_domain="Corp.Internal"))["BASE_DOMAIN"], "corp.internal")
         self.assertEqual(render.load_settings({"HSE_BASE_DOMAIN": "x.example"}, self.path)["base_domain"], "x.example")
         self.assertIn("base_domain: corp.internal", render.dns_block(render.to_vars(dict(base, base_domain="corp.internal"))))
@@ -374,16 +376,16 @@ class AdvancedEditionTest(unittest.TestCase):
 
     def caddy(self, **extra):
         s = dict(self.BASE, **extra)
-        return render.render_caddyfile(render.to_vars(s, "aio"), "aio", data_dir="/data")
+        return render.render_caddyfile(render.to_vars(s), data_dir="/data")
 
     def config(self, **extra):
         s = dict(self.BASE, **extra)
-        return render.render_headscale_config(render.to_vars(s, "aio"), "aio")
+        return render.render_headscale_config(render.to_vars(s))
 
     def test_https_url_with_tls_off_is_front_mode(self):
-        self.assertEqual(render.to_vars(self.BASE, "aio")["SSL_MODE"], "front")
-        self.assertEqual(render.to_vars({"public_url": "http://vpn.example.com", "tls": "off"}, "aio")["SSL_MODE"], "none")
-        self.assertEqual(render.to_vars({"public_url": "https://vpn.example.com", "tls": "internal"}, "aio")["SSL_MODE"],
+        self.assertEqual(render.to_vars(self.BASE)["SSL_MODE"], "front")
+        self.assertEqual(render.to_vars({"public_url": "http://vpn.example.com", "tls": "off"})["SSL_MODE"], "none")
+        self.assertEqual(render.to_vars({"public_url": "https://vpn.example.com", "tls": "internal"})["SSL_MODE"],
                          "selfsigned")
         text = self.caddy()
         self.assertIn(":80 {", text)
@@ -392,7 +394,7 @@ class AdvancedEditionTest(unittest.TestCase):
         self.assertNotIn("redir https://", text)
 
     def test_plain_http_keeps_todays_output(self):
-        plain = render.render_caddyfile(render.to_vars({"public_url": "http://localhost", "tls": "off"}, "aio"), "aio", "/data")
+        plain = render.render_caddyfile(render.to_vars({"public_url": "http://localhost", "tls": "off"}), "/data")
         self.assertNotIn("X-Forwarded-Proto https", plain)
         self.assertNotIn("trusted_proxies", plain)
         self.assertIn("X-Real-IP {remote_host}", plain)
@@ -430,16 +432,16 @@ class AdvancedEditionTest(unittest.TestCase):
         oidc = dict(oidc_issuer=issuer, oidc_client_id="id", oidc_client_secret="secret")
         without = self.caddy(**oidc)  # the issuer hints Authentik, but there is no upstream to route to
         self.assertNotIn("handle /authentik/*", without)
-        self.assertEqual(render.to_vars(dict(self.BASE, **oidc), "aio")["AUTH_PROVIDER"], "authentik")
+        self.assertEqual(render.to_vars(dict(self.BASE, **oidc))["AUTH_PROVIDER"], "authentik")
         text = self.caddy(authentik_upstream="authentik-server:9000", **oidc)
         self.assertIn("handle /authentik/* {\n        reverse_proxy authentik-server:9000 {", text)
-        self.assertIn("redir /add-user /authentik/if/flow/headscale-easy-add-user/ 302", text)
+        self.assertNotIn("/add-user", text)
         self.assertIn("redir /authentik /authentik/ 308", text)
         self.assertIn("email_verified_required: false", self.config(authentik_upstream="a:1", **oidc))
         other = self.caddy(authentik_upstream="my-auth:9443", **oidc)
         self.assertIn("reverse_proxy my-auth:9443 {", other)
         keycloak = dict(oidc_issuer="https://sso.example.com/realms/x", oidc_client_id="id", oidc_client_secret="s")
-        self.assertEqual(render.to_vars(dict(self.BASE, **keycloak), "aio")["AUTH_PROVIDER"], "external")
+        self.assertEqual(render.to_vars(dict(self.BASE, **keycloak))["AUTH_PROVIDER"], "external")
         self.assertNotIn("handle /authentik/*", self.caddy(**keycloak))
 
     def test_authentik_upstream_validation(self):
@@ -449,16 +451,6 @@ class AdvancedEditionTest(unittest.TestCase):
         for bad in ("authentik-server", "http://a:9000", "a:99999", "a b:9000", "a:9000}\nevil", ":9000", "a:0", "a:"):
             with self.assertRaises(ValueError, msg=bad):
                 check(bad)
-
-    def test_the_compose_target_is_untouched(self):
-        v = render.to_vars({"public_url": "https://x.example.com", "ssl_mode": "front", "auth_provider": "authentik",
-                            "oidc_issuer": "https://x.example.com/authentik/application/o/h/", "oidc_client_id": "i",
-                            "oidc_client_secret": "s", "trusted_proxies": "10.0.0.1", "authentik_upstream": "x:1"}, "compose")
-        self.assertEqual(v["TRUSTED_PROXIES"], [])
-        text = render.render_caddyfile(v, "compose", "/data")
-        self.assertIn("reverse_proxy authentik-server:9000 {", text)
-        self.assertNotIn("trusted_proxies", text)
-        self.assertNotIn("{client_ip}", text)
 
     def test_console_reads_postgresql_with_the_read_only_role(self):
         owner_pw, ro_pw = "o" * 10, "r" * 10  # built, not literals: a scanner takes a literal next to "pass" for a leak
@@ -471,20 +463,22 @@ class AdvancedEditionTest(unittest.TestCase):
         self.assertEqual(ro["HEADSCALE_PG_USER"], "headscale_ro")
         self.assertEqual(ro["HEADSCALE_PG_PASSWORD"], ro_pw)
         self.assertNotIn(owner_pw, repr(ro))
-        cfg = render.render_headscale_config(render.to_vars(dict(pg, pg_ro_user="headscale_ro", pg_ro_pass=ro_pw), "aio"), "aio")
+        cfg = render.render_headscale_config(render.to_vars(dict(pg, pg_ro_user="headscale_ro", pg_ro_pass=ro_pw)))
         self.assertIn(owner_pw, cfg)  # Headscale itself keeps the owner
         self.assertNotIn(ro_pw, cfg)
         for half in ({"pg_ro_user": "headscale_ro"}, {"pg_ro_pass": "x"}):
             with self.assertRaises(ValueError):
-                render.to_vars(dict(pg, **half), "aio")
+                render.to_vars(dict(pg, **half))
 
-    def test_console_gets_the_authentik_api_settings_only_for_authentik(self):
-        base = {"public_url": "https://vpn.example.com", "tls": "off", "oidc_client_id": "i", "oidc_client_secret": "s",
-                "authentik_url": "http://authentik-server:9000/authentik", "authentik_api_token": "tok"}
-        auth = render.console_env(dict(base, oidc_issuer="https://vpn.example.com/authentik/application/o/h/"), "/data")
-        self.assertEqual((auth["AUTHENTIK_URL"], auth["AUTHENTIK_API_TOKEN"]), ("http://authentik-server:9000/authentik", "tok"))
-        other = render.console_env(dict(base, oidc_issuer="https://sso.example.com/realms/x"), "/data")
-        self.assertNotIn("AUTHENTIK_API_TOKEN", other)
+    def test_the_console_never_gets_an_authentik_api_setting(self):
+        base = {"public_url": "https://vpn.example.com", "tls": "off", "oidc_client_id": "i", "oidc_client_secret": "s"}
+        for issuer in ("https://vpn.example.com/authentik/application/o/h/", "https://sso.example.com/realms/x"):
+            env = render.console_env(dict(base, oidc_issuer=issuer, authentik_upstream="a:1"), "/data")
+            for name in ("AUTHENTIK_URL", "AUTHENTIK_API_TOKEN", "MFA_MODE_FILE"):
+                self.assertNotIn(name, env)
+            self.assertEqual(env["OIDC_ISSUER"], issuer)
+        for name in ("AUTHENTIK_URL", "AUTHENTIK_API_TOKEN"):  # not even a setting any more
+            self.assertNotIn(name, [v for v, _d in render.SETTINGS.values()])
 
     def test_new_settings_are_read_from_the_environment(self):
         s = render.load_settings({"HSE_PUBLIC_URL": "https://x.example.com", "HSE_TRUSTED_PROXIES": "10.0.0.1",
@@ -504,7 +498,7 @@ class AdvancedEditionTest(unittest.TestCase):
         self.assertEqual(render.config_warnings({"public_url": "http://localhost", "tls": "off"}), [])
         self.assertTrue(any("read-only role" in w for w in render.config_warnings({"db_type": "postgres"})))
         self.assertEqual(render.config_warnings({"db_type": "postgres", "pg_ro_user": "ro"}), [])
-        self.assertTrue(any("AUTHENTIK_API_TOKEN" in w for w in render.config_warnings({"authentik_upstream": "a:1"})))
+        self.assertEqual(render.config_warnings({"authentik_upstream": "a:1", "public_url": "http://localhost", "tls": "off"}), [])
         self.assertTrue(any("terminates TLS" in w for w in render.config_warnings({"trusted_proxies": "1.1.1.1", "tls": "auto"})))
 
 
@@ -514,7 +508,7 @@ class OidcAccessTest(unittest.TestCase):
             "oidc_client_id": "id", "oidc_client_secret": "s"}
 
     def config(self, **extra):
-        return render.render_headscale_config(render.to_vars(dict(self.BASE, **extra), "aio"), "aio")
+        return render.render_headscale_config(render.to_vars(dict(self.BASE, **extra)))
 
     def test_allowed_lists_reach_headscale(self):
         cfg = self.config(oidc_allowed_domains="example.com, corp.example.org", oidc_allowed_users="boss@example.com",
@@ -539,12 +533,6 @@ class OidcAccessTest(unittest.TestCase):
         with self.assertRaises(ValueError):  # quotes are refused already when the setting is read
             render.load_settings({"HSE_PUBLIC_URL": "https://x.example.com", "HSE_OIDC_ALLOWED_DOMAINS": 'x.com", evil: "'}, "/nonexistent")
 
-    def test_the_compose_target_is_untouched(self):
-        v = render.to_vars({"public_url": "https://x.example.com", "ssl_mode": "front", "auth_provider": "external",
-                            "oidc_issuer": "https://sso.example.com", "oidc_client_id": "i", "oidc_client_secret": "s",
-                            "oidc_allowed_domains": "example.com"}, "compose")
-        self.assertNotIn("allowed_", render.render_headscale_config(v, "compose"))
-
     def test_console_gets_groups_and_scope(self):
         env = render.console_env(dict(self.BASE, oidc_scope="openid profile email groups", portal_admin_groups="vpn-admins",
                                       portal_network_admin_groups="net", portal_auditor_groups="aud"), "/data")
@@ -564,3 +552,31 @@ class OidcAccessTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConsoleTuningTests(unittest.TestCase):
+    """The console knobs reach the console process, and only when set."""
+
+    KNOBS = {"EXPIRY_WARNING_DAYS": "7", "INACTIVE_DAYS": "60", "AUTO_RENAME_LOCALHOST": "false",
+             "RENAME_INTERVAL": "10", "AUDIT_RETENTION_DAYS": "0", "STATUS_UPDATE_CHECK": "false",
+             "SIGNIN_RATE_LIMIT": "5", "SIGNIN_RATE_WINDOW": "300", "PORTAL_API_KEY_LOGIN": "true",
+             "BACKUP_UPLOAD_MAX_MB": "2048"}
+
+    def _settings(self, env):
+        base = {"HSE_PUBLIC_URL": "https://vpn.example.test", "HSE_TLS": "off"}
+        with tempfile.TemporaryDirectory() as tmp:
+            return render.load_settings(env={**base, **env}, path=os.path.join(tmp, "settings.json"))
+
+    def test_set_variables_reach_the_console(self):
+        got = render.console_env(self._settings(self.KNOBS))
+        for name, value in self.KNOBS.items():
+            self.assertEqual(got.get(name), value, name)
+
+    def test_unset_variables_are_left_to_the_console_default(self):
+        got = render.console_env(self._settings({}))
+        for name in self.KNOBS:
+            self.assertNotIn(name, got, name)
+
+    def test_every_tuning_key_is_a_known_setting(self):
+        for key in render.CONSOLE_TUNING:
+            self.assertIn(key, render.SETTINGS)

@@ -1,15 +1,15 @@
-# Imagen todo en uno (preview)
+# Imagen todo en uno
 
-Un solo contenedor con Headscale, Caddy y la consola web, que se configura
-desde el navegador. Sin socket de Docker, sin instalador, sin Authentik. Es una
-**preview** de la edición 2.0: el instalador 1.x y el compose dividido siguen
-funcionando igual.
+Headscale Easy es un solo contenedor con Headscale, Caddy y la consola web, que se
+configura desde el navegador. Sin socket de Docker y sin ningún otro servicio. Esta
+página es la referencia de la imagen; la [guía rápida](getting-started.md) usa el
+instalador, que escribe exactamente esto.
 
 ```bash
 docker run -d --name headscale-easy \
   -p 80:80 -p 443:443 -p 3478:3478/udp \
   -v hse:/data \
-  ghcr.io/insanerask77/headscale-easy-aio
+  ghcr.io/insanerask77/headscale-easy
 ```
 
 Lee en los logs el token de configuración de un solo uso y abre el asistente:
@@ -21,11 +21,11 @@ docker logs headscale-easy
 Abre `http://<tu-servidor>/admin/setup`, introduce el token y sigue los pasos.
 
 !!! note "Nombre de la imagen"
-    Durante 1.x la imagen se llama `headscale-easy-aio` (`headscale-easy` sigue
-    siendo la imagen de la consola del compose dividido). En 2.0 pasará a
-    llamarse `headscale-easy`.
+    La imagen es `ghcr.io/insanerask77/headscale-easy`. `headscale-easy-aio` se
+    publica como alias de la misma imagen durante una versión, para que los
+    `docker run` antiguos sigan funcionando.
 
-## El asistente de primer arranque
+## El asistente de primer arranque { #the-first-run-wizard }
 
 El modo configuración arranca cuando no existe `/data/config/settings.json` ni
 `HSE_PUBLIC_URL`. Solo se sirve el asistente; cualquier otra URL redirige a él.
@@ -77,14 +77,14 @@ docker run -d --name headscale-easy \
   -e ACME_EMAIL=tu@example.com \
   -e HSE_ADMIN_EMAIL=admin@example.com \
   -e HSE_ADMIN_PASSWORD='elige-una-larga' \
-  ghcr.io/insanerask77/headscale-easy-aio
+  ghcr.io/insanerask77/headscale-easy
 ```
 
 La precedencia es **entorno > `/data/config/settings.json` > valores por
 defecto**. Las variables (`HSE_TLS`, `TAILNET_NAME`, `HSE_BASE_DOMAIN` (dominio base de MagicDNS, por defecto `hse.net`), `HSE_SIGNUP` (`off` por defecto; `invite` exige clave de invitación; `open` permite a cualquiera; se cambia después en Ajustes → General), `HSE_DERP_MODE` (`embedded` por defecto: DERP y STUN propios del contenedor, publica `3478/udp`; `public` añade los relés públicos de Tailscale; `custom` usa tu mapa con `HSE_DERP_URL`), `NETWORK_ISOLATION`,
 `NODE_KEY_EXPIRY`, `UI_LANG`, `TZ`, `BACKUP_SCHEDULE` (cron, por defecto `0 3 * * *`; `off` la desactiva) y `BACKUP_KEEP_DAYS` (por defecto `14`), `OIDC_*`, `HSE_OIDC_ALLOWED_*`, `PORTAL_*_GROUPS`, `HSE_TRUSTED_PROXIES`, `HSE_AUTHENTIK_UPSTREAM`, `HEADSCALE_DB_TYPE`, `HEADSCALE_PG_RO_*` y
-`HEADSCALE_PG_*`, entre otras; los de la [edición avanzada](advanced.md) están descritos allí) están en la
-[versión en inglés](all-in-one.md#headless-start-no-wizard).
+`HEADSCALE_PG_*`, entre otras; los de la [edición avanzada](advanced.md) están descritos allí) están todas en la
+[referencia de variables](configuration.md#reference).
 
 ## Qué hay en `/data`
 
@@ -135,7 +135,7 @@ antiguas se borran por edad, nunca la última correcta.
     administradores pueden descargar una copia desde la consola (Ajustes →
     **Backups** → Copias disponibles); cada descarga queda en el registro de actividad.
 
-### Copiar y restaurar
+### Copiar y restaurar { #backing-up-and-restoring }
 
 ```bash
 docker exec headscale-easy hse backup          # una copia ahora mismo
@@ -148,8 +148,7 @@ resultado), la próxima ejecución, un botón **Back up now**, la programación 
 retención, la lista de copias con **Descargar** y **Restaurar**, y **Subir una
 copia** para una que viene de otro servidor o de fuera de este (*Subir* la añade
 a la lista, *Subir y restaurar* hace las dos cosas de una vez; el archivo se
-comprueba antes de guardarlo, y el límite es `BACKUP_UPLOAD_MAX_MB`, 1024 por
-defecto). Si falla una copia programada, también envía una notificación si la
+comprueba antes de guardarlo, y el límite es 1024 MB). Si falla una copia programada, también envía una notificación si la
 tienes configurada.
 
 Restaurar, por orden de preferencia:
@@ -162,7 +161,7 @@ Restaurar, por orden de preferencia:
     ```bash
     docker stop headscale-easy
     docker run --rm -v hse:/data --entrypoint hse \
-      ghcr.io/insanerask77/headscale-easy-aio restore /data/backups/<fichero>.tar.gz
+      ghcr.io/insanerask77/headscale-easy restore /data/backups/<fichero>.tar.gz
     docker start headscale-easy
     ```
 
@@ -181,11 +180,10 @@ Restaurar, por orden de preferencia:
 Las dos vías comprueban primero el archivo (formato, SHA-256 de cada fichero,
 integridad de las bases de datos) y no cambian nada si no es válido. Antes de
 sustituir nada hacen una copia `…-pre-restore-…` de los datos actuales y la
-devuelven si la restauración falla a medias. Un archivo de una instalación 1.x
-se rechaza. Y al revés: `scripts/restore.sh`
-(la herramienta de 1.x) rechaza un archivo de esta imagen y apunta a `hse restore`.
+devuelven si la restauración falla a medias. Un archivo que no es una copia de
+Headscale Easy 2 se rechaza.
 
-### Dónde van las copias
+### Dónde van las copias { #where-the-backups-go }
 
 `/data/backups` está en el mismo volumen que los datos, así que no sobrevive a
 perder el disco. Monta otro sitio (por ejemplo una carpeta de un NAS) encima:
@@ -199,7 +197,7 @@ servidor usa la imagen `backup` como **sidecar de sincronización** en la edici�
 avanzada: con `BACKUP_MODE=sync` sube cada archivo nuevo que encuentre en
 `/backups` (monta la misma carpeta, en solo lectura) cada
 `BACKUP_SYNC_INTERVAL` segundos y aplica la retención remota. rclone y rsync no
-vienen en la imagen todo en uno. Mira [Operación → Copias remotas](operations.md#backups-remotos)
+vienen en la imagen todo en uno. Mira [Operación → Copias remotas](operations.md#remote-backups)
 para los ajustes del destino.
 
 ### Sintaxis de la programación
@@ -235,14 +233,16 @@ el DNS en la consola valida la configuración y reinicia Headscale a través de
 él. Para actualizar, descarga la imagen nueva y recrea el contenedor: los datos
 están en el volumen.
 
-Medido en el runner de CI: la imagen pesa unos 55 MB y el contenedor en reposo
-usa unos 65 MB de RAM, también mientras corre una copia. CI falla por encima de 250 MB y 100 MB.
+Medido con `scripts/aio-smoke.sh`: la imagen pesa 232 MB y el contenedor en reposo
+usa 72 MB de RAM, también mientras corre una copia. CI falla por encima de 250 MB y 100 MB
+(mira [Arquitectura](architecture.md#resource-usage)).
 
-## Límites de la preview
+## Límites
 
-- Sin Authentik integrado: cuentas locales (con doble factor) u OIDC externo.
+- Las cuentas son locales (con doble factor) o de un proveedor OIDC externo; no hay
+  proveedor de identidad integrado.
 - Las copias se quedan en el volumen: para copias remotas usa el sidecar de sincronización (mira [Copias de seguridad](#backups)).
-- No hay migración desde 1.x: 2.0 es una instalación nueva.
+- Un Headscale por contenedor: Headscale no admite varias instancias ni alta disponibilidad.
 
 ## Usuarios y registro
 

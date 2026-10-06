@@ -34,7 +34,6 @@ COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy
 
 WORKDIR /app
 COPY web /app/web
-COPY helper /app/helper
 COPY templates /app/templates
 COPY aio /app/aio
 RUN ln -s /app/aio/hse /usr/local/bin/hse \
@@ -49,7 +48,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     STATUS_DISKS=data:/data
 
 # /data holds everything (see the layout in the docs); the supervisor creates
-# its subdirectories (700) on start. /run/hse holds the helper socket.
+# its subdirectories (700) on start. /run/hse holds the control socket.
 # /data/backups exists in the image, owned by the unprivileged user, so a named volume mounted there
 # starts with that owner (an empty volume would be root's and the container could not use it).
 RUN mkdir -p /data/backups /run/hse \

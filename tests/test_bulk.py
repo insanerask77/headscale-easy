@@ -18,7 +18,7 @@ from i18n import set_lang  # noqa: E402
 
 SESSION_ADMIN = {"admin": True, "username": "root", "csrf": "tok"}
 SESSION_MEMBER = {"admin": False, "username": "bob", "csrf": "tok"}
-CTX = {"public_url": "https://vpn.example.com", "tailnet": "", "authentik": False, "server_host": "vpn.example.com"}
+CTX = {"public_url": "https://vpn.example.com", "tailnet": "", "server_host": "vpn.example.com"}
 
 
 def machine(node_id, name, owner="alice"):

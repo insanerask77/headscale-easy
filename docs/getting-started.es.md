@@ -49,11 +49,6 @@ Con `HSE_ADMIN_EMAIL` no hay asistente: el servidor arranca con esa cuenta.
     Vuelve a ejecutar `./install.sh` en el mismo directorio: solo descarga la imagen nueva y
     recrea el contenedor. El `.env` y los datos no se tocan.
 
-!!! note "¿Usas 1.x?"
-    El stack 1.x (Authentik integrado, un contenedor por pieza) conserva su propio instalador,
-    `legacy/install-1x.sh`, hasta 2.0. El nuevo `install.sh` rechaza un directorio con una
-    instalación 1.x, así que no se pueden mezclar.
-
 Todo lo demás (un proveedor de identidad, un proxy delante, PostgreSQL, copias remotas) está en la
 [edición avanzada](advanced.md). Mira [Imagen todo en uno](all-in-one.md) para todos los ajustes.
 

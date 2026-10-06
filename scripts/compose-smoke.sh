@@ -37,7 +37,7 @@ wait_for() {  # wait_for <seconds> <description> <command...>
 }
 
 # The compose file names the published images: tag the local builds as them
-docker tag "$AIO" "ghcr.io/insanerask77/headscale-easy-aio:$TAG" || exit 1
+docker tag "$AIO" "ghcr.io/insanerask77/headscale-easy:$TAG" || exit 1
 docker tag "$BACKUP" "ghcr.io/insanerask77/headscale-easy-backup:$TAG" || exit 1
 
 mkdir -p "$DEST" "$WORK/remote-config"
@@ -63,7 +63,7 @@ BACKUP_SYNC_INTERVAL=1
 ENV
 COMPOSE=(docker compose -p "$PROJECT" -f "$WORK/docker-compose.yml" -f "$WORK/override.yml" --profile backup-remote)
 
-is_healthy() { [ "$(docker inspect -f '{{.State.Health.Status}}' headscale-easy-aio 2>/dev/null)" = healthy ]; }
+is_healthy() { [ "$(docker inspect -f '{{.State.Health.Status}}' headscale-easy 2>/dev/null)" = healthy ]; }
 healthz() { [ "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT/admin/healthz")" = 200 ]; }
 uploaded() { [ "$(find "$DEST" -name 'headscale-easy-*.tar.gz' | wc -l)" -ge 1 ]; }
 
@@ -73,14 +73,14 @@ wait_for 120 "the stack did not become healthy" is_healthy
 wait_for 30 "/admin/healthz did not answer 200" healthz
 echo "healthy, /admin/healthz ok"
 
-caps=$(docker inspect headscale-easy-aio --format '{{.HostConfig.CapDrop}} {{.HostConfig.SecurityOpt}}')
+caps=$(docker inspect headscale-easy --format '{{.HostConfig.CapDrop}} {{.HostConfig.SecurityOpt}}')
 [[ "$caps" == *ALL* && "$caps" == *no-new-privileges* ]] || fail "the container is not hardened as the compose file says ($caps)"
 echo "hardened: $caps"
 
 echo "== backup into the named volume"
-docker exec headscale-easy-aio hse backup >/dev/null 2>&1 || fail "hse backup failed in the named backups volume"
-[ "$(docker exec headscale-easy-aio sh -c 'ls /data/backups/headscale-easy-*.tar.gz | wc -l')" -ge 1 ] || fail "no archive in /data/backups"
-echo "archive written by uid $(docker exec headscale-easy-aio id -u)"
+docker exec headscale-easy hse backup >/dev/null 2>&1 || fail "hse backup failed in the named backups volume"
+[ "$(docker exec headscale-easy sh -c 'ls /data/backups/headscale-easy-*.tar.gz | wc -l')" -ge 1 ] || fail "no archive in /data/backups"
+echo "archive written by uid $(docker exec headscale-easy id -u)"
 
 echo "== backup-remote: uploaded once, not again after a restart"
 wait_for 150 "the sidecar did not upload the backup" uploaded

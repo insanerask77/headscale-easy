@@ -2,14 +2,14 @@
 
 Runs Headscale, Caddy and the console (or, on first run, the setup wizard),
 restarts them with exponential backoff, forwards SIGTERM/SIGINT with an
-ordered shutdown, and serves the hs-helper protocol (configtest / restart /
+ordered shutdown, and serves the control socket (aio/control.py: configtest / restart /
 status) on a local Unix socket so the console needs no Docker socket.
 
     SIGHUP   re-render the config, restart Caddy and Headscale (``hse reload``)
     SIGUSR1  online restore: read <run dir>/restore.json, stop everything, restore the
              archive into /data, start again, write <run dir>/restore-result.json
 
-Standard library only (plus aio/render.py and helper/helper.py).
+Standard library only (plus aio/render.py and aio/control.py).
 """
 from __future__ import annotations
 
@@ -28,10 +28,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "aio"))
-sys.path.insert(0, os.environ.get("HSE_HELPER_DIR") or os.path.join(ROOT, "helper"))
 
 import cron  # noqa: E402
-import helper as helper_mod  # noqa: E402
+import control  # noqa: E402
 import render  # noqa: E402
 import restore as restore_mod  # noqa: E402
 
@@ -470,10 +469,10 @@ class Supervisor:
 
     def headscale_version(self):
         now = time.time()
-        if now - self._version["at"] < helper_mod.VERSION_TTL:
+        if now - self._version["at"] < control.VERSION_TTL:
             return self._version["value"]
         code, out = run_cmd([HEADSCALE_BIN, "version"], timeout=15, env=base_env())
-        match = helper_mod._VERSION.search(out) if code == 0 else None
+        match = control._VERSION.search(out) if code == 0 else None
         self._version.update(at=now, value=match.group(0) if match else None)
         return self._version["value"]
 
@@ -491,7 +490,7 @@ class Supervisor:
         rows = sorted((self._summary(c) for c in self.children.values()), key=lambda r: r["name"])
         version = self.headscale_version() if "headscale" in self.children else None
         # docker: true so the console treats this backend as available
-        result = {"api": helper_mod.API_VERSION, "docker": True, "mode": self.mode,
+        result = {"api": control.API_VERSION, "docker": True, "mode": self.mode,
                   "headscale": {"container": "headscale", "version": version}, "containers": rows}
         summary = getattr(self, "backup_summary", None)  # the scheduler's view (Block 2)
         if self.mode == "run" and callable(summary):
@@ -685,7 +684,7 @@ class Supervisor:
 
     def serve_helper(self):
         os.makedirs(self.run_dir, mode=0o755, exist_ok=True)
-        self.server = helper_mod.serve(self.helper_socket, {
+        self.server = control.serve(self.helper_socket, {
             "configtest": self.be_configtest, "restart": self.be_restart, "status": self.be_status,
             "backup": self.be_backup, "backup_settings": self.be_backup_settings,
             "restore": self.be_restore, "backup_upload": self.be_backup_upload})

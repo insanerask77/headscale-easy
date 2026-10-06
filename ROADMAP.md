@@ -21,7 +21,7 @@ external pieces for advanced setups. Details, tasks and acceptance criteria in
 - [x] **P3. Built-in backups** (nightly schedule, `hse backup` / `hse restore`, status card, sync sidecar) · M
 - [x] **P4. Advanced edition** (`deploy/compose`, proxy in front, Authentik/Pocket ID/Keycloak/Google, PostgreSQL, new `install.sh`) · M
 - [x] ~~**P5. Migration from 1.x and deprecations**~~ · dropped: the product is an MVP, nobody runs 1.x, so 2.0 ships directly
-- [ ] **P6. Docs and clean-up** · M
+- [x] **P6. Docs and clean-up** (1.x stack and Authentik code removed, docs rewritten) · M
 
 ## 🔴 Critical — keeps installations working and safe
 

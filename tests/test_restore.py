@@ -121,8 +121,7 @@ class InspectTest(RestoreCase):
             restore.inspect(os.path.join(self.tmp.name, "nope.tar.gz"))
 
     def test_1x_archive_is_refused_with_a_pointer(self):
-        exc = self.assertRefused(os.path.join(FIXTURES, "1x-archive.tar.gz"), "1.x")
-        self.assertIn("migration", str(exc))
+        exc = self.assertRefused(os.path.join(FIXTURES, "1x-archive.tar.gz"), "not a Headscale Easy 2 backup")
         with self.assertRaises(restore.RestoreError):
             restore.inspect(os.path.join(FIXTURES, "1x-archive.tar.gz"))
 

@@ -320,20 +320,13 @@ def latest_tailscale_version() -> str:
 
 
 # -----------------------------------------------------------------------------
-# Validate and restart Headscale: through the hs-helper service
+# Validate and restart Headscale: through the supervisor's control socket
 # -----------------------------------------------------------------------------
-# The web UI does not mount the Docker socket. The hs-helper container does,
-# and answers three fixed requests on a Unix socket in a shared volume (see
-# helper/helper.py): POST /configtest, POST /restart, GET /status.
-#
-# Legacy fallback: installations whose docker-compose.yml predates the helper
-# still mount the Docker socket in this container. When the helper socket is
-# missing and DOCKER_SOCKET exists, it is used directly, with a warning.
+# The console never touches Docker or the Headscale process. The supervisor
+# (aio/supervisor.py) answers a few fixed requests on a Unix socket in the run
+# directory (see aio/control.py): POST /configtest, POST /restart, GET /status...
 
-HELPER_SOCKET = os.environ.get("HELPER_SOCKET", "/run/hse-helper/helper.sock")
-DOCKER_SOCKET = os.environ.get("DOCKER_SOCKET", "/var/run/docker.sock")
-HEADSCALE_CONTAINER = os.environ.get("HEADSCALE_CONTAINER", "headscale")
-_legacy_warned = False
+HELPER_SOCKET = os.environ.get("HELPER_SOCKET", "/run/hse/helper.sock")
 
 
 class _UnixHTTPConnection(http.client.HTTPConnection):
@@ -352,22 +345,9 @@ class _UnixHTTPConnection(http.client.HTTPConnection):
         self.sock = sock
 
 
-def docker(method: str, path: str, body: dict | None = None, timeout: float = 60) -> tuple[int, bytes]:
-    """Legacy only: a direct Docker Engine API call (no helper)."""
-    conn = _UnixHTTPConnection(DOCKER_SOCKET, timeout=timeout)
-    data = json.dumps(body).encode() if body is not None else None
-    headers = {"Content-Type": "application/json"} if data is not None else {}
-    try:
-        conn.request(method, path, body=data, headers=headers)
-        resp = conn.getresponse()
-        return resp.status, resp.read()
-    finally:
-        conn.close()
-
-
 def helper(method: str, path: str, timeout: float = 30) -> tuple[int, dict]:
-    """One request to hs-helper: (HTTP status, JSON body). Never sends a body
-    or parameters: the helper accepts none."""
+    """One request to the supervisor: (HTTP status, JSON body). Never sends a body
+    or parameters: the control socket accepts none."""
     conn = _UnixHTTPConnection(HELPER_SOCKET, timeout=timeout)
     try:
         conn.request(method, path, headers={"Content-Length": "0"})
@@ -382,24 +362,9 @@ def helper(method: str, path: str, timeout: float = 30) -> tuple[int, dict]:
     return resp.status, data if isinstance(data, dict) else {}
 
 
-def _backend() -> str | None:
-    """'helper', 'docker' (legacy socket mount) or None."""
-    global _legacy_warned
-    if os.path.exists(HELPER_SOCKET):
-        return "helper"
-    if os.path.exists(DOCKER_SOCKET):
-        if not _legacy_warned:
-            log.warning("hs-helper not found (%s): using the Docker socket %s directly. "
-                        "Update docker-compose.yml (git pull) and run 'docker compose up -d' "
-                        "so the web UI no longer needs the socket.", HELPER_SOCKET, DOCKER_SOCKET)
-            _legacy_warned = True
-        return "docker"
-    return None
-
-
 def helper_status() -> dict | None:
-    """The helper's GET /status (see helper/helper.py), or None when the
-    helper is missing or does not answer."""
+    """The supervisor's GET /status (see aio/control.py), or None when it is
+    missing or does not answer."""
     if not os.path.exists(HELPER_SOCKET):
         return None
     try:
@@ -522,72 +487,37 @@ def restore_result() -> dict | None:
 
 def docker_available() -> bool:
     """Can Headscale be validated and restarted from here?"""
-    backend = _backend()
-    if backend == "helper":
-        return bool((helper_status() or {}).get("docker"))
-    if backend == "docker":
-        try:
-            return docker("GET", "/_ping", timeout=3)[0] == 200
-        except OSError:
-            return False
-    return False
+    return bool((helper_status() or {}).get("docker"))
 
 
 def headscale_configtest() -> tuple[bool, str]:
-    """Run 'headscale configtest' inside the container, which reads the same
-    mounted config.yaml. Returns (ok, output)."""
-    backend = _backend()
-    if backend == "helper":
-        try:
-            code, data = helper("POST", "/configtest", timeout=120)
-        except OSError as exc:
-            return False, f"hs-helper: {exc}"
-        if code != 200:
-            return False, f"hs-helper: HTTP {code} {data.get('error', '')}".strip()
-        return bool(data.get("ok")), str(data.get("output", ""))
-    if backend is None:
+    """Run 'headscale configtest' (the supervisor does, on the config it rendered).
+    Returns (ok, output)."""
+    if not os.path.exists(HELPER_SOCKET):
         return False, "hs-helper is not running"
-    status, raw = docker("POST", f"/containers/{HEADSCALE_CONTAINER}/exec", {
-        "AttachStdout": True, "AttachStderr": True, "Tty": True,
-        "Cmd": ["headscale", "configtest"],
-    })
-    if status != 201:
-        return False, f"docker exec: HTTP {status}"
-    exec_id = json.loads(raw)["Id"]
-    _, out = docker("POST", f"/exec/{exec_id}/start", {"Detach": False, "Tty": True}, timeout=90)
-    _, info = docker("GET", f"/exec/{exec_id}/json")
-    code = json.loads(info).get("ExitCode")
-    return code == 0, re.sub(r"\x1b\[[0-9;]*m", "", out.decode(errors="replace")).strip()
+    try:
+        code, data = helper("POST", "/configtest", timeout=120)
+    except OSError as exc:
+        return False, f"hs-helper: {exc}"
+    if code != 200:
+        return False, f"hs-helper: HTTP {code} {data.get('error', '')}".strip()
+    return bool(data.get("ok")), str(data.get("output", ""))
 
 
 def restart_headscale(wait: float = 120) -> bool:
-    """Restart Headscale and wait for its healthcheck to report 'healthy'."""
-    backend = _backend()
-    if backend == "helper":
-        try:
-            code, data = helper("POST", "/restart", timeout=wait + 60)
-        except OSError as exc:
-            log.error("could not restart Headscale: hs-helper: %s", exc)
-            return False
-        if code != 200 or not data.get("ok"):
-            log.error("could not restart Headscale: hs-helper: HTTP %s %s", code, data.get("error", ""))
-            return False
-        return True
-    if backend is None:
+    """Restart Headscale and wait for it to be healthy."""
+    if not os.path.exists(HELPER_SOCKET):
         log.error("could not restart Headscale: hs-helper is not running")
         return False
-    status, _ = docker("POST", f"/containers/{HEADSCALE_CONTAINER}/restart?t=10", timeout=60)
-    if status != 204:
-        log.error("could not restart Headscale: HTTP %s", status)
+    try:
+        code, data = helper("POST", "/restart", timeout=wait + 60)
+    except OSError as exc:
+        log.error("could not restart Headscale: hs-helper: %s", exc)
         return False
-    deadline = time.time() + wait
-    time.sleep(3)
-    while time.time() < deadline:
-        _, raw = docker("GET", f"/containers/{HEADSCALE_CONTAINER}/json")
-        if (json.loads(raw).get("State", {}).get("Health") or {}).get("Status") == "healthy":
-            return True
-        time.sleep(2)
-    return False
+    if code != 200 or not data.get("ok"):
+        log.error("could not restart Headscale: hs-helper: HTTP %s %s", code, data.get("error", ""))
+        return False
+    return True
 
 
 # -----------------------------------------------------------------------------

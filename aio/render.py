@@ -1,12 +1,10 @@
-"""Config renderer for the all-in-one image (and a Python twin of install.sh).
+"""Config renderer for the all-in-one image.
 
-Ports the generators of install.sh (``dns_block``, ``key_expiry_block``,
-``database_block``, ``derp_paths_block``, ``generate_headscale_config`` and
-``generate_caddyfile``) over the same ``templates/*.tmpl``. Two targets:
-
-- ``compose``: the 1.x paths and upstreams. The output is byte-identical to
-  what install.sh writes (golden files in tests/fixtures/render).
-- ``aio``: upstreams on 127.0.0.1 and everything under /data.
+Renders Headscale's ``config.yaml`` and the ``Caddyfile`` (``dns_block``,
+``key_expiry_block``, ``database_block``, ``derp_paths_block``,
+``render_headscale_config`` and ``render_caddyfile``) from ``templates/*.tmpl``:
+upstreams on 127.0.0.1 and everything under /data. The golden files in
+tests/fixtures/render are frozen outputs that pin the shape of the config.
 
 Settings precedence: environment > /data/config/settings.json > defaults.
 Standard library only.
@@ -77,12 +75,21 @@ SETTINGS = {
     "notify_urls": ("NOTIFY_URLS", ""),
     "notify_events": ("NOTIFY_EVENTS", ""),
     "portal_admin_emails": ("PORTAL_ADMIN_EMAILS", ""),
-    # Advanced edition (deploy/): a proxy in front, an external Authentik, a read-only PostgreSQL role
+    # Console tuning. Unset (None) = the console's own default; set = passed to it
+    "expiry_warning_days": ("EXPIRY_WARNING_DAYS", None),  # a key "expires soon" within N days (14)
+    "inactive_days": ("INACTIVE_DAYS", None),  # a machine is "inactive" after N days offline (30)
+    "auto_rename_localhost": ("AUTO_RENAME_LOCALHOST", None),  # rename "localhost" machines (true)
+    "rename_interval": ("RENAME_INTERVAL", None),  # seconds between rename passes (5)
+    "audit_retention_days": ("AUDIT_RETENTION_DAYS", None),  # activity log retention, 0 = forever (90)
+    "status_update_check": ("STATUS_UPDATE_CHECK", None),  # look for a newer release (true)
+    "signin_rate_limit": ("SIGNIN_RATE_LIMIT", None),  # failed sign-ins allowed per window (10)
+    "signin_rate_window": ("SIGNIN_RATE_WINDOW", None),  # window in seconds (600)
+    "portal_api_key_login": ("PORTAL_API_KEY_LOGIN", None),  # emergency sign-in with the Headscale API key
+    "backup_upload_max_mb": ("BACKUP_UPLOAD_MAX_MB", None),  # largest backup the console accepts (1024)
+    # Advanced edition (deploy/): a proxy in front, an external Authentik as OIDC provider, a read-only PostgreSQL role
     "trusted_proxies": ("HSE_TRUSTED_PROXIES", ""),  # CIDRs of the proxy in front: real client IPs
     "trusted_proxies_any": ("HSE_TRUSTED_PROXIES_ANY", ""),  # 1: allow a /0 entry (trust every sender)
     "authentik_upstream": ("HSE_AUTHENTIK_UPSTREAM", ""),  # host:port of an Authentik served under /authentik
-    "authentik_url": ("AUTHENTIK_URL", ""),  # its API base for the console (invitations, resets, 2FA)
-    "authentik_api_token": ("AUTHENTIK_API_TOKEN", ""),
     # Who may sign in through the OIDC provider (Headscale oidc.allowed_*) and who is what in the console
     "oidc_allowed_domains": ("HSE_OIDC_ALLOWED_DOMAINS", ""),
     "oidc_allowed_users": ("HSE_OIDC_ALLOWED_USERS", ""),
@@ -95,11 +102,11 @@ SETTINGS = {
     "backup_schedule": ("BACKUP_SCHEDULE", "0 3 * * *"),
     "backup_keep_days": ("BACKUP_KEEP_DAYS", "14"),
 }
-# The compose target also needs what install.sh knows about: who provides HTTPS
-# (letsencrypt | selfsigned | front | none) and the identity provider
-# (none | authentik | external). They are derived for the aio target.
-COMPOSE_ONLY = ("ssl_mode", "auth_provider")
-
+CONSOLE_TUNING = ("expiry_warning_days", "inactive_days", "auto_rename_localhost", "rename_interval",
+                  "audit_retention_days", "status_update_check", "signin_rate_limit", "signin_rate_window",
+                  "portal_api_key_login", "backup_upload_max_mb")
+# Who provides HTTPS (letsencrypt | selfsigned | front | none) and the identity provider
+# (none | authentik | external) are derived from the settings, never stored.
 TLS_TO_SSL_MODE = {"auto": "letsencrypt", "internal": "selfsigned", "off": "none"}
 # Same set as install.sh's validate_env_text, plus newlines
 _FORBIDDEN = set("\"'$`\\\r\n")
@@ -147,9 +154,6 @@ def load_settings(env=None, path=None):
         if not validate_env_text(value):
             raise ValueError("%s: quotes, $, backquotes, backslashes and newlines are not allowed" % env_name)
         out[key] = value
-    for key in COMPOSE_ONLY:
-        if stored.get(key):
-            out[key] = str(stored[key])
     # A bad schedule must stop a headless start instead of silently never backing up
     out["backup_schedule"] = check_backup_schedule(out.get("backup_schedule", ""))
     out["backup_keep_days"] = check_backup_keep_days(out.get("backup_keep_days", ""))
@@ -291,36 +295,32 @@ def check_base_domain(value, server_host=""):
     return name
 
 
-def to_vars(settings, target="aio"):
-    """install.sh-style variables (SERVER_URL, DOMAIN, SSL_MODE...) from settings."""
+def to_vars(settings):
+    """Template variables (SERVER_URL, DOMAIN, SSL_MODE...) from settings."""
     url = (settings.get("public_url") or "").rstrip("/")
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         raise ValueError("public_url must be http(s)://host[:port]: %r" % url)
     domain = parsed.hostname
 
-    ssl_mode = settings.get("ssl_mode")
-    if target == "aio" or not ssl_mode:
-        tls = settings.get("tls") or ("auto" if parsed.scheme == "https" else "off")
-        if tls not in TLS_TO_SSL_MODE:
-            raise ValueError("HSE_TLS must be auto, internal or off")
-        if tls != "off" and parsed.scheme != "https":
-            raise ValueError("HSE_TLS=%s needs an https:// public URL" % tls)
-        if tls == "auto" and (re.fullmatch(r"[0-9.]+", domain) or domain == "localhost" or ":" in domain):
-            raise ValueError("Let's Encrypt does not issue certificates for IPs or localhost")
-        ssl_mode = TLS_TO_SSL_MODE[tls]
-        if tls == "off" and parsed.scheme == "https":
-            ssl_mode = "front"  # a proxy in front terminates TLS: the browser sees https, this hop is http
+    tls = settings.get("tls") or ("auto" if parsed.scheme == "https" else "off")
+    if tls not in TLS_TO_SSL_MODE:
+        raise ValueError("HSE_TLS must be auto, internal or off")
+    if tls != "off" and parsed.scheme != "https":
+        raise ValueError("HSE_TLS=%s needs an https:// public URL" % tls)
+    if tls == "auto" and (re.fullmatch(r"[0-9.]+", domain) or domain == "localhost" or ":" in domain):
+        raise ValueError("Let's Encrypt does not issue certificates for IPs or localhost")
+    ssl_mode = TLS_TO_SSL_MODE[tls]
+    if tls == "off" and parsed.scheme == "https":
+        ssl_mode = "front"  # a proxy in front terminates TLS: the browser sees https, this hop is http
 
-    auth = settings.get("auth_provider")
-    if target == "aio" or not auth:
-        issuer = settings.get("oidc_issuer") or ""
-        if not issuer:
-            auth = "none"
-        elif "/authentik/" in issuer or settings.get("authentik_upstream"):
-            auth = "authentik"  # the console switches to its Authentik mode on the same hint
-        else:
-            auth = "external"
+    issuer = settings.get("oidc_issuer") or ""
+    if not issuer:
+        auth = "none"
+    elif "/authentik/" in issuer or settings.get("authentik_upstream"):
+        auth = "authentik"  # an Authentik issuer: routed under /authentik/, emails not marked verified
+    else:
+        auth = "external"
 
     v = {
         "SERVER_URL": url,
@@ -336,8 +336,7 @@ def to_vars(settings, target="aio"):
         "IP_PREFIXES_V4": settings.get("ip_prefixes_v4", "100.64.0.0/10"),
         "IP_PREFIXES_V6": settings.get("ip_prefixes_v6", "fd7a:115c:a1e0::/48"),
         "TAILNET_NAME": settings.get("tailnet_name", "myorg"),
-        "BASE_DOMAIN": check_base_domain(settings.get("base_domain"), domain) or (
-            DEFAULT_BASE_DOMAIN if target == "aio" else "%s.headscale.net" % settings.get("tailnet_name", "myorg")),
+        "BASE_DOMAIN": check_base_domain(settings.get("base_domain"), domain) or DEFAULT_BASE_DOMAIN,
         "LOG_LEVEL": settings.get("log_level", "info"),
         "DERP_USE_PUBLIC": settings.get("derp_use_public") or "true",
         "NODE_KEY_EXPIRY": settings.get("node_key_expiry", "180d"),
@@ -356,16 +355,15 @@ def to_vars(settings, target="aio"):
         "TRUSTED_PROXIES": [],
         "OIDC_ALLOWED": {},
     }
-    if target == "aio":
-        v["AUTHENTIK_UPSTREAM"] = check_authentik_upstream(settings.get("authentik_upstream"))
-        v["OIDC_ALLOWED"] = {k: check_allowed(k, settings.get("oidc_allowed_" + k)) for k in _ALLOWED}
-        v["TRUSTED_PROXIES"] = check_trusted_proxies(settings.get("trusted_proxies"),
-                                                     settings.get("trusted_proxies_any") in ("1", "true"))
-        if bool(settings.get("pg_ro_user")) != bool(settings.get("pg_ro_pass")):
-            raise ValueError("HEADSCALE_PG_RO_USER and HEADSCALE_PG_RO_PASS go together")
-        ro = settings.get("pg_ro_user") or ""
-        if ro and (not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,62}", ro) or ro == settings.get("pg_user", "headscale")):
-            raise ValueError("HEADSCALE_PG_RO_USER must be a role name (letters, digits, _) other than the owner's")
+    v["AUTHENTIK_UPSTREAM"] = check_authentik_upstream(settings.get("authentik_upstream"))
+    v["OIDC_ALLOWED"] = {k: check_allowed(k, settings.get("oidc_allowed_" + k)) for k in _ALLOWED}
+    v["TRUSTED_PROXIES"] = check_trusted_proxies(settings.get("trusted_proxies"),
+                                                 settings.get("trusted_proxies_any") in ("1", "true"))
+    if bool(settings.get("pg_ro_user")) != bool(settings.get("pg_ro_pass")):
+        raise ValueError("HEADSCALE_PG_RO_USER and HEADSCALE_PG_RO_PASS go together")
+    ro = settings.get("pg_ro_user") or ""
+    if ro and (not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,62}", ro) or ro == settings.get("pg_user", "headscale")):
+        raise ValueError("HEADSCALE_PG_RO_USER must be a role name (letters, digits, _) other than the owner's")
     if v["HEADSCALE_DB_TYPE"] not in ("sqlite", "postgres"):
         raise ValueError("HEADSCALE_DB_TYPE must be sqlite or postgres")
     if v["HEADSCALE_DB_TYPE"] == "postgres" and not v["HEADSCALE_PG_HOST"]:
@@ -377,13 +375,9 @@ def to_vars(settings, target="aio"):
     if settings.get("signup_mode", "off") not in ("off", "invite", "open"):
         raise ValueError("HSE_SIGNUP must be off, invite or open")
     v["SIGNUP_MODE"] = settings.get("signup_mode", "off")
-    if target == "aio":
-        v["DERP_MODE"] = derp_mode(settings)
-        v["DERP_URL"] = check_derp_url(settings.get("derp_url"))
-        v["DERP_USE_PUBLIC"] = "true" if v["DERP_MODE"] == "public" else "false"
-    else:
-        v["DERP_MODE"] = "public" if v["DERP_USE_PUBLIC"] == "true" else "embedded"
-        v["DERP_URL"] = ""
+    v["DERP_MODE"] = derp_mode(settings)
+    v["DERP_URL"] = check_derp_url(settings.get("derp_url"))
+    v["DERP_USE_PUBLIC"] = "true" if v["DERP_MODE"] == "public" else "false"
     return v
 
 
@@ -500,7 +494,7 @@ def _template(name):
         return fh.read()
 
 
-# --- Paths of the aio target --------------------------------------------------------
+# --- Paths --------------------------------------------------------
 def paths(data_dir=None):
     d = data_dir or DATA_DIR
     return {
@@ -515,7 +509,7 @@ def paths(data_dir=None):
     }
 
 
-def render_headscale_config(v, target="aio", existing=None, data_dir=None):
+def render_headscale_config(v, existing=None, data_dir=None):
     """headscale config.yaml. ``existing``: the current file, whose marked blocks are kept."""
     v = dict(v)
     if v["AUTH_PROVIDER"] != "none":
@@ -543,17 +537,10 @@ def render_headscale_config(v, target="aio", existing=None, data_dir=None):
     else:
         oidc = "# OIDC disabled"
 
-    if target == "aio":
-        # Headscale only listens on loopback behind Caddy, which runs in the same container
-        trusted = "trusted_proxies:\n  - 127.0.0.1/32"
-        for cidr in v.get("TRUSTED_PROXIES") or []:
-            trusted += "\n  - %s" % cidr
-    else:
-        # Headscale always sits behind Caddy: trust Docker's private bridge range
-        trusted = "trusted_proxies:\n  - 172.16.0.0/12"
-        if v["SSL_MODE"] == "front":
-            trusted += "\n  # Add your front proxy's CIDR to see real client IPs, e.g.:"
-            trusted += "\n  # - 192.168.1.50/32"
+    # Headscale only listens on loopback behind Caddy, which runs in the same container
+    trusted = "trusted_proxies:\n  - 127.0.0.1/32"
+    for cidr in v.get("TRUSTED_PROXIES") or []:
+        trusted += "\n  - %s" % cidr
     if v.get("DERP_USE_PUBLIC", "true") == "true":
         derp_urls = "urls:\n    - https://controlplane.tailscale.com/derpmap/default"
         derp_auto = "true"
@@ -576,18 +563,16 @@ def render_headscale_config(v, target="aio", existing=None, data_dir=None):
         DATABASE_CONFIG=database_block(v),
     )
     tmpl = _template("headscale-config.yaml.tmpl")
-    if target == "aio":
-        for key in ("HEADSCALE_HTTP_PORT", "HEADSCALE_METRICS_PORT", "HEADSCALE_GRPC_PORT"):
-            tmpl = tmpl.replace("0.0.0.0:${%s}" % key, "127.0.0.1:${%s}" % key)
+    for key in ("HEADSCALE_HTTP_PORT", "HEADSCALE_METRICS_PORT", "HEADSCALE_GRPC_PORT"):
+        tmpl = tmpl.replace("0.0.0.0:${%s}" % key, "127.0.0.1:${%s}" % key)
     out = envsubst(tmpl, variables)
-    if target == "aio":
-        p = paths(data_dir)
-        out = out.replace("/var/lib/headscale/", p["hs_dir"] + "/")
-        out = out.replace("/var/run/headscale/headscale.sock", p["hs_socket"])
+    p = paths(data_dir)
+    out = out.replace("/var/lib/headscale/", p["hs_dir"] + "/")
+    out = out.replace("/var/run/headscale/headscale.sock", p["hs_socket"])
     return out
 
 
-def render_caddyfile(v, target="aio", data_dir=None):
+def render_caddyfile(v, data_dir=None):
     mode = v["SSL_MODE"]
     domain = v["DOMAIN"]
     if mode == "letsencrypt":
@@ -607,7 +592,7 @@ def render_caddyfile(v, target="aio", data_dir=None):
         redirect = "http://%s {\n    redir https://{host}{uri} permanent\n}" % domain
 
     upstream = v.get("AUTHENTIK_UPSTREAM") or ""
-    if v["AUTH_PROVIDER"] == "authentik" and (target == "compose" or upstream):
+    if v["AUTH_PROVIDER"] == "authentik" and upstream:
         # Authentik builds its issuer and redirects from the request scheme.
         # With a front proxy Caddy receives HTTP, so force what the browser sees.
         proto = "# X-Forwarded-Proto: from the incoming request"
@@ -618,19 +603,15 @@ def render_caddyfile(v, target="aio", data_dir=None):
             "    # the prefix is not stripped. /authentik alone redirects so it does not",
             "    # fall into Headscale's catch-all.",
             "    redir /authentik /authentik/ 308",
-            "    # Shortcut to the add-user form",
-            "    redir /add-user /authentik/if/flow/headscale-easy-add-user/ 302",
             "    handle /authentik/* {",
-            "        reverse_proxy %s {" % (upstream or "authentik-server:9000"),
+            "        reverse_proxy %s {" % upstream,
             "            header_up X-Real-IP {remote_host}",
             "            %s" % proto,
             "        }",
             "    }",
         ])
-    elif target == "aio":
-        authentik = "    # Authentik is not part of the all-in-one image (HSE_AUTHENTIK_UPSTREAM routes /authentik to one)"
     else:
-        authentik = "    # Authentik disabled (AUTH_PROVIDER=%s)" % v["AUTH_PROVIDER"]
+        authentik = "    # Authentik is not part of the all-in-one image (HSE_AUTHENTIK_UPSTREAM routes /authentik to one)"
 
     if v["AUTH_PROVIDER"] == "none":
         # Without OIDC, 'tailscale up' prints <url>/register/<auth id>: the web
@@ -647,27 +628,25 @@ def render_caddyfile(v, target="aio", data_dir=None):
     variables.update(CADDY_DOMAIN=site, CADDY_TLS=tls, CADDY_HSTS=hsts, HTTP_REDIRECT=redirect,
                      AUTHENTIK_ROUTE=authentik, REGISTER_ROUTE=register)
     tmpl = _template("Caddyfile.tmpl")
-    if target == "aio":
-        tmpl = tmpl.replace("headscale-easy:8000", "127.0.0.1:8000")
-        tmpl = tmpl.replace("headscale:${HEADSCALE_HTTP_PORT}", "127.0.0.1:${HEADSCALE_HTTP_PORT}")
-        tmpl = tmpl.replace("/var/log/caddy/access.log", os.path.join(paths(data_dir)["caddy_logs"], "access.log"))
-        tmpl = tmpl.replace("Generated by install.sh", "Generated by the all-in-one image")
-        trusted = v.get("TRUSTED_PROXIES") or []
-        if trusted:
-            # {client_ip} is the first address (from the right) in X-Forwarded-For that a trusted proxy did not add; {remote_host}
-            # would be the proxy itself, and every login would be counted against one address.
-            tmpl = tmpl.replace("header_up X-Real-IP {remote_host}", "header_up X-Real-IP {client_ip}")
-        if mode == "front":
-            # Caddy receives http from the proxy; Headscale and Authentik must see what the browser sees
-            tmpl = tmpl.replace("header_up X-Real-IP", "header_up X-Forwarded-Proto https\n            header_up X-Real-IP")
-        out = envsubst(tmpl, variables)
-        if trusted:
-            # strict: read X-Forwarded-For from the right and skip only the trusted proxies. Without it Caddy
-            # believes the leftmost entry, which a client can write itself when the proxy appends to the header.
-            out = ("{\n    servers {\n        trusted_proxies static %s\n        trusted_proxies_strict\n    }\n}\n\n"
-                   % " ".join(trusted)) + out
-        return out
-    return envsubst(tmpl, variables)
+    tmpl = tmpl.replace("headscale-easy:8000", "127.0.0.1:8000")
+    tmpl = tmpl.replace("headscale:${HEADSCALE_HTTP_PORT}", "127.0.0.1:${HEADSCALE_HTTP_PORT}")
+    tmpl = tmpl.replace("/var/log/caddy/access.log", os.path.join(paths(data_dir)["caddy_logs"], "access.log"))
+    tmpl = tmpl.replace("Generated by install.sh", "Generated by the all-in-one image")
+    trusted = v.get("TRUSTED_PROXIES") or []
+    if trusted:
+        # {client_ip} is the first address (from the right) in X-Forwarded-For that a trusted proxy did not add; {remote_host}
+        # would be the proxy itself, and every login would be counted against one address.
+        tmpl = tmpl.replace("header_up X-Real-IP {remote_host}", "header_up X-Real-IP {client_ip}")
+    if mode == "front":
+        # Caddy receives http from the proxy; Headscale and Authentik must see what the browser sees
+        tmpl = tmpl.replace("header_up X-Real-IP", "header_up X-Forwarded-Proto https\n            header_up X-Real-IP")
+    out = envsubst(tmpl, variables)
+    if trusted:
+        # strict: read X-Forwarded-For from the right and skip only the trusted proxies. Without it Caddy
+        # believes the leftmost entry, which a client can write itself when the proxy appends to the header.
+        out = ("{\n    servers {\n        trusted_proxies static %s\n        trusted_proxies_strict\n    }\n}\n\n"
+               % " ".join(trusted)) + out
+    return out
 
 
 def render_setup_caddyfile(data_dir=None):
@@ -699,7 +678,7 @@ def console_env(settings, data_dir=None):
     """Environment for the console process (web/app.py) in the aio image."""
     p = paths(data_dir)
     d = data_dir or DATA_DIR
-    v = to_vars(settings, "aio")
+    v = to_vars(settings)
     pg = v["HEADSCALE_DB_TYPE"] == "postgres"
     env = {
         "PUBLIC_URL": v["SERVER_URL"],
@@ -714,7 +693,6 @@ def console_env(settings, data_dir=None):
         "AUDIT_DB": os.path.join(d, "console", "audit.db"),
         "ACCOUNTS_DB": os.path.join(d, "console", "accounts.db"),
         "API_KEY_FILE": p["api_key"],
-        "MFA_MODE_FILE": os.path.join(d, "console", "mfa-required"),
         "MFA_REQUIRED": settings.get("mfa_required", "admins"),
         "HEADSCALE_URL": "http://127.0.0.1:%s" % v["HEADSCALE_HTTP_PORT"],
         "HEADSCALE_METRICS_URL": "http://127.0.0.1:%s/metrics" % v["HEADSCALE_METRICS_PORT"],
@@ -750,6 +728,9 @@ def console_env(settings, data_dir=None):
                    HEADSCALE_PG_USER=settings["pg_ro_user"] if ro else v["HEADSCALE_PG_USER"],
                    HEADSCALE_PG_PASSWORD=settings["pg_ro_pass"] if ro else v["HEADSCALE_PG_PASS"],
                    HEADSCALE_PG_SSLMODE=v["HEADSCALE_PG_SSLMODE"])
+    for key in CONSOLE_TUNING:
+        if settings.get(key):  # unset: the console's own default
+            env[SETTINGS[key][0]] = settings[key]
     for key, name in (("portal_admin_groups", "PORTAL_ADMIN_GROUPS"),
                       ("portal_network_admin_groups", "PORTAL_NETWORK_ADMIN_GROUPS"),
                       ("portal_auditor_groups", "PORTAL_AUDITOR_GROUPS")):
@@ -757,8 +738,6 @@ def console_env(settings, data_dir=None):
             env[name] = settings[key]
     if v["AUTH_PROVIDER"] != "none":
         env["OIDC_SCOPE"] = v["OIDC_SCOPE"]
-    if v["AUTH_PROVIDER"] == "authentik":
-        env.update(AUTHENTIK_URL=settings.get("authentik_url", ""), AUTHENTIK_API_TOKEN=settings.get("authentik_api_token", ""))
     return {k: val for k, val in env.items() if val != ""}
 
 
@@ -768,10 +747,6 @@ def config_warnings(settings):
     if (settings.get("db_type") == "postgres") and not settings.get("pg_ro_user"):
         out.append("PostgreSQL: the console connects as Headscale's owner role. Set HEADSCALE_PG_RO_USER and "
                    "HEADSCALE_PG_RO_PASS and the image creates a read-only role for it (deploy/examples/postgresql).")
-    if (settings.get("authentik_upstream") or "/authentik/" in (settings.get("oidc_issuer") or "")) \
-            and not settings.get("authentik_api_token"):
-        out.append("Authentik: no AUTHENTIK_API_TOKEN, so invitations, resets and two-factor state in the console "
-                   "cannot use Authentik's API.")
     if (settings.get("tls") or "") == "off" and (settings.get("public_url") or "").startswith("https://"):
         out.append("A proxy in front: UDP 3478 (DERP/STUN) is not HTTP and does not go through it; publish it "
                    "straight to this container.")
@@ -814,9 +789,9 @@ def write_file(path, content, mode=0o600):
 def render_all(settings, data_dir=None):
     """Write config.yaml, Caddyfile and (if missing) derp.yaml under <data>/config."""
     p = paths(data_dir)
-    v = to_vars(settings, "aio")
-    write_file(p["config"], render_headscale_config(v, "aio", _read(p["config"]), data_dir))
-    write_file(p["caddyfile"], render_caddyfile(v, "aio", data_dir))
+    v = to_vars(settings)
+    write_file(p["config"], render_headscale_config(v, _read(p["config"]), data_dir))
+    write_file(p["caddyfile"], render_caddyfile(v, data_dir))
     if _read(p["derp"]) is None:
         write_file(p["derp"], "regions: {}\n")
     return p

@@ -32,8 +32,8 @@ services:
         max-file: "3"
 
   headscale-easy:
-    image: ghcr.io/insanerask77/headscale-easy-aio:${HSE_VERSION:-latest}
-    container_name: headscale-easy-aio
+    image: ghcr.io/insanerask77/headscale-easy:${HSE_VERSION:-latest}
+    container_name: headscale-easy
     restart: unless-stopped
     env_file: .env
     environment:

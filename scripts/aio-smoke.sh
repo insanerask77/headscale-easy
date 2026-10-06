@@ -17,6 +17,7 @@
 #    - setup mode (no env) does not print a token or serve /admin/setup;
 #    - the image is above MAX_IMAGE_MB (250) or idle RAM above MAX_RAM_MB (100).
 #  Env: MAX_IMAGE_MB, MAX_RAM_MB, IDLE_SECONDS (60), SCHED_WAIT (150), HOST_PORT (18080)
+#  In GitHub Actions the measured size and RAM are also written to $GITHUB_STEP_SUMMARY.
 # =============================================================================
 set -uo pipefail
 
@@ -62,6 +63,9 @@ wait_for() {  # wait_for <seconds> <description> <command...>
 
 is_healthy() { [ "$(docker inspect -f '{{.State.Health.Status}}' "$1" 2>/dev/null)" = healthy ]; }
 
+# summary <line>: add a line to the job summary of GitHub Actions (nothing elsewhere)
+summary() { if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then printf '%s\n' "$@" >> "$GITHUB_STEP_SUMMARY"; fi; return 0; }
+
 # mem_mb <container> -> current RAM in whole MiB, from docker stats
 mem_mb() {
     local mem
@@ -92,6 +96,8 @@ latest_archive() {
 # --- image size -----------------------------------------------------------------
 size_mb=$(( $(docker image inspect "$IMAGE" --format '{{.Size}}') / 1000000 ))
 echo "image size: ${size_mb} MB (limit ${MAX_IMAGE_MB})"
+summary "### All-in-one image" "" "| | Measured | Limit |" "|---|---:|---:|"
+summary "| Image size | ${size_mb} MB | ${MAX_IMAGE_MB} MB |"
 [ "$size_mb" -le "$MAX_IMAGE_MB" ] || fail "image is ${size_mb} MB, above ${MAX_IMAGE_MB} MB"
 
 # --- headless mode ----------------------------------------------------------------
@@ -138,6 +144,7 @@ echo "idle for ${IDLE_SECONDS}s, then RAM"
 sleep "$IDLE_SECONDS"
 ram_mb=$(mem_mb "$NAME")
 echo "idle RAM: ${ram_mb} MB (limit ${MAX_RAM_MB})"
+summary "| Idle RAM (after ${IDLE_SECONDS} s) | ${ram_mb} MB | ${MAX_RAM_MB} MB |"
 [ "$ram_mb" -le "$MAX_RAM_MB" ] || fail "idle RAM is ${ram_mb} MB, above ${MAX_RAM_MB} MB"
 
 # --- built-in backups (phase 3) -----------------------------------------------------
@@ -155,6 +162,7 @@ wait "$backup_pid" || { cat "$backup_log"; fail "hse backup failed"; }
 rm -f "$backup_log"
 sample=$(mem_mb "$NAME"); [ "$sample" -gt "$peak_mb" ] && peak_mb=$sample
 echo "RAM during backup: ${peak_mb} MB (limit ${MAX_RAM_MB})"
+summary "| RAM during a backup | ${peak_mb} MB | ${MAX_RAM_MB} MB |"
 [ "$peak_mb" -le "$MAX_RAM_MB" ] || fail "RAM during a backup is ${peak_mb} MB, above ${MAX_RAM_MB} MB"
 
 # 2. the archive: private, readable, AIO format, with the console's accounts and

@@ -16,12 +16,12 @@
 #  It writes a compose file and a small .env in the install directory and runs
 #  `docker compose up -d`. Everything else (DERP, DNS, identity provider, backups) is the setup
 #  wizard's job, or the console's afterwards. Running it again on the same directory only updates
-#  the images: the .env and the data are never touched. The 1.x installer is legacy/install-1x.sh.
+#  the images: the .env and the data are never touched.
 # =============================================================================
 set -euo pipefail
 
 YES=false; DIR="${HSE_DIR:-./headscale-easy}"; INSTALL_DOCKER=false; NO_PULL=false
-CONTAINER=headscale-easy-aio
+CONTAINER=headscale-easy
 # Where answers are read from: the terminal even when the script itself arrives on stdin (curl | bash)
 INPUT="${HSE_INSTALL_INPUT:-/dev/tty}"
 
@@ -80,11 +80,11 @@ ensure_docker() {
 }
 
 # --- an existing directory -----------------------------------------------------------------------
-# A 1.x install keeps its settings in the repository root: converting it is phase 5's migration,
-# not something to do half-way here.
+# A 1.x install keeps its settings in the repository root. 2.0 does not convert it: never write
+# into that directory.
 refuse_1x() {
     if [[ -f "$DIR/headscale-config.yaml" ]] || grep -qE '^(SSL_MODE|AUTH_PROVIDER)=' "$DIR/.env" 2>/dev/null; then
-        die "$DIR holds a 1.x installation (split compose file). Keep using ./legacy/install-1x.sh there, or install in another directory (--dir)."
+        die "$DIR holds a 1.x installation (split compose file). 2.0 is a fresh install: use another directory (--dir)."
     fi
 }
 
@@ -115,12 +115,12 @@ write_compose() {
 # One container does everything: Headscale, Caddy (HTTPS) and the web console. What
 # you add around it (an identity provider, PostgreSQL, a proxy in front) is in
 # ../examples/. Reference for every variable: docs/all-in-one.md.
-name: headscale-easy-aio
+name: headscale-easy
 
 services:
   headscale-easy:
-    image: ghcr.io/insanerask77/headscale-easy-aio:${HSE_VERSION:-latest}
-    container_name: headscale-easy-aio
+    image: ghcr.io/insanerask77/headscale-easy:${HSE_VERSION:-latest}
+    container_name: headscale-easy
     restart: unless-stopped
     env_file: .env
     ports:
