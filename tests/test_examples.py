@@ -54,8 +54,8 @@ def compose_files():
 def render_for(env):
     """The image's three outputs for an environment, as the supervisor would render them."""
     settings = render.load_settings(env, "/nonexistent/settings.json")
-    v = render.to_vars(settings, "aio")
-    return (v, render.render_caddyfile(v, "aio", "/data"), render.render_headscale_config(v, "aio"),
+    v = render.to_vars(settings)
+    return (v, render.render_caddyfile(v, "/data"), render.render_headscale_config(v),
             render.console_env(settings, "/data"))
 
 

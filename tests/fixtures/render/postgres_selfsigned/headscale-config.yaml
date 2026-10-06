@@ -8,9 +8,9 @@
 # URL clients use to reach this server
 server_url: https://192.168.1.10
 
-listen_addr: 0.0.0.0:8080
-metrics_listen_addr: 0.0.0.0:9090
-grpc_listen_addr: 0.0.0.0:50443
+listen_addr: 127.0.0.1:8080
+metrics_listen_addr: 127.0.0.1:9090
+grpc_listen_addr: 127.0.0.1:50443
 grpc_allow_insecure: false
 
 # Address ranges handed out to devices
@@ -30,7 +30,7 @@ derp:
     region_code: "custom"
     region_name: "Custom Embedded DERP"
     stun_listen_addr: "0.0.0.0:3478"
-    private_key_path: /var/lib/headscale/derp_server_private.key
+    private_key_path: /data/headscale/derp_server_private.key
     automatically_add_embedded_derp_region: true
   auto_update_enabled: true
   update_frequency: 24h
@@ -38,9 +38,9 @@ derp:
   paths: []
   # <<< derp map
 
-private_key_path: /var/lib/headscale/private.key
+private_key_path: /data/headscale/private.key
 noise:
-  private_key_path: /var/lib/headscale/noise_private.key
+  private_key_path: /data/headscale/noise_private.key
 
 # SQLite (default) or PostgreSQL, chosen in the installer (HEADSCALE_DB_TYPE)
 database:
@@ -85,10 +85,10 @@ log:
 
 # Proxies whose X-Forwarded-For is trusted, so logs show real client IPs
 trusted_proxies:
-  - 172.16.0.0/12
+  - 127.0.0.1/32
 
 # Local CLI socket (docker exec headscale headscale ...)
-unix_socket: /var/run/headscale/headscale.sock
+unix_socket: /data/headscale/headscale.sock
 unix_socket_permission: "0770"
 
 # OIDC disabled

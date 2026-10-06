@@ -1421,8 +1421,8 @@ exit %(code)d
                     {"pg_ro_user": "a b", "pg_ro_pass": "x"}, {"pg_ro_user": "ro;drop", "pg_ro_pass": "x"},
                     {"pg_ro_user": "1ro", "pg_ro_pass": "x"}, {"pg_ro_user": "r" * 64, "pg_ro_pass": "x"}):
             with self.assertRaises(ValueError, msg=bad):
-                render.to_vars(dict(base, **bad), "aio")
-        render.to_vars(dict(base, pg_ro_user="headscale_ro", pg_ro_pass="x"), "aio")
+                render.to_vars(dict(base, **bad))
+        render.to_vars(dict(base, pg_ro_user="headscale_ro", pg_ro_pass="x"))
 
 
 class RestoreFromConsolePostgresTest(RestoreFromConsoleTest):
