@@ -16,15 +16,19 @@ translation and pull request makes it better.
 ## Project layout
 
 ```
-install.sh              Interactive installer (bash, English + Spanish)
+install.sh              Installer: Docker if missing, a few questions, writes a small .env and runs the compose file
 uninstall.sh            Uninstaller
-docker-compose.yml      The stack: headscale, caddy, web, hs-helper, authentik (profile)
-templates/              Files the installer renders with envsubst
-authentik/blueprints/   Authentik configuration (OIDC clients, groups, add-user flow)
-authentik/branding/     Authentik theme (CSS, logos)
-web/                    The web console (ghcr.io/insanerask77/headscale-easy)
+aio/                    The all-in-one image: Dockerfile, supervisor, config renderer, wizard, backups, `hse`
+  supervisor.py         Starts and restarts Headscale, Caddy and the console; the console's socket protocol
+  render.py             Renders Headscale's config.yaml, the Caddyfile and the DERP map from the settings
+  wizard.py             The first-run setup wizard
+  backup.py, restore.py, cron.py   Built-in backups and their schedule
+  hse                   Control CLI: health, reload, backup, backups, restore
+templates/              Files the renderer fills in (Headscale config, Caddyfile, PostgreSQL read-only role)
+web/                    The web console (runs inside the image)
   app.py                HTTP server, routing, sessions, OIDC
-  headscale.py          Headscale REST API client, DNS config, hs-helper client
+  headscale.py          Headscale REST API client, DNS config, supervisor client
+  local_accounts.py     Local accounts: passwords, TOTP, invitations, reset links, sign-up keys
   pages.py              Machines, device, DNS, keys, settings pages
   admin_pages.py        Users, access controls (raw HuJSON tab), sign-in page
   acl_pages.py          Access controls: Rules, Groups & tags, Test access tabs
@@ -33,45 +37,56 @@ web/                    The web console (ghcr.io/insanerask77/headscale-easy)
   i18n.py, locales/     Translations
   static/               CSS, JS, font, favicon
 aio/                    The all-in-one image: supervisor, control socket, config renderer, wizard, backups
-scripts/                validate.sh, check_i18n.py, the smoke tests
+backup/                 The optional `backup-remote` sidecar (S3, B2, SFTP, rsync)
+deploy/                 The reference compose file and the examples (proxies, identity providers, PostgreSQL)
+scripts/                aio-smoke.sh, compose-smoke.sh, validate.sh, check_i18n.py
+tests/                  Unit tests (Python standard library only)
 docs/, mkdocs.yml       Documentation site (GitHub Pages), screenshots
 ```
 
 ## Principles
 
-- **Simple to run.** One command installs everything; re-running it is safe.
-  Never break existing installations: keep data, migrate settings.
+- **Simple to run.** One container, one command; re-running the installer is safe.
+  Never lose a user's data: keep it in the volume, and tell people in the
+  changelog when something needs their attention.
 - **No dependencies in the console.** Python standard library only, plain
   HTML/CSS/JS, no build step. It keeps the image tiny and the attack surface
   small.
 - **Feels like Tailscale.** When adding a screen, look at how Tailscale's admin
   console does it and follow the same wording and layout where Headscale
   supports the feature.
-- **Secure by default.** Least privilege for containers, CSRF tokens on every
-  form, escape all output (`ui.esc`), members only ever touch their own devices.
+- **Secure by default.** Least privilege (unprivileged user, no capabilities, no
+  Docker socket), CSRF tokens on every form, escape all output (`ui.esc`), members
+  only ever touch their own devices.
+- **Small.** The image stays under 250 MB and idles under 100 MB of RAM; CI fails
+  above that (`scripts/aio-smoke.sh`).
 
 ## Development
 
-You need Docker and a running stack (`./install.sh` with `SSL_MODE=none` and a
-LAN IP or a name like `vpn.127.0.0.1.nip.io` is the quickest).
-
-Rebuild and restart the console after changing `web/`:
+You need Docker. The loop for the all-in-one image:
 
 ```bash
-docker compose up -d --build web
-docker compose logs -f web
+docker build -f aio/Dockerfile -t hse-aio:dev .
+./scripts/aio-smoke.sh hse-aio:dev          # starts it headless, checks health, a backup, the limits
+docker run --rm -p 8080:80 -e HSE_PUBLIC_URL=http://localhost:8080 -e HSE_TLS=off \
+  -e HSE_ADMIN_EMAIL=me@example.com -e HSE_ADMIN_PASSWORD='a long password' hse-aio:dev
 ```
+
+Then open `http://localhost:8080/admin`. To work on the console without a rebuild
+each time, mount the sources over the image:
+`-v "$PWD/web:/app/web:ro"` and restart the container. To see the first-run wizard,
+leave out `HSE_PUBLIC_URL` and read the token from `docker logs`.
 
 Before opening a pull request:
 
 ```bash
 make lint        # shellcheck, Python syntax, translation coverage
-make validate    # project structure and Compose file
+make test        # unit tests
+make validate    # project structure, compose files, the environment-variable reference
 ```
 
-To test the installer's output without deploying, answer **No** to "Deploy the
-stack now?": it writes `.env`, `headscale-config.yaml`, `Caddyfile` and
-`docker-compose.override.yml` and stops.
+`scripts/compose-smoke.sh` checks the reference compose file in `deploy/compose/`
+with the backup sidecar.
 
 ## Documentation
 
@@ -116,66 +131,48 @@ To add a language:
 
 ## Branches and releases
 
-Two long-lived branches, so the 2.0 work ([simplification plan](https://github.com/insanerask77/headscale-easy/blob/main/SIMPLIFICATION_PLAN.md))
-never breaks the installations running 1.x:
+Two long-lived branches:
 
 | Branch | What it is | Receives | Releases | Images |
 |---|---|---|---|---|
-| `main` | Stable 1.x, always releasable | PRs from `fix/…`, `docs/…`, small `feat/…` for 1.x | `v1.x.y` tags | `:edge` on push, `:latest` + `:1.x.y` on tags |
-| `next` | Integration branch for 2.0 | PRs from 2.0 work branches, and merges of `main` | `v2.0.0-alpha.N`, `-beta.N`, `-rc.N` tags | `:next` on push, `:2.0.0-alpha.N` on tags (never `:latest`) |
+| `main` | The last release, always releasable | Merges of `next` at release time, and urgent `fix/…` | `v2.x.y` tags | `:edge` on push, `:latest` + `:2.x.y` on tags |
+| `next` | Integration branch | PRs from work branches | `-alpha.N`, `-beta.N`, `-rc.N` tags | `:next` on push, never `:latest` |
 | `feat/…`, `fix/…`, `docs/…`, `chore/…`, `refactor/…`, `test/…` | Short-lived work branches | — | — | `:dev` and `:branch-<name>` on push |
-
-### Where does my branch start?
-
-- A fix or a feature for **1.x** (what users run today): branch from `main`, PR into `main`.
-- Work from the **simplification plan**: branch from `next`, PR into `next`.
-  Name it after the phase: `feat/2.0-p0-register-flow`, `feat/2.0-p1-local-accounts`.
-- A bug that exists in both: fix it on `main` first; it reaches `next` with the
-  next sync. Never fix it twice.
 
 ### Rules
 
+- Branch from `next` and open the PR into `next`. A fix that cannot wait for the
+  next release branches from `main` instead, goes into `main`, and is merged back
+  into `next`. Never fix a bug twice.
 - `main` and `next` only change through pull requests with green CI; no
   force-push, no deletion.
-- Work branches into `main`/`next`: **squash merge**, with a Conventional
-  Commit title (it becomes the commit message).
-- **Sync `main` into `next`** with a merge commit (never rebase or squash it)
-  after every 1.x release and at least once a week, in a PR titled
-  `chore: sync main into next`. `next` is never merged into `main` until the
-  2.0 release.
+- Work branches into `next`: **squash merge**, with a Conventional Commit title
+  (it becomes the commit message).
 - Keep work branches small (one task of a plan phase) and rebase them on their
   base branch freely while they are yours; once someone else uses one, merge
   instead.
-- Every PR into `next` keeps `make lint`, `make test` and the current
-  `docker compose` stack working, until phase 5 of the plan deprecates pieces
-  on purpose. New 2.0 behaviour is opt-in until then.
-- `CHANGELOG.md`: `main` writes under `## [Unreleased]`; `next` writes under
-  `## [2.0.0] - Unreleased`. Sync conflicts there are resolved by keeping both.
-- `web/version.py`: `main` holds the last 1.x version; `next` holds
-  `2.0.0-dev` until a pre-release tag.
+- `CHANGELOG.md`: write under `## [Unreleased]` (or the version in progress).
+- `web/version.py` holds the version of the code on that branch.
 
 ### Releasing
 
-1. 1.x: on a `release/1.x.y` branch from `main`, bump `web/version.py`, move
-   `[Unreleased]` to `## [1.x.y] - YYYY-MM-DD` in `CHANGELOG.md`, PR into
-   `main`, then tag the merge commit `v1.x.y`. CI publishes the images and the
-   GitHub release.
-2. 2.0 pre-releases: the same on `next`, with `v2.0.0-alpha.N` tags.
-3. 2.0: PR `next` → `main` (merge commit), tag `v2.0.0`. At that moment a
-   `release/1.x` branch is cut from the last `v1.*` tag for security fixes
-   only, and `docker.yml` must stop moving `:latest` for `v1.*` tags.
+1. Move the changelog entries to `## [x.y.z] - YYYY-MM-DD` and bump
+   `web/version.py` on a `release/x.y.z` branch, with a PR into `next`.
+2. Open a PR `next` → `main` and merge it with a **merge commit**, then tag the
+   merge commit `vx.y.z`. CI publishes the image and the GitHub release.
+3. Pre-releases are tagged on `next` (`v2.0.0-rc.1`).
 
 ## Pull requests
 
-1. Fork and create a branch from `main` or `next` (see [Branches and releases](#branches-and-releases)).
+1. Fork and create a branch from `next` (see [Branches and releases](#branches-and-releases)).
 2. Keep changes focused; update docs and translations in the same PR.
 3. Use [Conventional Commits](https://www.conventionalcommits.org/)
-   (`feat: add tailnet lock page`, `fix(installer): …`).
+   (`feat: add tailnet lock page`, `fix(aio): …`).
 4. Describe what you tested. Screenshots help for UI changes.
 5. Say if the change was written with an AI assistant. That is fine — most of
    this project was (see [AI usage](https://insanerask77.github.io/headscale-easy/ai-usage/))
    — but you must have read and tested it yourself, and changes to sign-in,
-   sessions, permissions or the Docker socket need a test in
+   sessions or permissions need a test in
    `tests/test_security.py`.
 6. CI must pass.
 

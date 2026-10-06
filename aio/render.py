@@ -75,6 +75,17 @@ SETTINGS = {
     "notify_urls": ("NOTIFY_URLS", ""),
     "notify_events": ("NOTIFY_EVENTS", ""),
     "portal_admin_emails": ("PORTAL_ADMIN_EMAILS", ""),
+    # Console tuning. Unset (None) = the console's own default; set = passed to it
+    "expiry_warning_days": ("EXPIRY_WARNING_DAYS", None),  # a key "expires soon" within N days (14)
+    "inactive_days": ("INACTIVE_DAYS", None),  # a machine is "inactive" after N days offline (30)
+    "auto_rename_localhost": ("AUTO_RENAME_LOCALHOST", None),  # rename "localhost" machines (true)
+    "rename_interval": ("RENAME_INTERVAL", None),  # seconds between rename passes (5)
+    "audit_retention_days": ("AUDIT_RETENTION_DAYS", None),  # activity log retention, 0 = forever (90)
+    "status_update_check": ("STATUS_UPDATE_CHECK", None),  # look for a newer release (true)
+    "signin_rate_limit": ("SIGNIN_RATE_LIMIT", None),  # failed sign-ins allowed per window (10)
+    "signin_rate_window": ("SIGNIN_RATE_WINDOW", None),  # window in seconds (600)
+    "portal_api_key_login": ("PORTAL_API_KEY_LOGIN", None),  # emergency sign-in with the Headscale API key
+    "backup_upload_max_mb": ("BACKUP_UPLOAD_MAX_MB", None),  # largest backup the console accepts (1024)
     # Advanced edition (deploy/): a proxy in front, an external Authentik, a read-only PostgreSQL role
     "trusted_proxies": ("HSE_TRUSTED_PROXIES", ""),  # CIDRs of the proxy in front: real client IPs
     "trusted_proxies_any": ("HSE_TRUSTED_PROXIES_ANY", ""),  # 1: allow a /0 entry (trust every sender)
@@ -93,6 +104,9 @@ SETTINGS = {
     "backup_schedule": ("BACKUP_SCHEDULE", "0 3 * * *"),
     "backup_keep_days": ("BACKUP_KEEP_DAYS", "14"),
 }
+CONSOLE_TUNING = ("expiry_warning_days", "inactive_days", "auto_rename_localhost", "rename_interval",
+                  "audit_retention_days", "status_update_check", "signin_rate_limit", "signin_rate_window",
+                  "portal_api_key_login", "backup_upload_max_mb")
 # Who provides HTTPS (letsencrypt | selfsigned | front | none) and the identity provider
 # (none | authentik | external) are derived from the settings, never stored.
 TLS_TO_SSL_MODE = {"auto": "letsencrypt", "internal": "selfsigned", "off": "none"}
@@ -719,6 +733,9 @@ def console_env(settings, data_dir=None):
                    HEADSCALE_PG_USER=settings["pg_ro_user"] if ro else v["HEADSCALE_PG_USER"],
                    HEADSCALE_PG_PASSWORD=settings["pg_ro_pass"] if ro else v["HEADSCALE_PG_PASS"],
                    HEADSCALE_PG_SSLMODE=v["HEADSCALE_PG_SSLMODE"])
+    for key in CONSOLE_TUNING:
+        if settings.get(key):  # unset: the console's own default
+            env[SETTINGS[key][0]] = settings[key]
     for key, name in (("portal_admin_groups", "PORTAL_ADMIN_GROUPS"),
                       ("portal_network_admin_groups", "PORTAL_NETWORK_ADMIN_GROUPS"),
                       ("portal_auditor_groups", "PORTAL_AUDITOR_GROUPS")):

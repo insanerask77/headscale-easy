@@ -1,15 +1,15 @@
-# All-in-one image (preview)
+# All-in-one image
 
-One container with Headscale, Caddy and the web console, set up from your
-browser. No Docker socket, no installer, no Authentik. It is a **preview** of
-the 2.0 edition: the 1.x installer and the split compose keep working as they
-are.
+Headscale Easy is one container with Headscale, Caddy and the web console, set
+up from your browser. No Docker socket, no other service needed. This page is
+the reference for the image; the [quick start](getting-started.md) uses the
+installer, which writes exactly this.
 
 ```bash
 docker run -d --name headscale-easy \
   -p 80:80 -p 443:443 -p 3478:3478/udp \
   -v hse:/data \
-  ghcr.io/insanerask77/headscale-easy-aio
+  ghcr.io/insanerask77/headscale-easy
 ```
 
 Then read the one-time setup token from the logs and open the wizard:
@@ -21,9 +21,9 @@ docker logs headscale-easy
 Open `http://<your-server>/admin/setup`, enter the token and follow the steps.
 
 !!! note "Image name"
-    During 1.x the image is called `headscale-easy-aio` (`headscale-easy` is
-    still the console image used by the split compose). In 2.0 it takes over
-    the name `headscale-easy`.
+    The image is `ghcr.io/insanerask77/headscale-easy`. `headscale-easy-aio` is
+    published as an alias of the same image for one release, so older `docker run`
+    lines keep working.
 
 ## The first-run wizard
 
@@ -76,7 +76,7 @@ docker run -d --name headscale-easy \
   -e ACME_EMAIL=you@example.com \
   -e HSE_ADMIN_EMAIL=admin@example.com \
   -e HSE_ADMIN_PASSWORD='choose-a-long-one' \
-  ghcr.io/insanerask77/headscale-easy-aio
+  ghcr.io/insanerask77/headscale-easy
 ```
 
 Precedence is **environment > `/data/config/settings.json` > defaults**.
@@ -101,10 +101,10 @@ Precedence is **environment > `/data/config/settings.json` > defaults**.
 | `BACKUP_KEEP_DAYS` | `14` | Backups older than this are deleted (the newest successful one is always kept) |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | | Sign in with an external OIDC provider |
 | `HSE_OIDC_ALLOWED_DOMAINS`, `HSE_OIDC_ALLOWED_USERS`, `HSE_OIDC_ALLOWED_GROUPS` | | Who may sign in through the provider (comma-separated; empty = everyone the provider lets in). See [Advanced edition](advanced.md#identity-providers) |
-| `PORTAL_ADMIN_GROUPS`, `PORTAL_NETWORK_ADMIN_GROUPS`, `PORTAL_AUDITOR_GROUPS`, `PORTAL_ADMIN_EMAILS` | `vpn-admins,authentik Admins` for admins | Who is what in the console |
+| `PORTAL_ADMIN_GROUPS`, `PORTAL_NETWORK_ADMIN_GROUPS`, `PORTAL_AUDITOR_GROUPS`, `PORTAL_ADMIN_EMAILS` | | Who is what in the console, by provider group |
 | `OIDC_SCOPE` | `openid profile email` | Scopes asked by the console and Headscale |
 | `HSE_TRUSTED_PROXIES`, `HSE_TRUSTED_PROXIES_ANY` | | The proxy in front, as `/32` addresses: real client IPs. See [Advanced edition](advanced.md#a-proxy-in-front) |
-| `HSE_AUTHENTIK_UPSTREAM`, `AUTHENTIK_URL`, `AUTHENTIK_API_TOKEN` | | An external Authentik served under `/authentik` (`host:port` for Caddy) and its API for the console |
+| `HSE_AUTHENTIK_UPSTREAM` | | An external Authentik served under `/authentik` (`host:port` for Caddy), so its issuer URL does not change |
 | `HEADSCALE_PG_RO_USER`, `HEADSCALE_PG_RO_PASS` | | A read-only PostgreSQL role the image creates for the console (it never gets the owner's credentials). See [Advanced edition](advanced.md#postgresql) |
 | `HEADSCALE_DB_TYPE`, `HEADSCALE_PG_*` | `sqlite` | Use an external PostgreSQL |
 
@@ -168,7 +168,7 @@ result), the next run, a **Back up now** button, the schedule and retention, the
 list of backups with **Download** and **Restore**, and **Upload a backup** for
 one that comes from another server or from outside this one (*Upload* adds it to
 the list, *Upload and restore* does both in one step; the file is checked before
-it is kept, and the limit is `BACKUP_UPLOAD_MAX_MB`, 1024 by default). A failed
+it is kept, and the limit is 1024 MB). A failed
 scheduled backup also sends a notification if you configured one.
 
 Restore, in order of preference:
@@ -180,7 +180,7 @@ Restore, in order of preference:
     ```bash
     docker stop headscale-easy
     docker run --rm -v hse:/data --entrypoint hse \
-      ghcr.io/insanerask77/headscale-easy-aio restore /data/backups/<file>.tar.gz
+      ghcr.io/insanerask77/headscale-easy restore /data/backups/<file>.tar.gz
     docker start headscale-easy
     ```
 
@@ -198,8 +198,7 @@ Restore, in order of preference:
 Both ways check the archive first (format, SHA-256 of every file, database
 integrity) and change nothing if it is not valid. Before replacing anything they
 make a `…-pre-restore-…` backup of the current data, and put it back if the
-restore fails half way. An archive from a 1.x install is refused. The reverse is also true: `scripts/restore.sh`
-(the 1.x tool) refuses an archive from this image and points to `hse restore`.
+restore fails half way. An archive that is not a Headscale Easy 2 backup is refused.
 
 ### Where the backups go
 
@@ -251,15 +250,16 @@ Changing DNS in the console validates the config and restarts Headscale
 through it. To update, pull the new image and recreate the container: the data
 is in the volume.
 
-Measured on the CI runner: the image is about 55 MB and the idle container
-uses about 65 MB of RAM, also while a backup runs. CI fails above 250 MB and 100 MB.
+Measured by `scripts/aio-smoke.sh`: the image is 232 MB and the idle container
+uses 72 MB of RAM, also while a backup runs. CI fails above 250 MB and 100 MB
+(see [Architecture](architecture.md#resource-usage)).
 
-## Limits of the preview
+## Limits
 
-- No bundled Authentik: use local accounts (with two-factor) or an external
-  OIDC provider.
+- Accounts are local (with two-factor) or an external OIDC provider; there is no
+  bundled identity provider.
 - Backups stay on the volume: for remote copies use the sync sidecar (see [Backups](#backups)).
-- There is no migration from 1.x: 2.0 is a fresh install.
+- One Headscale per container: Headscale does not support several instances or HA.
 
 ## Users and sign-up
 

@@ -32,7 +32,7 @@ required_files=(
     web/app.py web/headscale.py web/pgwire.py web/pages.py web/admin_pages.py
     web/ui.py web/i18n.py web/version.py web/mfa.py web/locales/es.json
     web/static/style.css web/static/app.js web/static/theme.js
-    scripts/check_i18n.py
+    scripts/check_i18n.py scripts/gen_env_reference.py
     aio/Dockerfile aio/control.py aio/supervisor.py aio/render.py
     backup/Dockerfile backup/entrypoint.sh backup/remote.sh
     mkdocs.yml docs/requirements.txt docs/index.md docs/index.es.md
@@ -51,6 +51,7 @@ done
 if command -v python3 &>/dev/null; then
     if python3 -m py_compile web/*.py aio/*.py 2>/dev/null; then ok "Python syntax: web/*.py aio/*.py"; else fail "Python syntax error in web/ or aio/"; fi
     if python3 scripts/check_i18n.py >/dev/null; then ok "Translations complete"; else fail "Missing translations: python3 scripts/check_i18n.py"; fi
+    if python3 scripts/gen_env_reference.py; then ok "Environment-variable reference documents every variable"; else fail "Undocumented variables: python3 scripts/gen_env_reference.py"; fi
 else
     warn "python3 not found: Python checks skipped"
 fi

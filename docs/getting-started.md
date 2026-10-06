@@ -53,11 +53,6 @@ With `HSE_ADMIN_EMAIL` set there is no wizard: the server starts with that accou
     Run `./install.sh` again on the same directory: it only pulls the new image and
     recreates the container. The `.env` and the data are never touched.
 
-!!! note "Running 1.x?"
-    The 1.x stack (built-in Authentik, one container per piece) keeps its own
-    installer, `legacy/install-1x.sh`, until 2.0. The new `install.sh` refuses a
-    directory that holds a 1.x install, so the two cannot be mixed up.
-
 Everything else — an identity provider, a proxy in front, PostgreSQL, remote
 backups — is in the [advanced edition](advanced.md). See
 [All-in-one image](all-in-one.md) for every setting.
