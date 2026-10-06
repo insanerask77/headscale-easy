@@ -85,6 +85,13 @@ consola. Mira la [comparativa detallada](https://insanerask77.github.io/headscal
 - 📱 **Máquinas**: estado, direcciones, sistema y versión del cliente con aviso de
   actualización, renombrar, expirar, eliminar, caducidad de clave, etiquetas,
   **rutas de subred y exit nodes**, filtros, búsqueda y exportación CSV.
+- 🐳 **Pestaña Docker en Añadir dispositivo**: genera el `docker run` y el
+  `docker-compose.yml` de un contenedor Tailscale (exit node, rutas de subred,
+  modo userspace, versión de Tailscale fijada), deja la clave en un `.env`
+  aparte, da el comando para aplicar un cambio a un contenedor que ya corre y
+  incluye un desplegable de ayuda con once problemas habituales.
+- ✅ **Rutas pendientes de aprobar**: la insignia de la máquina lo indica, se
+  aprueban con un clic y los administradores ven un aviso que las cuenta.
 - 🔑 **Claves de autenticación** (de un uso, reutilizables, efímeras) y API keys;
   registro de dispositivos por Auth ID.
 - 🌐 **DNS**: MagicDNS, dominio de la tailnet, nameservers, split DNS, dominios de
@@ -112,6 +119,10 @@ consola. Mira la [comparativa detallada](https://insanerask77.github.io/headscal
 | ![Controles de acceso](docs/images/access-controls.png) | ![Claves](docs/images/keys.png) |
 | **Inicio de sesión** | **Añadir dispositivo** |
 | ![Inicio de sesión](docs/images/sign-in.png) | ![Añadir dispositivo](docs/images/add-device.png) |
+| **Añadir dispositivo, pestaña Docker** | **Ayuda de Docker** |
+| ![Pestaña Docker](docs/images/add-device-docker.png) | ![Ayuda de Docker](docs/images/docker-troubleshooting.png) |
+| **Rutas pendientes de aprobar (claro)** | **Máquinas (oscuro)** |
+| ![Rutas pendientes](docs/images/machine-pending-routes.png) | ![Máquinas, tema oscuro](docs/images/machines-dark.png) |
 
 ## 🚀 Inicio rápido
 
