@@ -197,7 +197,7 @@ servidor usa la imagen `backup` como **sidecar de sincronización** en la edici�
 avanzada: con `BACKUP_MODE=sync` sube cada archivo nuevo que encuentre en
 `/backups` (monta la misma carpeta, en solo lectura) cada
 `BACKUP_SYNC_INTERVAL` segundos y aplica la retención remota. rclone y rsync no
-vienen en la imagen todo en uno. Mira [Operación → Copias remotas](operations.md#backups-remotos)
+vienen en la imagen todo en uno. Mira [Operación → Copias remotas](operations.md#remote-backups)
 para los ajustes del destino.
 
 ### Sintaxis de la programación

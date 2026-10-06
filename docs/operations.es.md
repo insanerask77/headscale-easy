@@ -166,7 +166,7 @@ contenedor extra. La programación, qué contiene, cómo restaurar (desde la con
 `hse restore` o en un servidor nuevo) y el menú **Copias de seguridad** están en
 [Todo en uno → Copias de seguridad](all-in-one.es.md#backups).
 
-### Copias remotas { #backups-remotos }
+### Copias remotas { #remote-backups }
 
 Una copia que está en el mismo servidor no sobrevive a perder el servidor. Dos formas
 de guardar copias en otro sitio:

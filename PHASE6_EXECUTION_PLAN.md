@@ -193,27 +193,34 @@ Files that only the split compose, the helper container and the 1.x installer us
 
 ## Block 4: documentation (M, ~7-9h)
 
-- [ ] **README / README.es:** the quick start is one command (installer or `docker run`); the
+**Status:** ✅ Done on `feat/phase6-block4`, written for the **final** 2.0 state (before Blocks 1 and 2 land), so
+re-check after merging: image name `headscale-easy` (alias `-aio`), `docker exec headscale-easy …` and the compose
+container name, no `legacy/`, no Authentik API. Measured with `scripts/aio-smoke.sh` on 2026-10-06: image 232 MB,
+72 MB RAM idle and during a backup, 46 processes. `scripts/gen_env_reference.py` (wired into `validate.sh`) fails when a
+variable of `aio/render.py` is missing from `configuration*.md`. Not done: `hardening`, `why` and `architecture` have no
+Spanish page (as before); the headless variable table in `all-in-one.md` still repeats part of the new reference.
+
+- [x] **README / README.es:** the quick start is one command (installer or `docker run`); the
       advanced edition is a short section linking `deploy/` and the examples; remove the 1.x
       stack, Authentik-bundled and "preview" wording; keep the badges and numbers measured.
-- [ ] **`docs/architecture.md`:** the new diagram (one container: Caddy, Headscale, console,
+- [x] **`docs/architecture.md`:** the new diagram (one container: Caddy, Headscale, console,
       supervisor; optional outside pieces) and a resource table with the measured numbers.
-- [ ] **`docs/configuration*.md`:** the environment-variable reference regenerated from
+- [x] **`docs/configuration*.md`:** the environment-variable reference regenerated from
       `aio/render.py` (`HSE_*`, `OIDC_*`, `HEADSCALE_PG_*`, `BACKUP_*`, `SMTP_*`, console knobs);
       remove every variable that no longer exists. A small script
       (`scripts/gen_env_reference.py`) can fail CI if a variable the renderer reads is
       undocumented.
-- [ ] **`docs/getting-started*.md`:** one path (installer → wizard); delete the 1.x flow.
-- [ ] **`docs/operations*.md`:** the upgrade story is `docker pull` + restart, backups with
+- [x] **`docs/getting-started*.md`:** one path (installer → wizard); delete the 1.x flow.
+- [x] **`docs/operations*.md`:** the upgrade story is `docker pull` + restart, backups with
       `hse backup`, and restore; delete `make` and 1.x compose commands.
-- [ ] **`docs/hardening.md`, `docs/security.md`, `SECURITY.md`:** no Docker socket anywhere,
+- [x] **`docs/hardening.md`, `docs/security.md`, `SECURITY.md`:** no Docker socket anywhere,
       non-root uid, no capabilities, ports; remove hs-helper sections.
-- [ ] **`docs/why.md`:** the reasoning for one container and local accounts.
-- [ ] **`docs/all-in-one*.md`, `docs/advanced*.md`:** merge duplicated tables, remove the
+- [x] **`docs/why.md`:** the reasoning for one container and local accounts.
+- [x] **`docs/all-in-one*.md`, `docs/advanced*.md`:** merge duplicated tables, remove the
       "preview" and "during 1.x" language, link the examples.
-- [ ] **`CONTRIBUTING.md`:** the dev loop for the AIO (`scripts/aio-smoke.sh`, tests, i18n),
+- [x] **`CONTRIBUTING.md`:** the dev loop for the AIO (`scripts/aio-smoke.sh`, tests, i18n),
       the branch model (`next` → `main`), no 1.x release branch.
-- [ ] `mkdocs build --strict` clean; every internal link checked; es translations for every
+- [x] `mkdocs build --strict` clean; every internal link checked; es translations for every
       page that changes; remove pages that describe deleted things.
 
 ---
