@@ -58,7 +58,8 @@ docs/, mkdocs.yml       Documentation site (GitHub Pages), screenshots
   Docker socket), CSRF tokens on every form, escape all output (`ui.esc`), members
   only ever touch their own devices.
 - **Small.** The image stays under 250 MB and idles under 100 MB of RAM; CI fails
-  above that (`scripts/aio-smoke.sh`).
+  above 250 MB on every run and above 100 MB on a release tag (`scripts/aio-smoke.sh`;
+  `HSE_SMOKE_PERF=1` runs the RAM measurements locally).
 
 ## Development
 

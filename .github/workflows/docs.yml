@@ -15,8 +15,9 @@ permissions:
   pages: write
   id-token: write
 
+# A PR's build never cancels (or waits for) a deploy of main
 concurrency:
-  group: pages
+  group: pages-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}
   cancel-in-progress: true
 
 jobs:
