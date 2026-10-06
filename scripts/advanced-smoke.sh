@@ -101,7 +101,7 @@ ENV
     docker exec headscale-easy hse restore "$arch" --yes --with-postgres >/dev/null 2>&1 || fail "hse restore --with-postgres failed on PostgreSQL $PGV"
     healthz() { [ "$(http_code "http://localhost:$PORT/admin/healthz")" = 200 ]; }
     wait_for 90 "the console did not come back after the restore" healthz
-    marker() { docker exec headscale-easy headscale users list -o json -c /data/config/config.yaml | grep -q smoke-pg; }
+    marker() { local out; out=$(docker exec headscale-easy headscale users list -o json -c /data/config/config.yaml); grep -q smoke-pg <<<"$out"; }
     wait_for 60 "the marker user did not come back after the restore" marker
     echo "backup holds the dump; restore brings the deleted user back"
     echo "PostgreSQL $PGV: OK"

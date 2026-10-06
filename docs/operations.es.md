@@ -142,11 +142,11 @@ docker exec headscale-easy headscale -c /data/config/config.yaml --help
 ## Actualizar { #updating }
 
 Cada versión es una versión de una sola imagen, y `compose.yaml` la fija (`HSE_VERSION`,
-`2.0.1` por defecto). Actualizar son tres pasos, y los datos siguen en los volúmenes:
+`2.0.2` por defecto). Actualizar son tres pasos, y los datos siguen en los volúmenes:
 
 ```bash
 docker exec headscale-easy hse backup      # 1. antes, una copia (queda en el volumen de copias)
-# 2. pon HSE_VERSION=2.0.1 en .env (o cambia la etiqueta en compose.yaml)
+# 2. pon HSE_VERSION=2.0.2 en .env (o cambia la etiqueta en compose.yaml)
 docker compose pull && docker compose up -d   # 3. descarga la imagen nueva y recrea el contenedor
 ```
 
