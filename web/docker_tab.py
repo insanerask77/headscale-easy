@@ -23,6 +23,10 @@ EXIT_ROUTES = ["0.0.0.0/0", "::/0"]
 DEFAULTS = {"hostname": "tailscale-docker", "exit": False, "routes": "", "userspace": False, "dns": True,
             "generate": False, "days": "1", "user_id": ""}
 PLACEHOLDER = "<auth-key>"
+# Image tags the snippets can pin; the first is the tested one (the exit node and firewall behaviour was
+# verified on it) and the default. "latest" is offered last, on purpose: it changes under the person's feet.
+TS_VERSIONS = ("v1.102.5", "latest")
+DEFAULTS["version"] = TS_VERSIONS[0]
 
 
 def parse(form: dict) -> tuple[dict, str]:
@@ -35,6 +39,7 @@ def parse(form: dict) -> tuple[dict, str]:
     values["generate"] = form.get("generate") == "1"
     values["days"] = str(form.get("days", "1")) if str(form.get("days", "1")) in KEY_DAYS else "1"
     values["user_id"] = str(form.get("user_id", ""))
+    values["version"] = str(form.get("version", "")) if str(form.get("version", "")) in TS_VERSIONS else TS_VERSIONS[0]
     raw = str(form.get("routes", ""))
     values["routes"] = raw[:400]
     error = ""
@@ -64,9 +69,10 @@ def _ts_args(url: str, v: dict) -> str:
     return f"--login-server={url}"
 
 
-def _env(url: str, v: dict, key: str) -> list[str]:
-    """KEY=value pairs for the official image's own variables (TS_ROUTES, TS_ACCEPT_DNS, TS_AUTH_ONCE...)."""
-    env = [f"TS_AUTHKEY={key or PLACEHOLDER}", f"TS_HOSTNAME={v['hostname']}",
+def _env(url: str, v: dict, key: str, ref: bool = False) -> list[str]:
+    """KEY=value pairs for the official image's own variables (TS_ROUTES, TS_ACCEPT_DNS, TS_AUTH_ONCE...).
+    With ref, the auth key is a ${TS_AUTHKEY} reference to a .env file instead of the key itself."""
+    env = ["TS_AUTHKEY=${TS_AUTHKEY}" if ref else f"TS_AUTHKEY={key or PLACEHOLDER}", f"TS_HOSTNAME={v['hostname']}",
            "TS_STATE_DIR=/var/lib/tailscale",
            "TS_AUTH_ONCE=true",  # a restart keeps the saved identity instead of logging in again with a spent key
            f"TS_USERSPACE={'true' if v['userspace'] else 'false'}",
@@ -75,6 +81,8 @@ def _env(url: str, v: dict, key: str) -> list[str]:
     routes = (EXIT_ROUTES if v["exit"] else []) + v["route_list"]
     if routes:
         env.append("TS_ROUTES=" + ",".join(routes))
+    if not v["userspace"]:
+        env.append("TS_DEBUG_FIREWALL_MODE=auto")  # nftables-only hosts (no iptables tables): tailscaled picks the backend that works
     env.append("TS_EXTRA_ARGS=" + _ts_args(url, v))
     return env
 
@@ -93,17 +101,24 @@ def docker_run(url: str, v: dict, key: str) -> str:
         lines += ["  --sysctl net.ipv4.ip_forward=1", "  --sysctl net.ipv6.conf.all.forwarding=1"]
     lines += [f"  -v {q(name)}:/var/lib/tailscale"]
     lines += [f"  -e {q(e) if not e.endswith(PLACEHOLDER) else e}" for e in _env(url, v, key)]
-    lines += ["  tailscale/tailscale:latest"]
+    lines += [f"  tailscale/tailscale:{v['version']}"]
     return " \\\n".join(lines)
 
 
+def env_file(key: str) -> str:
+    """The .env file that sits next to docker-compose.yml and holds the only secret."""
+    value = key or PLACEHOLDER
+    return f"TS_AUTHKEY={value if re.fullmatch(r'[A-Za-z0-9_.<>-]+', value) else shlex.quote(value)}\n"
+
+
 def compose(url: str, v: dict, key: str) -> str:
+    """The compose file never holds the key (it gets pasted into tickets and repos): see env_file()."""
     name = "tailscale-" + v["hostname"]
     j = json.dumps  # a JSON string is a valid, safely quoted YAML scalar
-    out = ["services:", "  tailscale:", "    image: tailscale/tailscale:latest",
+    out = ["services:", "  tailscale:", f"    image: tailscale/tailscale:{v['version']}",
            f"    container_name: {j(name)}", f"    hostname: {j(v['hostname'])}", "    restart: unless-stopped",
            "    environment:"]
-    out += [f"      - {j(e)}" for e in _env(url, v, key)]
+    out += [f"      - {j(e)}" for e in _env(url, v, key, ref=True)]
     out += ["    volumes:", "      - tailscale-state:/var/lib/tailscale"]
     if not v["userspace"]:
         out += ["    devices:", "      - /dev/net/tun:/dev/net/tun", "    cap_add:", "      - NET_ADMIN", "      - NET_RAW"]
@@ -160,6 +175,8 @@ def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: 
         who = f'<label class="field">{esc(_("Owner of the device"))}<select name="user_id">{options}</select></label>'
     days = "".join(f'<option value="{d}"{" selected" if d == v["days"] else ""}>{esc(_("{n} days", n=d) if d != "1" else _("1 day"))}</option>'
                    for d in KEY_DAYS)
+    versions = "".join(f'<option value="{t}"{" selected" if t == v["version"] else ""}>'
+                       f'{esc(t if t != "latest" else _("latest (not pinned)"))}</option>' for t in TS_VERSIONS)
     form = f"""
     <form method="post" action="{BASE}/add/docker" class="stack">{csrf_input(session)}
       <label class="field">{esc(_("Host name"))}<input name="hostname" value="{esc(v['hostname'])}" maxlength="63"
@@ -173,6 +190,7 @@ def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: 
       <label class="check"><input type="checkbox" name="dns" value="1"{chk(v['dns'])}>
         <span>{esc(_("Use this tailnet's DNS settings"))}</span></label>
       {who}
+      <label class="field">{esc(_("Tailscale version"))}<select name="version">{versions}</select></label>
       <label class="check"><input type="checkbox" name="generate" value="1"{chk(v['generate'])}>
         <span>{esc(_("Generate a single-use auth key"))}</span></label>
       <label class="field">{esc(_("The key is valid for"))}<select name="days">{days}</select></label>
@@ -198,8 +216,10 @@ def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: 
     <ol class="steps">
       <li>{esc(_("Set it up:"))}{form}</li>
       <li>{esc(_("Start it with Docker:"))}{_code(docker_run(url, v, key))}</li>
-      <li>{esc(_("Or save this as docker-compose.yml and run docker compose up -d:"))}{_code(compose(url, v, key))}</li>
+      <li>{esc(_("Or save this as docker-compose.yml and run docker compose up -d:"))}{_code(compose(url, v, key))}
+        {esc(_("The auth key is not in that file. Save it next to it as .env:"))}{_code(env_file(key))}</li>
       <li>{_("Without an auth key, leave TS_AUTHKEY out and run {cmd}: it prints a link to sign in.", cmd=f"<code>docker logs {esc(name)}</code>")}</li>
     </ol>
+    <p class="muted small">{esc(_("After the first successful start, delete the TS_AUTHKEY line from .env: the container keeps its own identity. Revoke keys you did not use in Settings → Keys."))}</p>
     {_tips(v)}
     {key_note}"""
