@@ -7,7 +7,7 @@ Real child processes, but fake ``headscale`` / ``caddy`` / console executables
 - SIGTERM stops everything in order (console -> caddy -> headscale);
 - the console waits for ``headscale health`` and gets the API key;
 - setup mode (no settings): wizard + caddy only, then run mode when the wizard exits 0;
-- the helper contract (tests/test_docker_helper.py) served by the supervisor.
+- the helper contract (tests/test_control.py) served by the supervisor.
 
     python3 -m unittest tests.test_supervisor
 """
@@ -29,7 +29,7 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 from aio import restore as aio_restore  # noqa: E402
 from aio import supervisor as sup  # noqa: E402
-from test_docker_helper import call  # noqa: E402
+from test_control import call  # noqa: E402
 import backup_fixtures as fx  # noqa: E402
 from test_restore import FakeBackup  # noqa: E402
 

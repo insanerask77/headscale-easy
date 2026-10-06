@@ -29,11 +29,11 @@ required_files=(
     .gitignore README.md LICENSE
     templates/headscale-config.yaml.tmpl templates/Caddyfile.tmpl templates/headscale-pg-readonly.sql
     authentik/blueprints/headscale.yaml authentik/branding/custom.css
-    web/Dockerfile web/app.py web/headscale.py web/pgwire.py web/pages.py web/admin_pages.py
+    web/app.py web/headscale.py web/pgwire.py web/pages.py web/admin_pages.py
     web/ui.py web/i18n.py web/version.py web/mfa.py web/locales/es.json
     web/static/style.css web/static/app.js web/static/theme.js
     scripts/check_i18n.py
-    helper/Dockerfile helper/helper.py
+    aio/Dockerfile aio/control.py aio/supervisor.py aio/render.py
     backup/Dockerfile backup/entrypoint.sh backup/remote.sh
     mkdocs.yml docs/requirements.txt docs/index.md docs/index.es.md
     deploy/compose/docker-compose.yml deploy/compose/.env.example deploy/compose/README.md
@@ -49,7 +49,7 @@ for f in install.sh uninstall.sh scripts/embed-compose.sh scripts/validate.sh; d
 done
 
 if command -v python3 &>/dev/null; then
-    if python3 -m py_compile web/*.py helper/*.py 2>/dev/null; then ok "Python syntax: web/*.py helper/*.py"; else fail "Python syntax error in web/ or helper/"; fi
+    if python3 -m py_compile web/*.py aio/*.py 2>/dev/null; then ok "Python syntax: web/*.py aio/*.py"; else fail "Python syntax error in web/ or aio/"; fi
     if python3 scripts/check_i18n.py >/dev/null; then ok "Translations complete"; else fail "Missing translations: python3 scripts/check_i18n.py"; fi
 else
     warn "python3 not found: Python checks skipped"

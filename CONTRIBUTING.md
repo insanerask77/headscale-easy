@@ -32,7 +32,7 @@ web/                    The web console (ghcr.io/insanerask77/headscale-easy)
   ui.py                 Layout, sidebar, icons, shared helpers
   i18n.py, locales/     Translations
   static/               CSS, JS, font, favicon
-helper/                 hs-helper: the only container with the Docker socket (helper.py)
+aio/                    The all-in-one image: supervisor, control socket, config renderer, wizard, backups
 scripts/                validate.sh, check_i18n.py, the smoke tests
 docs/, mkdocs.yml       Documentation site (GitHub Pages), screenshots
 ```

@@ -1,8 +1,7 @@
 name: Docker image
 
-# Publishes ghcr.io/insanerask77/headscale-easy (web UI),
-# ghcr.io/insanerask77/headscale-easy-helper (hs-helper) and
-# ghcr.io/insanerask77/headscale-easy-aio (all-in-one, preview):
+# Publishes ghcr.io/insanerask77/headscale-easy-aio (all-in-one) and
+# ghcr.io/insanerask77/headscale-easy-backup (remote copies of the backups):
 #   main        -> :edge
 #   tag v1.2.3  -> :1.2.3, :1.2, :1, :latest
 on:
@@ -21,10 +20,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - image: headscale-easy
-            context: web
-          - image: headscale-easy-helper
-            context: helper
           - image: headscale-easy-backup
             context: backup
           - image: headscale-easy-aio
