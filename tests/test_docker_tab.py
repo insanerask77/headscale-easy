@@ -80,7 +80,11 @@ class Snippets(unittest.TestCase):
     def test_compose_is_valid_json_quoted_yaml(self):
         v, _e = parsed(hostname="edge-1")
         yml = docker_tab.compose(URL, v, 'k"ey: x')
-        self.assertIn(json.dumps('TS_AUTHKEY=k"ey: x'), yml)  # quoted, so the colon and quote cannot break the YAML
+        self.assertNotIn('k"ey', yml)  # the key never sits in the compose file
+        self.assertIn(json.dumps("TS_AUTHKEY=${TS_AUTHKEY}"), yml)  # it is read from .env
+        self.assertEqual(docker_tab.env_file("fake-authkey-one"), "TS_AUTHKEY=fake-authkey-one\n")
+        self.assertEqual(docker_tab.env_file(""), "TS_AUTHKEY=<auth-key>\n")
+        self.assertEqual(docker_tab.env_file("a b"), "TS_AUTHKEY='a b'\n")
 
     def test_validation(self):
         for form in ({"hostname": "bad name"}, {"hostname": "a;rm -rf /"}, {"hostname": "-x"}, {"hostname": "x" * 64},
@@ -149,7 +153,8 @@ class Page(Base):
     def test_member_key_is_single_use_short_and_theirs(self):
         status, _h, body = self.post(MEMBER, generate="1", days="7", user_id="9")  # a member cannot pick another owner
         self.assertEqual(status, 200)
-        self.assertIn("TS_AUTHKEY=fake-authkey-two", body)
+        self.assertIn("TS_AUTHKEY=fake-authkey-two", body)  # docker run and the .env block
+        self.assertIn("TS_AUTHKEY=${TS_AUTHKEY}", body)  # the compose file only references it
         method, path, payload = self.api.call_args.args[:3]
         self.assertEqual((method, path), ("POST", "/preauthkey"))
         self.assertEqual((payload["user"], payload["reusable"], payload["ephemeral"]), ("2", False, False))
