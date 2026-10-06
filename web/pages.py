@@ -565,7 +565,8 @@ def machine_page(session: dict, ctx: dict, m: Machine, flash: str, error: str = 
 # Add device
 # -----------------------------------------------------------------------------
 
-def add_page(session: dict, ctx: dict, docker: dict | None = None, users: list[dict] | None = None) -> str:
+def add_page(session: dict, ctx: dict, docker: dict | None = None, users: list[dict] | None = None,
+             exit_nodes: list[dict] | None = None) -> str:
     """docker: what the Docker tab shows after its form was sent (values, key, error, users).
     users: the Headscale users an administrator can choose as owner, also before the form was sent."""
     url = ctx["public_url"]
@@ -620,7 +621,7 @@ def add_page(session: dict, ctx: dict, docker: dict | None = None, users: list[d
     }
     docker = docker or {}
     panels["docker"] = ("Docker", docker_tab.panel(session, url, docker.get("values"), docker.get("key", ""),
-                                                   docker.get("error", ""), docker.get("users", users)))
+                                                   docker.get("error", ""), docker.get("users", users), docker.get("exit_nodes", exit_nodes)))
     first = "docker" if docker else "linux"
     tabs = "".join(f'<button type="button" role="tab" data-tab="{k}" class="{"active" if k == first else ""}">{label}</button>'
                    for k, (label, _c) in panels.items())

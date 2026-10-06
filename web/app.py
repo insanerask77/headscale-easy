@@ -189,6 +189,21 @@ def to_machines(nodes: list[dict]) -> list[pages.Machine]:
     return sorted(machines, key=lambda m: (not m.online, m.name))
 
 
+def exit_nodes_for(session: dict) -> list[dict]:
+    """Approved exit nodes the Docker tab may offer: all of them to admins, only their own devices to members."""
+    me = None if session.get("admin") else my_user(session)
+    out = []
+    for n in hs.all_nodes():
+        if not set(n.get("approvedRoutes") or []) & set(EXIT_ROUTES):
+            continue
+        if not session.get("admin") and (me is None or str(n.get("user", {}).get("id")) != str(me["id"])):
+            continue
+        ips = [i for i in n.get("ipAddresses") or [] if ":" not in i]
+        if ips:
+            out.append({"name": n.get("givenName") or n.get("name") or ips[0], "ip": ips[0]})
+    return out
+
+
 def my_user(session: dict) -> dict | None:
     """The session's Headscale user (None for API key sessions).
 
@@ -461,7 +476,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.redirect(f"{BASE}/machines?m=not-found")
                 return self.send(200, pages.machine_page(session, CTX, to_machines([node])[0], flash))
             if path == f"{BASE}/add":
-                return self.send(200, pages.add_page(session, CTX, users=hs.all_users() if session.get("admin") else None))
+                return self.send(200, pages.add_page(session, CTX, users=hs.all_users() if session.get("admin") else None,
+                                                          exit_nodes=exit_nodes_for(session)))
             if path == f"{BASE}/dns":
                 return self.send(200, pages.dns_page(session, dns_ctx() if can_edit_network(session) else CTX,
                                                      hs.dns_config(), to_machines(visible_nodes(session)), flash=flash))
@@ -1761,6 +1777,9 @@ class Handler(BaseHTTPRequestHandler):
         values, error = docker_tab.parse(form)
         admin = bool(session.get("admin"))
         users = hs.all_users() if admin else None
+        exit_nodes = exit_nodes_for(session)
+        if not error and values["use_exit"] and values["use_exit"] not in {n["ip"] for n in exit_nodes}:
+            error = _("Invalid exit node.")
         key = ""
         if not error and values["generate"]:
             if admin:
@@ -1780,7 +1799,8 @@ class Handler(BaseHTTPRequestHandler):
                 audit.request_event(self, session, "authkey.create", user["name"],
                                     {"reusable": False, "ephemeral": False, "days": int(values["days"]), "source": "docker"},
                                     f"user:{user['id']}")
-        page = pages.add_page(session, CTX, docker={"values": values, "key": key, "error": error, "users": users})
+        page = pages.add_page(session, CTX, docker={"values": values, "key": key, "error": error, "users": users,
+                                                       "exit_nodes": exit_nodes})
         return self.send(400 if error else 200, page)
 
     def revoke_key(self, session: dict, key_id: str):

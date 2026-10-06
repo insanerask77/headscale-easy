@@ -32,6 +32,8 @@ ALLOWED = [
     (r"^docs/advanced/postgres(\.es)?\.md$", r"(?i)migrates its tables", "Headscale creates its own tables"),
     (r"^(web/pgwire\.py|docs/configuration(\.es)?\.md|tests/test_postgresql\.py)$", r"(?i)legacy",
      "PostgreSQL's legacy MD5 password method, refused"),
+    (r"^(web/docker_tab\.py|tests/test_docker_tab\.py|web/locales/[a-z]+\.d/docker-tab\.json|docs/docker-troubleshooting(\.es)?\.md)$",
+     r"(?i)iptables-legacy", "the name of one of the two iptables backends of Linux, which the container may lack"),
     (r"^(CONTRIBUTING\.md|mkdocs\.yml)$", r"(?i)preview locally", "mkdocs serve shows a local preview of the docs"),
     (r"^web/notify\.py$", r"disable_web_page_preview", "a parameter of Telegram's API"),
     (r"^(README(\.es)?\.md|SECURITY\.md|CHANGELOG\.md|mkdocs\.yml|docs/1x-end-of-life(\.es)?\.md)$",
