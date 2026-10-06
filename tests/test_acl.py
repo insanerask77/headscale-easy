@@ -20,7 +20,7 @@ import policy  # noqa: E402
 from i18n import set_lang  # noqa: E402
 
 SESSION_ADMIN = {"admin": True, "username": "root", "csrf": "tok"}
-CTX = {"public_url": "https://vpn.example.com", "tailnet": "", "authentik": False, "server_host": "vpn.example.com"}
+CTX = {"public_url": "https://vpn.example.com", "tailnet": "", "server_host": "vpn.example.com"}
 
 ISOLATION = """{
   // Each user can only reach their own machines

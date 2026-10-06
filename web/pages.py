@@ -813,43 +813,6 @@ def dns_page(session: dict, ctx: dict, dns: dict, machines: list[Machine], error
 # Settings
 # -----------------------------------------------------------------------------
 
-def mfa_options() -> list[tuple[str, str, str]]:
-    """(value, label, description) of each two-factor mode."""
-    return [
-        ("admins", _("Required for admins"),
-         _("Admins (vpn-admins, authentik Admins) must set it up the first time they sign in; members may.")),
-        ("everyone", _("Required for everyone"), _("Every user must set it up when signing in.")),
-        ("optional", _("Optional"), _("Nobody is forced; each user decides in their account settings.")),
-    ]
-
-
-def mfa_section(session: dict, mfa: dict) -> str:
-    """Admins: the two-factor mode of the built-in Authentik. mfa has 'mode'
-    (the one in use, or the installer's choice when it cannot be read),
-    'editable' and, when not editable, 'reason'."""
-    labels = {value: label for value, label, _d in mfa_options()}
-    head = f"""
-    <section class="card">
-      <h2>{esc(_("Two-factor authentication"))}</h2>
-      <p class="muted">{esc(_("A code from an authenticator app or a passkey after the password, when signing in with Authentik. Users who already set one up are always asked for it."))}</p>"""
-    if not mfa.get("editable"):
-        return head + f"""
-      <dl class="kvs">{kv(_("Mode"), esc(labels.get(mfa.get("mode"), mfa.get("mode"))))}</dl>
-      <p class="muted small">{esc(mfa.get("reason") or "")}</p>
-    </section>"""
-    radios = "".join(
-        f"""<label class="check"><input type="radio" name="mode" value="{value}" {"checked" if value == mfa.get("mode") else ""} required>
-          <span><b>{esc(label)}</b><span class="muted">{esc(desc)}</span></span></label>"""
-        for value, label, desc in mfa_options())
-    return head + f"""
-      <form method="post" action="{BASE}/settings/mfa" class="stack" data-busy>{csrf_input(session)}
-        {radios}
-        <p class="muted small">{esc(_("Applied in Authentik right away: it affects the next sign-in, nobody is signed out."))}</p>
-        <div><button class="btn primary" type="submit">{esc(_("Save"))}</button></div>
-      </form>
-    </section>"""
-
-
 def notify_section(session: dict) -> str:
     """Settings > General (admins): where notifications go, and "Send a test"."""
     dests = notify.destinations()
@@ -875,14 +838,12 @@ def notify_section(session: dict) -> str:
 
 
 def general_page(session: dict, ctx: dict, flash: str = "", key_expiry: int | None = None,
-                 error: str = "", mfa: dict | None = None, extra: str = "") -> str:
+                 error: str = "", extra: str = "") -> str:
     role = _("Admin") if session.get("admin") else _("Member")
     if session.get("kind") == "apikey":
         role = _("Admin (Headscale API key session)")
     groups = ", ".join(session.get("groups") or []) or "—"
     name = session.get("name") or session.get("username") or _("Administrator")
-    manage = (f'<a class="btn" href="{esc(ctx["public_url"])}/authentik/if/user/#/settings">{esc(_("Account, password and two-factor authentication"))}</a>'
-              if ctx.get("authentik") and session.get("kind") != "apikey" else "")
     langs = "".join(f'<button type="submit" name="lang" value="{code}" class="{"active" if get_lang() == code else ""}">{esc(label)}</button>'
                     for code, label in LANGUAGES.items())
     devices = ""
@@ -912,11 +873,9 @@ def general_page(session: dict, ctx: dict, flash: str = "", key_expiry: int | No
         {kv(_("Role"), esc(role))}
         {kv(_("Groups"), esc(groups)) if session.get("kind") != "apikey" else ""}
       </dl>
-      {manage}
     </section>
     {devices}
     {notifications}
-    {mfa_section(session, mfa) if session.get("admin") and mfa is not None else ""}
     {extra}
     <section class="card">
       <h2>{esc(_("Appearance"))}</h2>

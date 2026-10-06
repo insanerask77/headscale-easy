@@ -5,7 +5,7 @@
     policy, DNS and API keys.
 
 Sign-in:
-  - OIDC (Authentik or your own provider), authorization code + PKCE. The role
+  - OIDC (any provider: Authentik, Keycloak, Pocket ID, Google...), authorization code + PKCE. The role
     comes from the groups (PORTAL_ADMIN_GROUPS) or the email
     (PORTAL_ADMIN_EMAILS).
   - Headscale API key (PORTAL_API_KEY_LOGIN=true): an admin session, for
@@ -43,7 +43,6 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("headscale-easy")
 
-import accounts  # noqa: E402  (after logging is configured)
 import admin_pages  # noqa: E402
 import docker_tab  # noqa: E402
 import local_accounts as lac  # noqa: E402
@@ -60,7 +59,6 @@ import live  # noqa: E402
 import apikey  # noqa: E402
 import expiry  # noqa: E402
 import audit  # noqa: E402
-import mfa  # noqa: E402
 import naming  # noqa: E402
 import notify  # noqa: E402
 import pages  # noqa: E402
@@ -93,22 +91,17 @@ def oidc_scope(raw) -> str:
 
 OIDC_SCOPE = oidc_scope(os.environ.get("OIDC_SCOPE"))
 SSO = bool(OIDC_ISSUER and OIDC_CLIENT_ID)
-# Built-in Authentik (issuer .../authentik/application/o/<app>/): sign out
-# through the blueprint's flow, see logout()
-AUTHENTIK_SIGN_OUT = (OIDC_ISSUER.split("/application/o/")[0] + "/if/flow/headscale-easy-sign-out/"
-                      if "/authentik/application/o/" in OIDC_ISSUER else "")
 API_KEY_LOGIN = os.environ.get("PORTAL_API_KEY_LOGIN", "false").lower() == "true" or not SSO
-ADMIN_GROUPS = _csv("PORTAL_ADMIN_GROUPS", "vpn-admins,authentik Admins")
+ADMIN_GROUPS = _csv("PORTAL_ADMIN_GROUPS", "vpn-admins")
 ADMIN_EMAILS = {e.lower() for e in _csv("PORTAL_ADMIN_EMAILS")}
 # Two narrower roles, opt-in only (empty unless configured): a network admin
 # edits the ACL policy and DNS; an auditor sees everything an admin sees but
-# can never change anything. Both are Authentik-group based only -- unlike
+# can never change anything. Both are provider-group based only -- unlike
 # ADMIN_GROUPS there is no sensible default group name to grant them from.
 NETWORK_ADMIN_GROUPS = _csv("PORTAL_NETWORK_ADMIN_GROUPS")
 AUDITOR_GROUPS = _csv("PORTAL_AUDITOR_GROUPS")
 SESSION_SECRET = os.environ["SESSION_SECRET"].encode()
 TAILNET_NAME = os.environ.get("TAILNET_NAME", "")
-AUTHENTIK = "/authentik/" in OIDC_ISSUER
 # MFA requirement for local accounts: admins, everyone, or optional
 MFA_REQUIRED = os.environ.get("MFA_REQUIRED", "admins")
 if MFA_REQUIRED not in ("admins", "everyone", "optional"):
@@ -119,10 +112,10 @@ SESSION_TTL = 8 * 3600
 STATIC_DIR = Path(__file__).parent / "static"
 REDIRECT_URI = f"{PUBLIC_URL}{BASE}/callback"
 SERVER_HOST = urllib.parse.urlparse(PUBLIC_URL).hostname or ""
-CTX = {"public_url": PUBLIC_URL, "tailnet": TAILNET_NAME, "authentik": AUTHENTIK, "server_host": SERVER_HOST}
+CTX = {"public_url": PUBLIC_URL, "tailnet": TAILNET_NAME, "server_host": SERVER_HOST}
 # The sign-in page shows its "Create an account" link when sign-up is on (local accounts only)
 HUB = live.Hub(lambda: hs.all_nodes())  # one poller for every open stream
-admin_pages.signup_open = lambda: not AUTHENTIK and signup.mode() != "off"
+admin_pages.signup_open = lambda: signup.mode() != "off"
 
 # Valid names: node given name (DNS label) and Headscale user name
 NODE_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
@@ -133,6 +126,7 @@ AUTH_ID_RE = re.compile(r"^[A-Za-z0-9_:-]{8,200}$")
 REGISTER_PATH_RE = re.compile(rf"{BASE}/register/([A-Za-z0-9_:-]{{8,200}})")
 KEY_DAYS = {"1", "7", "30", "90"}
 APIKEY_DAYS = {"30", "90", "365"}
+INVITE_DAYS = ("1", "7", "30")
 EXIT_ROUTES = ["0.0.0.0/0", "::/0"]
 # Public demo (DEMO_MODE=true): what visitors may not do. Anything that grants
 # access (auth keys, API keys, invitations, reset links, registering devices),
@@ -141,8 +135,8 @@ EXIT_ROUTES = ["0.0.0.0/0", "::/0"]
 # or removes data.
 DEMO_BLOCKED = re.compile(
     rf"{BASE}/(keys|add/docker|apikeys(/\d+/expire)?|machines/(register|remove-inactive)|register/[^/]+|machines/\d+/(delete|expire)"
-    rf"|machines/bulk/(expire|remove)|settings/(key-expiry|mfa|notify-test|sessions/revoke(-all)?)|users(/\d+/(rename|delete))?"
-    rf"|invitations(/[0-9a-f-]+/revoke)?|accounts/\d+/recovery|dns|derp"
+    rf"|machines/bulk/(expire|remove)|settings/(key-expiry|notify-test|sessions/revoke(-all)?)|users(/\d+/(rename|delete))?"
+    rf"|invitations(/[0-9a-f-]+/revoke)?|dns|derp"
     rf"|acl/(rules|groups|tags|autoapprove/(routes|exit-node)|ssh))")
 
 
@@ -281,21 +275,6 @@ def dns_ctx() -> dict:
     return ctx
 
 
-def mfa_state() -> dict | None:
-    """Two-factor mode for Settings -> General (admins). None without the
-    built-in Authentik: then two-factor is up to the identity provider."""
-    if not AUTHENTIK:
-        return None
-    if not mfa.available():
-        return {"mode": mfa.DEFAULT, "editable": False,
-                "reason": _("Set when installing (MFA_REQUIRED). To change it from here, run ./install.sh once: "
-                            "it gives the web UI access to Authentik.")}
-    try:
-        return {"mode": mfa.current(), "editable": True}
-    except mfa.MfaError as exc:
-        return {"mode": mfa.saved() or mfa.DEFAULT, "editable": False, "reason": str(exc)}
-
-
 def lines(value: str) -> list[str]:
     return [x.strip() for x in re.split(r"[\n,]", value or "") if x.strip()]
 
@@ -313,10 +292,6 @@ def bulk_tags_from_form(form: dict) -> tuple[list[str], str]:
 
 def iso_in(days: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def iso_in_hours(hours: int) -> str:
-    return (datetime.now(timezone.utc) + timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # -----------------------------------------------------------------------------
@@ -495,9 +470,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == f"{BASE}/settings/general":
                 return self.send(200, pages.general_page(session, CTX, flash,
                                                          key_expiry=hs.key_expiry_days() if admin else None,
-                                                         mfa=mfa_state() if admin else None,
                                                          extra=signup.mode_card(session, signup.mode())
-                                                         if admin and not AUTHENTIK else ""))
+                                                         if admin else ""))
             if path == f"{BASE}/settings/keys":
                 return self.keys_view(session, flash, preselect=params.get("user", ""))
             if path == f"{BASE}/settings/sessions":
@@ -737,17 +711,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self.save_key_expiry(session, form)
             if path == f"{BASE}/derp":
                 return self.save_derp(session, form)
-            if path == f"{BASE}/settings/mfa":
-                return self.save_mfa(session, form)
-            if path == f"{BASE}/settings/signup" and not AUTHENTIK:
+            if path == f"{BASE}/settings/signup":
                 return self.save_signup_mode(session, form)
-            if path == f"{BASE}/signup/keys" and not AUTHENTIK:
+            if path == f"{BASE}/signup/keys":
                 return self.create_signup_key(session, form)
             m = re.fullmatch(rf"{BASE}/signup/keys/(\d+)/revoke", path)
-            if m and not AUTHENTIK:
+            if m:
                 return self.revoke_signup_key(session, int(m.group(1)))
             m = re.fullmatch(rf"{BASE}/users/(\d+)/password", path)
-            if m and not AUTHENTIK:
+            if m:
                 return self.set_user_password(session, m.group(1), form)
             if path == f"{BASE}/settings/notify-test":
                 return self.notify_test(session)
@@ -766,13 +738,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.user_action(session, m.group(1), m.group(2), form)
             if path == f"{BASE}/invitations":
                 return self.create_invitation(session, form)
-            # Revoke invitation: AUTHENTIK uses UUID pk, local uses token_hash (64 hex chars)
+            # Revoke invitation: the token hash (64 hex chars)
             m = re.fullmatch(rf"{BASE}/invitations/([0-9a-f-]{{32,}})/revoke", path)
             if m:
                 return self.revoke_invitation(session, m.group(1))
-            m = re.fullmatch(rf"{BASE}/accounts/(\d+)/recovery", path)
-            if m and AUTHENTIK:
-                return self.recovery_link(session, m.group(1), form)
             if path == f"{BASE}/apikeys":
                 return self.create_apikey(session, form)
             m = re.fullmatch(rf"{BASE}/apikeys/(\d+)/expire", path)
@@ -811,8 +780,7 @@ class Handler(BaseHTTPRequestHandler):
         days = _key_expiry_days(form)
 
         def again(error: str):
-            return self.send(200, pages.general_page(session, CTX, key_expiry=hs.key_expiry_days(), error=error,
-                                                     mfa=mfa_state()))
+            return self.send(200, pages.general_page(session, CTX, key_expiry=hs.key_expiry_days(), error=error))
 
         if days is None:
             return again(_("Enter a number of days between 1 and {max}.", max=hs.KEY_EXPIRY_MAX_DAYS))
@@ -999,28 +967,6 @@ class Handler(BaseHTTPRequestHandler):
         else:
             code = "notify-test-ok" if all(ok for _label, ok in results) else "notify-test-failed"
         return self.redirect(f"{BASE}/settings/general?m={code}")
-
-    def save_mfa(self, session: dict, form: dict):
-        mode = str(form.get("mode", ""))
-
-        def again(error: str):
-            return self.send(400, pages.general_page(session, CTX, key_expiry=hs.key_expiry_days(), error=error,
-                                                     mfa=mfa_state()))
-
-        if not AUTHENTIK or not mfa.available():
-            return again(_("Two-factor authentication can only be changed here with the built-in Authentik, "
-                           "once ./install.sh has given the web UI access to it."))
-        if mode not in mfa.MODES:
-            return again(_("Choose one of the options."))
-        try:
-            changed = mfa.set_mode(mode)
-        except mfa.MfaError as exc:
-            log.warning("%s tried to set two-factor to '%s': %s", session["username"] or session["name"], mode, exc)
-            return again(str(exc))
-        if changed:
-            log.info("%s set two-factor authentication to '%s'", session["username"] or session["name"], mode)
-            audit.request_event(self, session, "settings.mfa", _("Two-factor authentication"), {"to": mode})
-        return self.redirect(f"{BASE}/settings/general?m=mfa-saved")
 
     # --- static files ---
     def static(self, name: str):
@@ -1448,12 +1394,7 @@ class Handler(BaseHTTPRequestHandler):
         # With OIDC, also end the provider session; otherwise "Log out" would
         # not let another user sign in on the same browser.
         target = f"{BASE}/login?m=signed-out"
-        if session.get("kind") == "oidc" and SSO and AUTHENTIK_SIGN_OUT:
-            # Built-in Authentik: its own sign-out flow ends the session and
-            # comes back here. The OIDC end-session endpoint needs a valid ID
-            # token, which expires after an hour, and fails after that.
-            target = AUTHENTIK_SIGN_OUT
-        elif session.get("kind") == "oidc" and SSO:
+        if session.get("kind") == "oidc" and SSO:
             end = discovery().get("end_session_endpoint")
             if end:
                 target = end + "?" + urllib.parse.urlencode({
@@ -1864,17 +1805,11 @@ class Handler(BaseHTTPRequestHandler):
     def users_view(self, session: dict, status: int = 200, flash: str = "", error: str = "",
                    result: dict | None = None, new_key: tuple | None = None):
         users = hs.all_users()
-        # Invitations and accounts data
-        # For now, only show Authentik invitations in the users page
-        # Local accounts invitations will be shown in a separate management page (Phase 1 Block 5)
-        data = accounts.page_data(users) if AUTHENTIK else None
-        extra, signins = "", {}
-        if not AUTHENTIK:
-            signins = {a["headscale_user"]: a for a in lac.list_accounts() if a["headscale_user"]}
-            extra = (signup.key_result_box(*new_key) if new_key else "") + \
-                signup.keys_section(session, lac.list_signup_keys(), signup.mode())
+        signins = {a["headscale_user"]: a for a in lac.list_accounts() if a["headscale_user"]}
+        extra = (signup.key_result_box(*new_key) if new_key else "") + \
+            signup.keys_section(session, lac.list_signup_keys(), signup.mode())
         return self.send(status, admin_pages.users_page(session, CTX, users, hs.all_nodes(), flash, error=error,
-                                                        accounts=data, result=result, signins=signins, extra=extra))
+                                                        result=result, signins=signins, extra=extra))
 
     def users_error(self, session: dict, msg: str):
         return self.users_view(session, 400, error=msg)
@@ -1890,7 +1825,7 @@ class Handler(BaseHTTPRequestHandler):
         email = str(form.get("email", "")).strip().lower()
         role = str(form.get("role", "member"))
         must_change = form.get("must_change") == "1"
-        with_account = bool(password) and not AUTHENTIK
+        with_account = bool(password)
         if with_account:  # a person who can sign in, not only a Headscale user
             if not signup.USERNAME_RE.fullmatch(name):
                 return self.users_error(session, _("The user name of an account has 3-32 characters: lowercase letters, numbers, - and _"))
@@ -1944,8 +1879,8 @@ class Handler(BaseHTTPRequestHandler):
 
     # --- self-registration ---
     def signup_open(self) -> str:
-        """The active sign-up mode ('off' when local accounts are not in use)."""
-        return "off" if AUTHENTIK else signup.mode()
+        """The active sign-up mode."""
+        return signup.mode()
 
     def signup_form(self):
         mode = self.signup_open()
@@ -2058,105 +1993,35 @@ class Handler(BaseHTTPRequestHandler):
         except urllib.error.HTTPError as exc:
             return self.users_error(session, hs.api_error(exc))
 
-    # --- invitations and password reset links ---
+    # --- invitations ---
     def create_invitation(self, session: dict, form: dict):
         role = str(form.get("role", ""))
         email = str(form.get("email", "")).strip()
         days = str(form.get("days", "7"))
-        days = days if days in accounts.INVITE_DAYS else "7"
+        days = days if days in INVITE_DAYS else "7"
         who = session["username"] or session["name"]
-
-        # Local accounts backend
-        if not AUTHENTIK:
-            try:
-                # Validate role
-                if role not in ('admin', 'network_admin', 'auditor', 'member'):
-                    raise ValueError(f"Invalid role: {role}")
-
-                # Create invitation token
-                expires_hours = int(days) * 24
-                token = lac.create_invitation(email, role=role, expires_hours=expires_hours)
-
-                # Build public link
-                link = f"{PUBLIC_URL}{BASE}/accept/{token}"
-
-                # Calculate expiration
-                from datetime import timedelta
-                expires = (datetime.now(timezone.utc) + timedelta(hours=expires_hours)).isoformat()
-
-                log.info("%s created an invitation (%s, %s, %s days)", who, role, email, days)
-                audit.request_event(self, session, "invite.create", email, {"role": role, "days": days})
-
-                return self.users_view(session, error="", result={
-                    "kind": "invite", "link": link, "expires": expires, "email": email, "sent": False})
-            except (ValueError, Exception) as exc:
-                log.warning("%s tried to create an invitation: %s", who, exc)
-                return self.users_error(session, str(exc))
-
-        # Authentik backend
         try:
-            inv = accounts.create_invitation(role, email, int(days), who)
-        except accounts.AccountsError as exc:
+            if role not in ("admin", "network_admin", "auditor", "member"):
+                raise ValueError(f"Invalid role: {role}")
+            expires_hours = int(days) * 24
+            token = lac.create_invitation(email, role=role, expires_hours=expires_hours)
+            link = f"{PUBLIC_URL}{BASE}/accept/{token}"
+            expires = (datetime.now(timezone.utc) + timedelta(hours=expires_hours)).isoformat()
+            log.info("%s created an invitation (%s, %s, %s days)", who, role, email, days)
+            audit.request_event(self, session, "invite.create", email, {"role": role, "days": days})
+            return self.users_view(session, error="", result={
+                "kind": "invite", "link": link, "expires": expires, "email": email, "sent": False})
+        except ValueError as exc:
             log.warning("%s tried to create an invitation: %s", who, exc)
             return self.users_error(session, str(exc))
-        sent, error = False, ""
-        if inv["email"] and form.get("send") == "1" and accounts.email_enabled():
-            try:
-                accounts.email_invitation(inv, TAILNET_NAME)
-                sent = True
-            except accounts.AccountsError as exc:
-                error = str(exc)
-        log.info("%s created an invitation (%s, %s, %s d%s)", who, role, email or "any email", days,
-                 ", emailed" if sent else "")
-        # Never the link: it is a secret that creates an account
-        audit.request_event(self, session, "invite.create", email or "", {"role": role, "days": days, "emailed": sent})
-        return self.users_view(session, error=error, result={
-            "kind": "invite", "link": inv["link"], "expires": inv["expires"], "email": inv["email"], "sent": sent})
 
     def revoke_invitation(self, session: dict, pk: str):
-        # Local accounts backend
-        if not AUTHENTIK:
-            # pk is the token_hash for local accounts
-            if lac.revoke_token_by_hash(pk):
-                log.info("%s revoked an invitation", session["username"] or session["name"])
-                audit.request_event(self, session, "invite.revoke", "")
-                return self.redirect(f"{BASE}/users?m=invite-revoked")
-            else:
-                return self.redirect(f"{BASE}/users?m=not-found")
-
-        # Authentik backend
-        try:
-            inv = accounts.revoke_invitation(pk)
-        except accounts.AccountsError as exc:
-            return self.users_error(session, str(exc))
-        if inv is None:
-            return self.redirect(f"{BASE}/users?m=not-found")
-        log.info("%s revoked the invitation for %s", session["username"] or session["name"], inv["email"] or "any email")
-        audit.request_event(self, session, "invite.revoke", inv["email"] or "")
-        return self.redirect(f"{BASE}/users?m=invite-revoked")
-
-    def recovery_link(self, session: dict, pk: str, form: dict):
-        hours = str(form.get("hours", "24"))
-        hours = hours if hours in accounts.RESET_HOURS else "24"
-        who = session["username"] or session["name"]
-        try:
-            acct, link = accounts.recovery_link(pk, int(hours))
-        except accounts.AccountsError as exc:
-            log.warning("%s tried to create a password reset link for account %s: %s", who, pk, exc)
-            return self.users_error(session, str(exc))
-        sent, error = False, ""
-        if form.get("send") == "1" and acct["email"] and accounts.email_enabled():
-            try:
-                accounts.email_reset(acct, link, int(hours))
-                sent = True
-            except accounts.AccountsError as exc:
-                error = str(exc)
-        log.info("%s created a password reset link for %s (%s h%s)", who, acct["username"], hours,
-                 ", emailed" if sent else "")
-        audit.request_event(self, session, "user.password_reset", acct["username"], {"hours": hours, "emailed": sent})
-        return self.users_view(session, error=error, result={
-            "kind": "reset", "link": link, "expires": iso_in_hours(int(hours)), "username": acct["username"],
-            "email": acct["email"], "sent": sent})
+        # pk is the token hash
+        if lac.revoke_token_by_hash(pk):
+            log.info("%s revoked an invitation", session["username"] or session["name"])
+            audit.request_event(self, session, "invite.revoke", "")
+            return self.redirect(f"{BASE}/users?m=invite-revoked")
+        return self.redirect(f"{BASE}/users?m=not-found")
 
     # --- policy: Advanced (raw HuJSON) tab ---
     def save_acl(self, session: dict, form: dict):

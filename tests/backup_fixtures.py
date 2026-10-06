@@ -50,7 +50,6 @@ def data_tree(marker: str, postgres: bool = False) -> dict:
         "headscale/derp_server_private.key": ("privkey:fake-derp-%s\n" % marker).encode(),
         "console/accounts.db": sqlite_bytes("accounts-" + marker),
         "console/api-key": ("fake-api-key-%s\n" % marker).encode(),
-        "console/mfa-required": b"optional\n",
         "web/audit.db": sqlite_bytes("audit-" + marker),
         "caddy/pki/authorities/local/root.crt": ("fake-root-ca-%s\n" % marker).encode(),
     }

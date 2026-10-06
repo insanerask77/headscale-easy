@@ -86,12 +86,10 @@ SETTINGS = {
     "signin_rate_window": ("SIGNIN_RATE_WINDOW", None),  # window in seconds (600)
     "portal_api_key_login": ("PORTAL_API_KEY_LOGIN", None),  # emergency sign-in with the Headscale API key
     "backup_upload_max_mb": ("BACKUP_UPLOAD_MAX_MB", None),  # largest backup the console accepts (1024)
-    # Advanced edition (deploy/): a proxy in front, an external Authentik, a read-only PostgreSQL role
+    # Advanced edition (deploy/): a proxy in front, an external Authentik as OIDC provider, a read-only PostgreSQL role
     "trusted_proxies": ("HSE_TRUSTED_PROXIES", ""),  # CIDRs of the proxy in front: real client IPs
     "trusted_proxies_any": ("HSE_TRUSTED_PROXIES_ANY", ""),  # 1: allow a /0 entry (trust every sender)
     "authentik_upstream": ("HSE_AUTHENTIK_UPSTREAM", ""),  # host:port of an Authentik served under /authentik
-    "authentik_url": ("AUTHENTIK_URL", ""),  # its API base for the console (invitations, resets, 2FA)
-    "authentik_api_token": ("AUTHENTIK_API_TOKEN", ""),
     # Who may sign in through the OIDC provider (Headscale oidc.allowed_*) and who is what in the console
     "oidc_allowed_domains": ("HSE_OIDC_ALLOWED_DOMAINS", ""),
     "oidc_allowed_users": ("HSE_OIDC_ALLOWED_USERS", ""),
@@ -320,7 +318,7 @@ def to_vars(settings):
     if not issuer:
         auth = "none"
     elif "/authentik/" in issuer or settings.get("authentik_upstream"):
-        auth = "authentik"  # the console switches to its Authentik mode on the same hint
+        auth = "authentik"  # an Authentik issuer: routed under /authentik/, emails not marked verified
     else:
         auth = "external"
 
@@ -605,8 +603,6 @@ def render_caddyfile(v, data_dir=None):
             "    # the prefix is not stripped. /authentik alone redirects so it does not",
             "    # fall into Headscale's catch-all.",
             "    redir /authentik /authentik/ 308",
-            "    # Shortcut to the add-user form",
-            "    redir /add-user /authentik/if/flow/headscale-easy-add-user/ 302",
             "    handle /authentik/* {",
             "        reverse_proxy %s {" % upstream,
             "            header_up X-Real-IP {remote_host}",
@@ -697,7 +693,6 @@ def console_env(settings, data_dir=None):
         "AUDIT_DB": os.path.join(d, "console", "audit.db"),
         "ACCOUNTS_DB": os.path.join(d, "console", "accounts.db"),
         "API_KEY_FILE": p["api_key"],
-        "MFA_MODE_FILE": os.path.join(d, "console", "mfa-required"),
         "MFA_REQUIRED": settings.get("mfa_required", "admins"),
         "HEADSCALE_URL": "http://127.0.0.1:%s" % v["HEADSCALE_HTTP_PORT"],
         "HEADSCALE_METRICS_URL": "http://127.0.0.1:%s/metrics" % v["HEADSCALE_METRICS_PORT"],
@@ -743,8 +738,6 @@ def console_env(settings, data_dir=None):
             env[name] = settings[key]
     if v["AUTH_PROVIDER"] != "none":
         env["OIDC_SCOPE"] = v["OIDC_SCOPE"]
-    if v["AUTH_PROVIDER"] == "authentik":
-        env.update(AUTHENTIK_URL=settings.get("authentik_url", ""), AUTHENTIK_API_TOKEN=settings.get("authentik_api_token", ""))
     return {k: val for k, val in env.items() if val != ""}
 
 
@@ -754,10 +747,6 @@ def config_warnings(settings):
     if (settings.get("db_type") == "postgres") and not settings.get("pg_ro_user"):
         out.append("PostgreSQL: the console connects as Headscale's owner role. Set HEADSCALE_PG_RO_USER and "
                    "HEADSCALE_PG_RO_PASS and the image creates a read-only role for it (deploy/examples/postgresql).")
-    if (settings.get("authentik_upstream") or "/authentik/" in (settings.get("oidc_issuer") or "")) \
-            and not settings.get("authentik_api_token"):
-        out.append("Authentik: no AUTHENTIK_API_TOKEN, so invitations, resets and two-factor state in the console "
-                   "cannot use Authentik's API.")
     if (settings.get("tls") or "") == "off" and (settings.get("public_url") or "").startswith("https://"):
         out.append("A proxy in front: UDP 3478 (DERP/STUN) is not HTTP and does not go through it; publish it "
                    "straight to this container.")

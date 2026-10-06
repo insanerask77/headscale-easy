@@ -193,7 +193,7 @@ class ConsoleEnvTest(unittest.TestCase):
         env = render.console_env(aio_settings(session_secret="fake-session", admin_email="a@example.com"), "/data")
         self.assertEqual(env["PUBLIC_URL"], "http://localhost")
         self.assertEqual(env["SESSION_SECRET"], "fake-session")
-        for key in ("SESSIONS_DB", "AUDIT_DB", "ACCOUNTS_DB", "API_KEY_FILE", "MFA_MODE_FILE"):
+        for key in ("SESSIONS_DB", "AUDIT_DB", "ACCOUNTS_DB", "API_KEY_FILE"):
             self.assertTrue(env[key].startswith("/data/console/"), key)
         self.assertEqual(env["HEADSCALE_DB"], "/data/headscale/db.sqlite")
         self.assertEqual(env["HEADSCALE_CONFIG"], "/data/config/config.yaml")
@@ -441,7 +441,7 @@ class AdvancedEditionTest(unittest.TestCase):
         self.assertEqual(render.to_vars(dict(self.BASE, **oidc))["AUTH_PROVIDER"], "authentik")
         text = self.caddy(authentik_upstream="authentik-server:9000", **oidc)
         self.assertIn("handle /authentik/* {\n        reverse_proxy authentik-server:9000 {", text)
-        self.assertIn("redir /add-user /authentik/if/flow/headscale-easy-add-user/ 302", text)
+        self.assertNotIn("/add-user", text)
         self.assertIn("redir /authentik /authentik/ 308", text)
         self.assertIn("email_verified_required: false", self.config(authentik_upstream="a:1", **oidc))
         other = self.caddy(authentik_upstream="my-auth:9443", **oidc)
@@ -476,13 +476,15 @@ class AdvancedEditionTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 render.to_vars(dict(pg, **half))
 
-    def test_console_gets_the_authentik_api_settings_only_for_authentik(self):
-        base = {"public_url": "https://vpn.example.com", "tls": "off", "oidc_client_id": "i", "oidc_client_secret": "s",
-                "authentik_url": "http://authentik-server:9000/authentik", "authentik_api_token": "tok"}
-        auth = render.console_env(dict(base, oidc_issuer="https://vpn.example.com/authentik/application/o/h/"), "/data")
-        self.assertEqual((auth["AUTHENTIK_URL"], auth["AUTHENTIK_API_TOKEN"]), ("http://authentik-server:9000/authentik", "tok"))
-        other = render.console_env(dict(base, oidc_issuer="https://sso.example.com/realms/x"), "/data")
-        self.assertNotIn("AUTHENTIK_API_TOKEN", other)
+    def test_the_console_never_gets_an_authentik_api_setting(self):
+        base = {"public_url": "https://vpn.example.com", "tls": "off", "oidc_client_id": "i", "oidc_client_secret": "s"}
+        for issuer in ("https://vpn.example.com/authentik/application/o/h/", "https://sso.example.com/realms/x"):
+            env = render.console_env(dict(base, oidc_issuer=issuer, authentik_upstream="a:1"), "/data")
+            for name in ("AUTHENTIK_URL", "AUTHENTIK_API_TOKEN", "MFA_MODE_FILE"):
+                self.assertNotIn(name, env)
+            self.assertEqual(env["OIDC_ISSUER"], issuer)
+        for name in ("AUTHENTIK_URL", "AUTHENTIK_API_TOKEN"):  # not even a setting any more
+            self.assertNotIn(name, [v for v, _d in render.SETTINGS.values()])
 
     def test_new_settings_are_read_from_the_environment(self):
         s = render.load_settings({"HSE_PUBLIC_URL": "https://x.example.com", "HSE_TRUSTED_PROXIES": "10.0.0.1",
@@ -502,7 +504,7 @@ class AdvancedEditionTest(unittest.TestCase):
         self.assertEqual(render.config_warnings({"public_url": "http://localhost", "tls": "off"}), [])
         self.assertTrue(any("read-only role" in w for w in render.config_warnings({"db_type": "postgres"})))
         self.assertEqual(render.config_warnings({"db_type": "postgres", "pg_ro_user": "ro"}), [])
-        self.assertTrue(any("AUTHENTIK_API_TOKEN" in w for w in render.config_warnings({"authentik_upstream": "a:1"})))
+        self.assertEqual(render.config_warnings({"authentik_upstream": "a:1", "public_url": "http://localhost", "tls": "off"}), [])
         self.assertTrue(any("terminates TLS" in w for w in render.config_warnings({"trusted_proxies": "1.1.1.1", "tls": "auto"})))
 
 

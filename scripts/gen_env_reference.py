@@ -23,9 +23,6 @@ DOCS = ("docs/configuration.md", "docs/configuration.es.md")
 # Read by the image or the sidecar but not part of SETTINGS: they must be documented too.
 EXTRA = ("HSE_ADMIN_PASSWORD", "BACKUP_MODE", "BACKUP_SYNC_INTERVAL")
 
-# In SETTINGS today but on their way out (the console stops calling Authentik's API in
-# phase 6, block 2): not documented on purpose. Delete this set when they leave render.py.
-UNDOCUMENTED_ON_PURPOSE = {"AUTHENTIK_URL", "AUTHENTIK_API_TOKEN"}
 
 
 def settings():
@@ -48,7 +45,7 @@ def variables():
 
 
 def missing():
-    names = [v for v in variables() if v not in UNDOCUMENTED_ON_PURPOSE]
+    names = list(variables())
     problems = {}
     for doc in DOCS:
         with open(os.path.join(ROOT, doc), encoding="utf-8") as fh:

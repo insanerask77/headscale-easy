@@ -11,7 +11,7 @@ Archive layout (same top-level names as backup/backup.sh, plus console/ and meta
       meta.json      format, edition, created, headscale_version, db_type, files {path: sha256}
       config/        settings.json config.yaml Caddyfile derp.yaml session-secret
       headscale/     db.sqlite | headscale.sql, *.key
-      console/       accounts.db api-key mfa-required
+      console/       accounts.db api-key
       web/           audit.db
       caddy/pki/     the internal CA, when there is one
 
@@ -55,7 +55,6 @@ _FILES = (
     ("config/session-secret", "config/session-secret", "file", False),
     ("console/accounts.db", "console/accounts.db", "sqlite", False),
     ("console/api-key", "console/api-key", "file", False),
-    ("console/mfa-required", "console/mfa-required", "file", False),
     ("console/audit.db", "web/audit.db", "sqlite", False),
 )
 

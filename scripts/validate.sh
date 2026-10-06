@@ -28,9 +28,9 @@ required_files=(
     install.sh uninstall.sh scripts/embed-compose.sh
     .gitignore README.md LICENSE
     templates/headscale-config.yaml.tmpl templates/Caddyfile.tmpl templates/headscale-pg-readonly.sql
-    authentik/blueprints/headscale.yaml authentik/branding/custom.css
+    deploy/examples/authentik/blueprints/headscale.yaml deploy/examples/authentik/branding/custom.css
     web/app.py web/headscale.py web/pgwire.py web/pages.py web/admin_pages.py
-    web/ui.py web/i18n.py web/version.py web/mfa.py web/locales/es.json
+    web/ui.py web/i18n.py web/version.py web/locales/es.json
     web/static/style.css web/static/app.js web/static/theme.js
     scripts/check_i18n.py scripts/gen_env_reference.py
     aio/Dockerfile aio/control.py aio/supervisor.py aio/render.py
