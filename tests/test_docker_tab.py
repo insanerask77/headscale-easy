@@ -78,6 +78,16 @@ class Snippets(unittest.TestCase):
         for plain in (parsed(), parsed(userspace="1", exit="1")):  # nothing to forward: no tips
             self.assertNotIn("ip_forward", docker_tab.panel({"csrf": "tok"}, URL, plain[0]))
 
+    def test_reconfigure_command_for_a_running_container(self):
+        v, _e = parsed(hostname="edge-1", exit="1", routes="192.168.1.0/24 10.0.0.0/8", dns="1")
+        self.assertEqual(docker_tab.reconfigure_cmd(v), "docker exec tailscale-edge-1 tailscale set "
+                         "--advertise-routes=192.168.1.0/24,10.0.0.0/8 --advertise-exit-node=true --accept-dns=true")
+        # unticked options and an empty route list withdraw what was advertised
+        v, _e = parsed(hostname="edge-1")
+        self.assertEqual(docker_tab.reconfigure_cmd(v), "docker exec tailscale-edge-1 tailscale set "
+                         "--advertise-routes='' --advertise-exit-node=false --accept-dns=false")
+        self.assertIn("docker exec tailscale-edge-1 tailscale set", docker_tab.panel({"csrf": "tok"}, URL, v))
+
     def test_kernel_mode_sets_firewall_mode_auto_for_nftables_hosts(self):
         v, _e = parsed(exit="1")
         self.assertIn("TS_DEBUG_FIREWALL_MODE=auto", docker_tab.docker_run(URL, v, ""))
