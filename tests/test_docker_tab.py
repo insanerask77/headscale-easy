@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_security import ADMIN, B, Base, MEMBER, app, audit, hs, location, request  # noqa: E402
 
 import docker_tab  # noqa: E402
+from i18n import set_lang  # noqa: E402
 
 URL = "https://vpn.example.com"
 AUDITOR = dict(MEMBER, role="auditor", sub="c", username="carol")
@@ -25,6 +26,9 @@ def parsed(**form):
 
 
 class Snippets(unittest.TestCase):
+    def setUp(self):
+        set_lang("en")  # these tests read the English messages; another test file may leave another language set
+
     def test_defaults(self):
         v, err = parsed(dns="1")
         self.assertEqual(err, "")
