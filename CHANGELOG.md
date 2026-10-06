@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [2.0.0] - Unreleased
+## [2.0.0] - 2026-10-06
 
 Headscale Easy 2.0 is one container: Headscale, Caddy and the console, supervised together, installed
 with a Docker Compose file. The image is about 232 MB and uses about 72 MB of RAM at rest.
