@@ -24,7 +24,6 @@ FORBIDDEN = re.compile(
 # (path regex, line regex, why the word means something else)
 ALLOWED = [
     (r"^tests/test_no_trace\.py$", r".", "this file lists the forbidden terms"),
-    (r"^PHASE7_EXECUTION_PLAN\.md$", r".", "the plan of the work in progress; deleted once the phase is accepted"),
     (r"^(CHANGELOG\.md|scripts/release_info\.py|tests/test_release\.py)$", r"(?i)unreleased",
      "an entry that is not dated yet blocks a release tag: that is how the release check works"),
     (r"^(docs/getting-started(\.es)?\.md|web/pages\.py)$", r"tailscale\.com/install\.sh",
