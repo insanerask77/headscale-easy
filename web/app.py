@@ -687,7 +687,7 @@ class Handler(BaseHTTPRequestHandler):
             m = re.fullmatch(rf"{BASE}/keys/(\d+)/revoke", path)
             if m:
                 return self.revoke_key(session, m.group(1))
-            m = re.fullmatch(rf"{BASE}/machines/(\d+)/(rename|delete|expire|expiry|routes|tags)", path)
+            m = re.fullmatch(rf"{BASE}/machines/(\d+)/(rename|delete|expire|expiry|routes|approve-routes|tags)", path)
             if m:
                 return self.machine_action(session, m.group(1), m.group(2), form)
             m = REGISTER_PATH_RE.fullmatch(path)
@@ -1567,7 +1567,7 @@ class Handler(BaseHTTPRequestHandler):
             # node_for() resolves any node for an auditor so they can view it;
             # never let that translate into a write, on their own devices or anyone else's
             return self.redirect(f"{dest}?m=forbidden")
-        if action in {"expiry", "routes", "tags"} and not session.get("admin"):
+        if action in {"expiry", "routes", "approve-routes", "tags"} and not session.get("admin"):
             return self.redirect(f"{dest}?m=forbidden")
         try:
             if action == "rename":
@@ -1602,6 +1602,14 @@ class Handler(BaseHTTPRequestHandler):
                 hs.api("POST", f"/node/{node_id}/approve_routes", {"routes": sorted(set(routes))})
                 log.info("%s approved routes %s on node %s", session["username"], routes, node_id)
                 audit.request_event(self, session, "machine.routes", node.get("givenName"), {"from": sorted(node.get("approvedRoutes") or []), "to": sorted(set(routes))}, f"node:{node_id}")
+                return self.redirect(f"{dest}?m=routes")
+            if action == "approve-routes":
+                # Approve everything the node advertises, keeping what is already approved
+                available = set(node.get("availableRoutes") or [])
+                before = set(node.get("approvedRoutes") or [])
+                routes = sorted(before | available)
+                hs.api("POST", f"/node/{node_id}/approve_routes", {"routes": routes})
+                audit.request_event(self, session, "machine.routes", node.get("givenName"), {"from": sorted(before), "to": routes}, f"node:{node_id}")
                 return self.redirect(f"{dest}?m=routes")
             if action == "tags":
                 tags = [t.lower() for t in lines(str(form.get("tags", "")))]
