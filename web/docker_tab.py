@@ -134,6 +134,16 @@ FORWARDING_CMDS = ("echo 'net.ipv4.ip_forward = 1' | sudo tee -a /etc/sysctl.d/9
                    "sudo sysctl -p /etc/sysctl.d/99-tailscale.conf")
 
 
+def reconfigure_cmd(v: dict) -> str:
+    """`docker exec ... tailscale set` that applies the form's options to a container that already runs.
+    An empty --advertise-routes= and --advertise-exit-node=false withdraw what was advertised before."""
+    name = "tailscale-" + v["hostname"]
+    return (f"docker exec {shlex.quote(name)} tailscale set"
+            f" --advertise-routes={shlex.quote(','.join(v['route_list']))}"
+            f" --advertise-exit-node={'true' if v['exit'] else 'false'}"
+            f" --accept-dns={'true' if v['dns'] else 'false'}")
+
+
 def _code(text: str) -> str:
     return f'<div class="code"><code class="pre">{esc(text)}</code>{copy_btn(text)}</div>'
 
@@ -221,5 +231,9 @@ def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: 
       <li>{_("Without an auth key, leave TS_AUTHKEY out and run {cmd}: it prints a link to sign in.", cmd=f"<code>docker logs {esc(name)}</code>")}</li>
     </ol>
     <p class="muted small">{esc(_("After the first successful start, delete the TS_AUTHKEY line from .env: the container keeps its own identity. Revoke keys you did not use in Settings → Keys."))}</p>
+    <details class="stack"><summary>{esc(_("Already running? Apply a changed option without recreating the container"))}</summary>
+      <p class="muted small">{esc(_("Recreating the container does not withdraw a route or an exit node it already advertised: the saved state wins. This command sets exactly what the form says, and an empty route list or an unticked exit node withdraws it:"))}</p>
+      {_code(reconfigure_cmd(v))}
+    </details>
     {_tips(v)}
     {key_note}"""
