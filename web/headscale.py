@@ -42,7 +42,7 @@ HEADSCALE_OIDC_ISSUER = os.environ.get("HEADSCALE_OIDC_ISSUER", "")
 HEADSCALE_DB = os.environ.get("HEADSCALE_DB", "/headscale/db.sqlite")
 # sqlite (default) or postgres: where host_details() reads Hostinfo from
 HEADSCALE_DB_TYPE = os.environ.get("HEADSCALE_DB_TYPE", "sqlite").strip().lower()
-# PostgreSQL: the web UI's read-only role (the installer creates it), not Headscale's
+# PostgreSQL: the web UI's read-only role (the image creates it), not Headscale's
 HEADSCALE_PG = {
     "host": os.environ.get("HEADSCALE_PG_HOST", "headscale-postgresql"),
     "port": int(os.environ.get("HEADSCALE_PG_PORT") or 5432),
@@ -121,6 +121,22 @@ def user_for_sub(sub: str) -> dict | None:
 
 def all_users() -> list[dict]:
     return api("GET", "/user").get("users", [])
+
+
+def user_by_name(username: str) -> dict | None:
+    """Get a Headscale user by name. Returns None if not found."""
+    for user in all_users():
+        if user.get("name") == username:
+            return user
+    return None
+
+
+def create_user(username: str) -> dict:
+    """Create a new Headscale user. Returns the created user dict.
+
+    Raises an exception if the user already exists or creation fails.
+    """
+    return api("POST", "/user", {"name": username})
 
 
 def all_nodes() -> list[dict]:
@@ -237,7 +253,7 @@ def _rows_postgres(ids: list[int]) -> list[tuple]:
     try:
         rows = pgwire.query(sql, timeout=3, **HEADSCALE_PG)
     except (pgwire.PgError, OSError, ValueError) as exc:
-        hint = " (re-run ./install.sh to grant the read-only role access)" if getattr(exc, "code", "") == "42501" else ""
+        hint = " (check HEADSCALE_PG_RO_USER and HEADSCALE_PG_RO_PASS)" if getattr(exc, "code", "") == "42501" else ""
         log.warning("could not read Hostinfo from PostgreSQL: %s%s", exc, hint)
         return []
     return [(int(node_id), host_info, endpoints) for node_id, host_info, endpoints in rows]
@@ -304,20 +320,13 @@ def latest_tailscale_version() -> str:
 
 
 # -----------------------------------------------------------------------------
-# Validate and restart Headscale: through the hs-helper service
+# Validate and restart Headscale: through the supervisor's control socket
 # -----------------------------------------------------------------------------
-# The web UI does not mount the Docker socket. The hs-helper container does,
-# and answers three fixed requests on a Unix socket in a shared volume (see
-# helper/helper.py): POST /configtest, POST /restart, GET /status.
-#
-# Legacy fallback: installations whose docker-compose.yml predates the helper
-# still mount the Docker socket in this container. When the helper socket is
-# missing and DOCKER_SOCKET exists, it is used directly, with a warning.
+# The console never touches Docker or the Headscale process. The supervisor
+# (aio/supervisor.py) answers a few fixed requests on a Unix socket in the run
+# directory (see aio/control.py): POST /configtest, POST /restart, GET /status...
 
-HELPER_SOCKET = os.environ.get("HELPER_SOCKET", "/run/hse-helper/helper.sock")
-DOCKER_SOCKET = os.environ.get("DOCKER_SOCKET", "/var/run/docker.sock")
-HEADSCALE_CONTAINER = os.environ.get("HEADSCALE_CONTAINER", "headscale")
-_legacy_warned = False
+CONTROL_SOCKET = os.environ.get("CONTROL_SOCKET", "/run/hse/control.sock")
 
 
 class _UnixHTTPConnection(http.client.HTTPConnection):
@@ -336,23 +345,10 @@ class _UnixHTTPConnection(http.client.HTTPConnection):
         self.sock = sock
 
 
-def docker(method: str, path: str, body: dict | None = None, timeout: float = 60) -> tuple[int, bytes]:
-    """Legacy only: a direct Docker Engine API call (no helper)."""
-    conn = _UnixHTTPConnection(DOCKER_SOCKET, timeout=timeout)
-    data = json.dumps(body).encode() if body is not None else None
-    headers = {"Content-Type": "application/json"} if data is not None else {}
-    try:
-        conn.request(method, path, body=data, headers=headers)
-        resp = conn.getresponse()
-        return resp.status, resp.read()
-    finally:
-        conn.close()
-
-
-def helper(method: str, path: str, timeout: float = 30) -> tuple[int, dict]:
-    """One request to hs-helper: (HTTP status, JSON body). Never sends a body
-    or parameters: the helper accepts none."""
-    conn = _UnixHTTPConnection(HELPER_SOCKET, timeout=timeout)
+def control(method: str, path: str, timeout: float = 30) -> tuple[int, dict]:
+    """One request to the supervisor: (HTTP status, JSON body). Never sends a body
+    or parameters: the control socket accepts none."""
+    conn = _UnixHTTPConnection(CONTROL_SOCKET, timeout=timeout)
     try:
         conn.request(method, path, headers={"Content-Length": "0"})
         resp = conn.getresponse()
@@ -366,109 +362,170 @@ def helper(method: str, path: str, timeout: float = 30) -> tuple[int, dict]:
     return resp.status, data if isinstance(data, dict) else {}
 
 
-def _backend() -> str | None:
-    """'helper', 'docker' (legacy socket mount) or None."""
-    global _legacy_warned
-    if os.path.exists(HELPER_SOCKET):
-        return "helper"
-    if os.path.exists(DOCKER_SOCKET):
-        if not _legacy_warned:
-            log.warning("hs-helper not found (%s): using the Docker socket %s directly. "
-                        "Update docker-compose.yml (git pull) and run 'docker compose up -d' "
-                        "so the web UI no longer needs the socket.", HELPER_SOCKET, DOCKER_SOCKET)
-            _legacy_warned = True
-        return "docker"
-    return None
-
-
-def helper_status() -> dict | None:
-    """The helper's GET /status (see helper/helper.py), or None when the
-    helper is missing or does not answer."""
-    if not os.path.exists(HELPER_SOCKET):
+def control_status() -> dict | None:
+    """The supervisor's GET /status (see aio/control.py), or None when it is
+    missing or does not answer."""
+    if not os.path.exists(CONTROL_SOCKET):
         return None
     try:
-        code, data = helper("GET", "/status", timeout=20)
+        code, data = control("GET", "/status", timeout=20)
     except OSError:
         return None
     return data if code == 200 else None
 
 
-def docker_available() -> bool:
-    """Can Headscale be validated and restarted from here?"""
-    backend = _backend()
-    if backend == "helper":
-        return bool((helper_status() or {}).get("docker"))
-    if backend == "docker":
-        try:
-            return docker("GET", "/_ping", timeout=3)[0] == 200
-        except OSError:
-            return False
-    return False
+def control_backup() -> str:
+    """Ask the all-in-one supervisor for a backup now (POST /backup).
+
+    'started', 'busy' (one is already running), 'unavailable' (no supervisor, or
+    one without that route: 404) or 'error'."""
+    if not os.path.exists(CONTROL_SOCKET):
+        return "unavailable"
+    try:
+        code, data = control("POST", "/backup", timeout=20)
+    except OSError:
+        return "error"
+    if code == 404:
+        return "unavailable"
+    if code == 200 and data.get("ok"):
+        return "started"
+    if code == 200 and "already running" in str(data.get("error", "")):
+        return "busy"
+    return "error"
+
+
+def control_backup_settings(enabled: bool, schedule: str, keep_days: str) -> tuple[str, str]:
+    """Turn scheduled backups on/off or change them (POST /backup-settings on the all-in-one supervisor).
+
+    The supervisor takes no body, so the values go in a file next to its socket. Returns (result, detail):
+    'saved', 'invalid' (detail says what), 'locked' (an environment variable fixes them), 'unavailable'
+    (no supervisor, or one without that route: 404) or 'error'."""
+    if not os.path.exists(CONTROL_SOCKET):
+        return "unavailable", ""
+    path = os.path.join(os.path.dirname(CONTROL_SOCKET), "backup-settings.json")
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"enabled": bool(enabled), "schedule": schedule, "keep_days": keep_days}, fh)
+        code, data = control("POST", "/backup-settings", timeout=20)
+    except OSError:
+        return "error", ""
+    if code == 404:
+        return "unavailable", ""
+    if code == 200 and data.get("ok"):
+        return "saved", ""
+    if code == 200 and data.get("field") == "env":
+        return "locked", ""
+    if code == 200 and data.get("field"):
+        return "invalid", str(data.get("error", ""))
+    return "error", str(data.get("error", ""))
+
+
+def _run_dir() -> str:
+    return os.path.dirname(CONTROL_SOCKET)
+
+
+def control_restore(name: str) -> tuple[str, str]:
+    """Ask the all-in-one supervisor to restore one backup of /data/backups (POST /restore).
+
+    The supervisor takes no body, so the name goes in a file next to its socket. Returns (result, detail):
+    'started' (detail = the id of this restore, see restore_result), 'invalid' (not a valid backup),
+    'busy' (a backup or another restore is running), 'unavailable' (no supervisor) or 'error'."""
+    if not os.path.exists(CONTROL_SOCKET):
+        return "unavailable", ""
+    path = os.path.join(_run_dir(), "restore-ui.json")
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"name": name}, fh)
+        code, data = control("POST", "/restore", timeout=120)  # it checks the whole archive first
+    except OSError:
+        return "error", ""
+    if code == 404:
+        return "unavailable", ""
+    if code == 200 and data.get("ok"):
+        return "started", str(data.get("id", ""))
+    if code == 200 and data.get("field") in ("invalid", "busy"):
+        return str(data["field"]), str(data.get("error", ""))
+    return "error", str(data.get("error", ""))
+
+
+def control_backup_upload(tmp: str, name: str) -> tuple[str, str]:
+    """Ask the all-in-one supervisor to check an uploaded file and keep it as a backup (POST /backup-upload).
+
+    ``tmp`` is the file name inside BACKUP_DIR where the console wrote it; ``name`` the name the user's file had.
+    Returns (result, detail): 'saved' (detail = the name it is kept under), 'invalid' (not a valid backup of this
+    kind; the file is deleted), 'unavailable' or 'error'."""
+    if not os.path.exists(CONTROL_SOCKET):
+        return "unavailable", ""
+    path = os.path.join(_run_dir(), "backup-upload.json")
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"tmp": tmp, "name": name}, fh)
+        code, data = control("POST", "/backup-upload", timeout=900)  # it checks every file of the archive
+    except OSError:
+        return "error", ""
+    if code == 404:
+        return "unavailable", ""
+    if code == 200 and data.get("ok"):
+        return "saved", str(data.get("name", ""))
+    if code == 200 and data.get("field") == "invalid":
+        return "invalid", str(data.get("error", ""))
+    return "error", str(data.get("error", ""))
+
+
+def restore_result() -> dict | None:
+    """The supervisor's answer to the last online restore (restore-result.json), None until it finished."""
+    try:
+        with open(os.path.join(_run_dir(), "restore-result.json"), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def control_available() -> bool:
+    """Is the supervisor answering, so Headscale can be validated and restarted from here?"""
+    return control_status() is not None
 
 
 def headscale_configtest() -> tuple[bool, str]:
-    """Run 'headscale configtest' inside the container, which reads the same
-    mounted config.yaml. Returns (ok, output)."""
-    backend = _backend()
-    if backend == "helper":
-        try:
-            code, data = helper("POST", "/configtest", timeout=120)
-        except OSError as exc:
-            return False, f"hs-helper: {exc}"
-        if code != 200:
-            return False, f"hs-helper: HTTP {code} {data.get('error', '')}".strip()
-        return bool(data.get("ok")), str(data.get("output", ""))
-    if backend is None:
-        return False, "hs-helper is not running"
-    status, raw = docker("POST", f"/containers/{HEADSCALE_CONTAINER}/exec", {
-        "AttachStdout": True, "AttachStderr": True, "Tty": True,
-        "Cmd": ["headscale", "configtest"],
-    })
-    if status != 201:
-        return False, f"docker exec: HTTP {status}"
-    exec_id = json.loads(raw)["Id"]
-    _, out = docker("POST", f"/exec/{exec_id}/start", {"Detach": False, "Tty": True}, timeout=90)
-    _, info = docker("GET", f"/exec/{exec_id}/json")
-    code = json.loads(info).get("ExitCode")
-    return code == 0, re.sub(r"\x1b\[[0-9;]*m", "", out.decode(errors="replace")).strip()
+    """Run 'headscale configtest' (the supervisor does, on the config it rendered).
+    Returns (ok, output)."""
+    if not os.path.exists(CONTROL_SOCKET):
+        return False, "the supervisor is not running"
+    try:
+        code, data = control("POST", "/configtest", timeout=120)
+    except OSError as exc:
+        return False, f"supervisor: {exc}"
+    if code != 200:
+        return False, f"supervisor: HTTP {code} {data.get('error', '')}".strip()
+    return bool(data.get("ok")), str(data.get("output", ""))
 
 
 def restart_headscale(wait: float = 120) -> bool:
-    """Restart Headscale and wait for its healthcheck to report 'healthy'."""
-    backend = _backend()
-    if backend == "helper":
-        try:
-            code, data = helper("POST", "/restart", timeout=wait + 60)
-        except OSError as exc:
-            log.error("could not restart Headscale: hs-helper: %s", exc)
-            return False
-        if code != 200 or not data.get("ok"):
-            log.error("could not restart Headscale: hs-helper: HTTP %s %s", code, data.get("error", ""))
-            return False
-        return True
-    if backend is None:
-        log.error("could not restart Headscale: hs-helper is not running")
+    """Restart Headscale and wait for it to be healthy."""
+    if not os.path.exists(CONTROL_SOCKET):
+        log.error("could not restart Headscale: the supervisor is not running")
         return False
-    status, _ = docker("POST", f"/containers/{HEADSCALE_CONTAINER}/restart?t=10", timeout=60)
-    if status != 204:
-        log.error("could not restart Headscale: HTTP %s", status)
+    try:
+        code, data = control("POST", "/restart", timeout=wait + 60)
+    except OSError as exc:
+        log.error("could not restart Headscale: supervisor: %s", exc)
         return False
-    deadline = time.time() + wait
-    time.sleep(3)
-    while time.time() < deadline:
-        _, raw = docker("GET", f"/containers/{HEADSCALE_CONTAINER}/json")
-        if (json.loads(raw).get("State", {}).get("Health") or {}).get("Status") == "healthy":
-            return True
-        time.sleep(2)
-    return False
+    if code != 200 or not data.get("ok"):
+        log.error("could not restart Headscale: supervisor: HTTP %s %s", code, data.get("error", ""))
+        return False
+    return True
 
 
 # -----------------------------------------------------------------------------
 # DNS: marked block in config.yaml
 # -----------------------------------------------------------------------------
-# install.sh writes the dns: section between these markers and keeps the
+# The image writes the dns: section between these markers and keeps the
 # existing block when it regenerates the config, so changes made in the UI
-# survive a re-install.
+# survive a restart.
 
 DNS_BEGIN = "# >>> dns: managed by Headscale Easy (do not edit between these markers)"
 DNS_END = "# <<< dns"
@@ -481,7 +538,7 @@ def dns_config() -> dict:
     """Read the dns: section of config.yaml.
 
     There is no YAML parser in the standard library and the section has a fixed
-    shape (install.sh and this module write it), so a reader for that subset is
+    shape (the renderer and this module write it), so a reader for that subset is
     enough: scalar keys, '- item' lists and inline '[a, b]' lists.
     """
     result = {"magic_dns": None, "base_domain": "", "override_local_dns": True,
@@ -585,8 +642,7 @@ def dns_block_present(text: str) -> bool:
 
 
 def replace_dns_block(text: str, block: str) -> str | None:
-    """Replace the marked block. None if the file has no markers (a config
-    older than this feature: run install.sh once)."""
+    """Replace the marked block. None if the file has no markers."""
     start, end = text.find(DNS_BEGIN), text.find(DNS_END)
     if start < 0 or end < start:
         return None
@@ -598,7 +654,7 @@ def apply_dns(cfg: dict) -> tuple[bool, str]:
     Headscale. On any failure the previous config is restored."""
     return _apply_config(
         lambda text: replace_dns_block(text, render_dns_block(cfg)),
-        _("config.yaml has no managed DNS block. Run ./install.sh once to enable it."),
+        _("config.yaml has no managed DNS block. Restart the container to regenerate it."),
         _("Headscale did not start with the new DNS settings; the previous ones were restored."))
 
 
@@ -642,7 +698,7 @@ def apply_key_expiry(days: int) -> tuple[bool, str]:
         return text[:start] + block + text[end + len(KEY_EXPIRY_END):]
 
     return _apply_config(change,
-                         _("config.yaml has no managed key expiry. Run ./install.sh once to enable it."),
+                         _("config.yaml has no managed key expiry. Restart the container to regenerate it."),
                          _("Headscale did not start with the new setting; the previous one was restored."))
 
 

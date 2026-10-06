@@ -361,8 +361,8 @@ details.dropdown.up .dropdown-body { top: auto; bottom: calc(100% + 0.35rem); le
 .menu-rich > a, .menu-rich > button { display: grid; gap: 0.1rem; padding: 0.55rem 0.7rem; }
 .menu-rich span { font-size: 0.8125rem; color: var(--muted); }
 
-.lang-switch { display: flex; gap: 0.25rem; padding: 0.2rem 0.3rem; }
-.lang-switch button { flex: 1; text-align: center !important; font-size: 0.8125rem !important; color: var(--muted) !important; }
+.lang-switch { display: grid; grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr)); gap: 0.25rem; padding: 0.2rem 0.3rem; }
+.lang-switch button { text-align: center !important; font-size: 0.8125rem !important; color: var(--muted) !important; }
 .lang-switch button.active { color: var(--ink) !important; background: var(--active) !important; }
 
 .addr summary {
@@ -582,7 +582,12 @@ div.keybox { margin: 0.75rem 0 1rem; padding: 0.9rem 1rem; border: 1px solid var
 .field .inline { display: flex; align-items: center; gap: 0.5rem; }
 .field input.short { width: 7rem; }
 .field input[name="name"], .field input[name="auth_id"], .field input[name="api_key"], .field input[name="tags"],
-.field input[name="base_domain"] { font-family: var(--mono); }
+.field input[name="base_domain"], .field input[name="backup_schedule"] { font-family: var(--mono); }
+.field input[type="file"] { height: auto; padding: 0.45rem 0.6rem; }
+.form-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+td.actions form { display: inline-block; margin: 0; }
+td.nowrap { white-space: nowrap; }
+td.actions .btn + .btn, td.actions form + .btn { margin-left: 0.4rem; }
 .field textarea, .code-editor { padding: 0.6rem 0.7rem; font: 0.8125rem/1.55 var(--mono); resize: vertical; }
 .field input:focus, .field select:focus, .field textarea:focus, .code-editor:focus { outline: none; border-color: var(--focus); }
 .field .muted { font-weight: 400; }
@@ -616,6 +621,13 @@ body.bare { background: var(--side); }
 .card.login { display: grid; gap: 0.9rem; padding: 2rem; }
 .card.login h1 { font-size: 1.5rem; }
 .card.login .stack { text-align: left; }
+/* First-run wizard (aio/wizard.py): progress dots */
+.setup-steps { display: flex; justify-content: center; gap: 0.4rem; margin: -0.2rem 0 -0.4rem; }
+.setup-steps i { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--line-strong); }
+.setup-steps i.done { background: var(--blue); opacity: 0.55; }
+.setup-steps i.now { background: var(--blue); }
+.card.setup .kvs { text-align: left; }
+.card.setup .check { text-align: left; }
 .sep { display: flex; align-items: center; gap: 0.75rem; color: var(--faint); font-size: 0.8125rem; }
 .sep::before, .sep::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
 .bare-foot { text-align: center; font-size: 0.75rem; color: var(--faint); }
@@ -786,3 +798,15 @@ th.bulk-col, td.bulk-col { width: 2.25rem; }
 /* ---- demo instance (DEMO_MODE=true) ---- */
 .notice.demo { font-weight: 600; text-align: center; }
 .bare-main > .notice.demo { max-width: 32rem; }
+
+/* ---- Live updates -------------------------------------------------------------- */
+.live-ind { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0 0 0.9rem 0.5rem; font-size: 0.75rem; color: var(--muted); vertical-align: top; line-height: 1.5rem; }
+.live-ind[hidden] { display: none; }
+.live-ind i { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--warn, #d97706); }
+.live-ind.on i { background: var(--ok, #16a34a); }
+.live-ind b { font-weight: 500; }
+tr.changed > td { animation: none; }
+@media (prefers-reduced-motion: no-preference) {
+    tr.changed > td { animation: row-changed 1.6s ease-out; }
+    @keyframes row-changed { from { background: var(--hover); } to { background: transparent; } }
+}

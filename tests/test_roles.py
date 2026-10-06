@@ -129,7 +129,7 @@ class SidebarRenderTests(unittest.TestCase):
         self.assertNotIn(f'href="{ui.BASE}/logs"', html)
         self.assertNotIn(f'{ui.BASE}/acl', html)
 
-    def test_legacy_session_without_role_key_falls_back_to_admin_bool(self):
+    def test_session_without_role_key_falls_back_to_admin_bool(self):
         html = ui.sidebar("machines", {"admin": True, "csrf": "t"}, {})
         self.assertIn(f'href="{ui.BASE}/users"', html)
         self.assertIn("Admin", html)

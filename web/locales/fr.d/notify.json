@@ -9,7 +9,7 @@
   "Notifications": "Notifications",
   "Send a test": "Envoyer un test",
   "Sent a test notification": "A envoyé une notification de test",
-  "Set NOTIFY_URLS in .env (or run ./install.sh) and restart the web container.": "Définissez NOTIFY_URLS dans .env (ou exécutez ./install.sh) et redémarrez le conteneur web.",
+  "Set NOTIFY_URLS in .env and restart the container.": "Définissez NOTIFY_URLS dans .env et redémarrez le conteneur.",
   "Test notification sent to every destination.": "Notification de test envoyée à toutes les destinations.",
   "The test notification could not be delivered to at least one destination. Check the logs of the web container.": "La notification de test n'a pu être remise à au moins une destination. Consultez les journaux du conteneur web.",
   "Webhook notifications": "Notifications par webhook"

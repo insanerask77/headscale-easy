@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import status
 from i18n import _
-from ui import badge, esc, layout, page_head
+from ui import badge, esc, flash_html, layout, page_head
 
 
 def _kv(label: str, value: str) -> str:
@@ -32,22 +32,20 @@ def _version_row(label: str, info: dict, enabled: bool) -> str:
     return _kv(label, cell)
 
 
-def _containers(rows: list[dict], helper: dict | None) -> str:
-    if helper is None:
-        return f'<p class="muted">{esc(_("The Docker helper (hs-helper) is not answering, so the containers cannot be listed."))}</p>'
-    if not helper.get("docker"):
-        return f'<p class="muted">{esc(_("The Docker helper cannot reach Docker."))}</p>'
+def _processes(rows: list[dict], control: dict | None) -> str:
+    if control is None:
+        return f'<p class="muted">{esc(_("The supervisor is not answering, so the processes cannot be listed."))}</p>'
     if not rows:
-        return f'<p class="muted">{esc(_("No containers found."))}</p>'
+        return f'<p class="muted">{esc(_("No processes found."))}</p>'
     body = ""
     for c in rows:
         ok = c.get("state") == "running" and c.get("health") in (None, "healthy")
         kind = "green" if ok else ("orange" if c.get("health") == "starting" else "red")
         label = c.get("health") or c.get("state") or "?"
-        body += (f"<tr><td>{esc(c.get('service') or c.get('name'))}</td><td><code>{esc(c.get('image'))}</code></td>"
+        body += (f"<tr><td>{esc(c.get('service') or c.get('name'))}</td>"
                  f"<td>{badge(label, kind)}</td><td class=\"muted\">{esc(c.get('status'))}</td></tr>")
     return f"""<div class="table-wrap"><table class="simple">
-      <thead><tr><th>{esc(_("Service"))}</th><th>{esc(_("Image"))}</th><th>{esc(_("Health"))}</th><th>{esc(_("Status"))}</th></tr></thead>
+      <thead><tr><th>{esc(_("Service"))}</th><th>{esc(_("Health"))}</th><th>{esc(_("Status"))}</th></tr></thead>
       <tbody>{body}</tbody></table></div>"""
 
 
@@ -83,14 +81,14 @@ def _metrics(metrics: dict | None, online: tuple[int, int] | None) -> str:
     return (f'<dl class="kvs">{rows}</dl>' if rows else "") + note
 
 
-def status_page(session: dict, ctx: dict, data: dict) -> str:
+def status_page(session: dict, ctx: dict, data: dict, flash: str = "") -> str:
     enabled = data["update_check"]
     off = "" if enabled else f'<p class="muted small">{esc(_("The update check is off (STATUS_UPDATE_CHECK=false)."))}</p>'
-    body = page_head(_("Status"), esc(_("The health of this server at a glance."))) + f"""
+    body = page_head(_("Status"), esc(_("The health of this server at a glance."))) + flash_html(flash) + f"""
     <section class="card"><h2>{esc(_("Versions"))}</h2>
       <dl class="kvs">{_version_row("Headscale", data["headscale"], enabled)}{_version_row("Headscale Easy", data["easy"], enabled)}</dl>
       <p class="muted small">{esc(_("The latest releases are looked up on GitHub and cached for 12 hours."))}</p>{off}</section>
-    <section class="card"><h2>{esc(_("Containers"))}</h2>{_containers(data["containers"], data["helper"])}</section>
+    <section class="card"><h2>{esc(_("Processes"))}</h2>{_processes(data["processes"], data["control"])}</section>
     <section class="card"><h2>{esc(_("Disk"))}</h2>{_disks(data["disks"])}</section>
     <section class="card"><h2>{esc(_("Headscale"))}</h2>{_metrics(data["metrics"], data["online"])}</section>"""
     return layout(_("Status"), "status", body, session, ctx)

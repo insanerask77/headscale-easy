@@ -1,0 +1,16 @@
+# Advanced: a reverse proxy you already run (nginx, Traefik, Caddy, Nginx Proxy Manager) takes the HTTPS.
+#
+#   docker compose -f compose.yaml -f advanced/proxy.yaml up -d
+#
+# The image then speaks plain HTTP on 127.0.0.1:HSE_HTTP_PORT (HSE_PROXY_BIND changes where it listens)
+# and does not publish 80/443. UDP 3478 (the relay) is not HTTP: it stays published, a proxy cannot carry it.
+# In .env: HSE_PUBLIC_URL=https://vpn.example.com and HSE_TRUSTED_PROXIES=<the proxy's address>/32.
+services:
+  headscale-easy:
+    ports: !override
+      - "${HSE_PROXY_BIND:-127.0.0.1}:${HSE_HTTP_PORT:-8080}:80"
+      - "${HSE_DERP_PORT:-3478}:${HSE_DERP_PORT:-3478}/udp"
+    environment:
+      HSE_TLS: "off"
+      HSE_PUBLIC_URL: ${HSE_PUBLIC_URL:?set HSE_PUBLIC_URL (https://...) in .env}
+      HSE_TRUSTED_PROXIES: ${HSE_TRUSTED_PROXIES:?set HSE_TRUSTED_PROXIES to the proxy's address, as /32}

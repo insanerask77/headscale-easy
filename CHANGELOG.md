@@ -4,364 +4,54 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.0.0] - 2026-10-06
 
-## [1.5.0] - 2026-10-03
+Headscale Easy 2.0 is one container: Headscale, Caddy and the console, supervised together, installed
+with a Docker Compose file. The image is about 232 MB and uses about 72 MB of RAM at rest.
 
-Upgrade: run `./install.sh` again to pick up the new settings and the `hs-helper` service.
-An older `docker-compose.yml` that still mounts the Docker socket in `web` keeps working,
-with a warning in the logs. Existing installs keep their ACL policy: see *Fixed*.
+### End of 1.x
+- Headscale Easy **1.x is discontinued** as of this release: 1.5.0 is the last 1.x version and it receives no
+  more fixes, security fixes included. There is no in-place upgrade and no conversion tool: install 2.0 as a
+  new deployment. See [1.x is discontinued](https://insanerask77.github.io/headscale-easy/1x-end-of-life/).
 
-### Security
-- Sessions are now revocable: the signed cookie carries a session id that must
-  exist, unrevoked, in `data/web/sessions.db` (`600`). New **Settings →
-  Sessions** page: your sessions (admins and auditors: everybody's) with
-  *Log out*, *Sign out everywhere* and, for admins, *Sign out everyone else*.
-  Deleting a user, or a role change seen at their next sign-in, revokes their
-  older sessions. Cookies issued before this change have no session id: users
-  sign in again once.
-- Sign-in rate limiting per client IP (`SIGNIN_RATE_LIMIT`, default 10, per
-  `SIGNIN_RATE_WINDOW`, default 600 seconds) on the API key sign-in and the
-  OIDC sign-in: `429` with `Retry-After` and an `auth.rate_limited` activity
-  event. New activity events: `auth.session_revoked`,
-  `auth.sessions_revoked_all`.
-- The web UI no longer mounts the Docker socket (equivalent to root on the
-  host) and is no longer in the Docker group. A new `hs-helper` service
-  (`helper/`, image `ghcr.io/insanerask77/headscale-easy-helper`) is the only
-  container with the socket. It has no network and answers the web UI over a
-  `660` Unix socket in the `hse-helper` volume with exactly three fixed
-  operations on the `headscale` container: `POST /configtest`,
-  `POST /restart` and `GET /status` (container health and Headscale's
-  version). It takes no parameters; anything else is refused before Docker is
-  contacted. Installations with an older `docker-compose.yml` that still
-  mounts the socket in `web` keep working, with a warning in the logs.
-  `make validate` fails if any other service mounts the socket.
+### Install
+- A single `compose.yaml` and an optional `.env`: `docker compose up -d`, then open the setup wizard.
+  The image is pinned to the release (`HSE_VERSION`); no Docker socket, no added capability, no root.
+- The first-run wizard asks the language, the public URL, HTTPS (Let's Encrypt, internal CA or a proxy in
+  front), the administrator (with two-factor authentication), the tailnet name and its MagicDNS domain,
+  the DERP relay, who may sign up, and the backups. Every answer can also be given as `HSE_*` variables for
+  a headless start.
+- Headscale runs unmodified, pinned to a tested version.
 
-### Added
-- The console is now available in French, German and Portuguese (Brazilian),
-  next to English and Spanish: full catalogs in `web/locales/{fr,de,pt}.json`
-  and `{fr,de,pt}.d/`, offered in the language selector in Settings. `UI_LANG`
-  accepts `fr`, `de` and `pt`; the installer lets you choose them and keeps its
-  own messages in English for those languages.
-- PostgreSQL support for Headscale's database (roadmap item 17). The installer
-  asks: SQLite (default, recommended), PostgreSQL in the stack (new
-  `headscale-postgresql` container, `postgres` Compose profile, volume
-  `headscale-db`) or your own PostgreSQL server (host, port, database, owner,
-  password, TLS mode). New `HEADSCALE_DB_TYPE` and `HEADSCALE_PG_*` settings
-  in `.env`; switching type warns that data is not migrated.
-- `web/pgwire.py`: a minimal read-only PostgreSQL client written with the
-  standard library only (protocol v3, SCRAM-SHA-256 with server signature
-  check, cleartext password, optional TLS with libpq's `sslmode` values,
-  simple query; the legacy MD5 method is refused). The web image still has no
-  third-party dependencies.
-- The web UI reads device Hostinfo (OS, Tailscale version, DERP, endpoints)
-  from PostgreSQL through its own read-only role (`HEADSCALE_PG_RO_USER`,
-  created by `templates/headscale-pg-readonly.sql`): `SELECT` on three
-  columns of `nodes` only, read-only sessions; it never gets Headscale's
-  credentials.
-- Backups and restore support PostgreSQL: `pg_dump` of Headscale's database
-  (`headscale/headscale.sql` in the archive) and `make restore` loads it back
-  and re-creates the read-only role.
-- `tests/test_postgresql.py`: the client against a fake server (recorded
-  protocol messages, a real SCRAM server side, MD5 refused, errors, TLS refusal),
-  RFC 7677 SCRAM and RFC 4013 SASLprep vectors, Hostinfo from PostgreSQL on
-  the machine page.
-- Server status page (**Settings → Status**, admins and auditors): Headscale
-  and Headscale Easy versions with an update notice (GitHub releases, cached
-  12 h; `STATUS_UPDATE_CHECK=false` turns it off), container health from
-  `hs-helper`, disk use of `/data` and `/headscale`, devices online and basic
-  Headscale metrics. Each source fails independently.
-- Remote backups: set `BACKUP_REMOTE` and every backup is also uploaded to S3,
-  B2, SFTP... (any rclone remote) or to a server with rsync over SSH
-  (`rsync:user@host:/dir`). Remote retention with `BACKUP_REMOTE_KEEP_DAYS`;
-  credentials in `data/backup-remote/`. The installer asks for it, and
-  `make restore file=s3:bucket/dir/headscale-easy-....tar.gz` downloads the
-  backup first. A failed upload is reported without losing the local backup.
-- `tests/test_backup_remote.py`: tests `backup/remote.sh` against a local
-  destination with fake rclone/rsync.
-- DERP relay status: the machine detail shows the preferred relay with its
-  latency and the latency to every relay the device measured; the Machines
-  list has a Relay column.
-- New **DERP relays** page (Network): which relays the devices use and their
-  median latency, and an editor (admins) for your own DERP map. It writes
-  `headscale-derp.yaml` and points `derp.paths` of `config.yaml` at it (a
-  marked block, like DNS), validates it with `headscale configtest`, restarts
-  Headscale and restores the previous map if anything fails. Run
-  `./install.sh` once on existing installs to add the block and the file.
-- Webhook notifications (roadmap item 14): Slack, Telegram, ntfy and a generic
-  JSON webhook, for new, expired, about-to-expire and removed devices.
-  Configured with `NOTIFY_URLS` / `NOTIFY_EVENTS` (the installer asks,
-  optionally); sending is in the background with a timeout and retries, and
-  never slows down or breaks the web UI. **Settings -> General ->
-  Notifications** lists the destinations and has a "Send a test" button
-  (admins; blocked in the demo).
+### Sign-in and accounts
+- Local accounts: password (scrypt), TOTP with recovery codes, invitations, password-reset links, roles
+  (administrator, network administrator, auditor, member), revocable sessions and sign-in rate limiting.
+  Invitation and reset links are shown once and can be sent by e-mail with `SMTP_*`.
+- Sign-up from the sign-in page: off, by invitation key, or open.
+- Device sign-in without an identity provider: the link `tailscale up` prints opens the console, which asks
+  you to sign in and approve the device.
+- An external OIDC provider is optional: see Advanced configurations.
 
-### Changed
-- Machines that register as `localhost` are now renamed within about 5 seconds
-  (was 30). Each pass is one node-list call; host details are only fetched when
-  something needs renaming. Tune it with `RENAME_INTERVAL` (seconds, minimum 1).
+### Network
+- Embedded DERP/STUN relay by default (no third-party relay needed), a custom DERP map, or Tailscale's
+  public relays.
+- Network isolation per user, an ACL policy editor, DNS and MagicDNS editor, device key expiry, live
+  device status, a Docker tab in Add device, an activity log, webhook notifications, a status page.
+- English, Spanish, French, German and Portuguese.
 
-### Fixed
-- Exit nodes had no internet with `NETWORK_ISOLATION=true`: the policy the installer applies only
-  allowed `autogroup:self`, so an exit node accepted connections but forwarded nothing. It now also
-  allows `autogroup:member` -> `autogroup:internet:*`. Existing installs keep their policy; add the rule
-  in Access controls (see the configuration docs).
+### Backups
+- A nightly backup (consistent SQLite copies, keys, configuration, Caddy's CA) kept for 14 days, `hse
+  backup` and `hse restore`, a Backups page with upload, download and restore, and an optional sidecar
+  that uploads each backup to S3, B2, SFTP or a server.
 
-## [1.4.0] - 2026-09-30
+### Advanced configurations
+- Compose overlays under `advanced/`: external PostgreSQL (with a read-only role for the console, and an
+  optional bundled server), a proxy in front (nginx, Traefik, Caddy, Nginx Proxy Manager), remote backups,
+  and OIDC providers (Authentik, Pocket ID, Keycloak, Google).
+- `HSE_TRUSTED_PROXIES` gives the console and Headscale the real client address behind a proxy;
+  `HSE_OIDC_ALLOWED_*` and `PORTAL_*_GROUPS` say who may sign in and who is what.
 
-### Security
-- An email in `PORTAL_ADMIN_EMAILS` no longer grants admin when the OIDC
-  provider says it is not verified (`email_verified: false`). Before, with a
-  provider that lets users set an unverified email, anyone could claim an
-  admin's address.
-- The activity log database (`data/web/audit.db`, with emails and client IPs)
-  is now readable only by the web UI's user (`600`); it was world-readable.
-- New `DEMO_MODE=true` for public demo instances: a "DEMO ENVIRONMENT" banner
-  on every page and the actions that grant access or change things for
-  everyone (auth keys, API keys, registering devices, invitations, reset
-  links, users, DNS, the ACL policy (visual editor and Advanced), two-factor,
-  key expiry, removing or expiring machines, one by one or in bulk) are
-  refused.
-
-### Added
-- `tests/test_security.py`: permission-boundary tests run in CI (forged and
-  expired sessions, CSRF, admin-only pages and actions, members limited to
-  their own machines and keys, path traversal, redirects, OIDC
-  admin-by-email, demo mode).
-- Documentation: security notice in the README and docs; `SECURITY.md` with
-  what is exposed, review and test status, known limitations and how to
-  report; `AI_USAGE.md`; new pages *Why Headscale Easy?* (the problem it
-  solves, comparison with Headplane, end-to-end workflow), *Production and
-  hardening* and *Architecture and resources* (with measured RAM, CPU and disk
-  use); a 5-minute quick start; more troubleshooting (OIDC, HTTPS, front
-  proxies, device registration, DNS, ACL).
-- Contributing: pull requests say whether they were AI-assisted, and changes to
-  sign-in, sessions, permissions or the Docker socket need a security test.
-
-### Changed
-- The project is described as what it is — a deployment and management layer
-  around the official Headscale — rather than "the open source Tailscale
-  alternative".
-
-## [1.3.1] - 2026-09-30
-
-### Fixed
-- **SSO login behind proxies that block Python's default user agent.** The
-  console now identifies its outbound OIDC requests (discovery, token
-  exchange, userinfo) as `headscale-easy/<version>`. Some identity-provider
-  proxies reject `Python-urllib`: Pocket ID behind Cloudflare answered
-  discovery with HTTP 403 / Error 1010, which broke sign-in. Thanks to
-  [@vhryniv](https://github.com/vhryniv) for the report and the fix (#21).
-
-### Changed
-- The README now lists the project's contributors.
-
-## [1.3.0] - 2026-09-30
-
-Closes out the roadmap's Medium-priority section (items 10-13).
-
-### Added
-- **Auto-approval of routes and exit nodes.** A 5th "Auto-approval" tab in
-  Access controls exposes Headscale's `autoApprovers` policy section:
-  declare which tag, group or user gets a subnet route (or the exit node
-  role) approved automatically, instead of approving each device by hand.
-  Verified live: a tagged test device's advertised route and exit-node role
-  were both approved with zero manual steps.
-- **Tailscale SSH rules.** A 6th "SSH rules" tab: who can SSH into which
-  machines, as which host users, with optional periodic re-authentication —
-  no SSH keys to manage. Tailscale SSH itself still needs turning on per
-  device (`tailscale up --ssh`).
-- **Bulk actions on machines.** Tick several rows in the Machines table (or
-  the header checkbox for all of them) to expire keys, add a tag or remove
-  them all at once, instead of one at a time.
-- **Network admin and Auditor roles**, both opt-in and built on Authentik
-  groups (`PORTAL_NETWORK_ADMIN_GROUPS`, `PORTAL_AUDITOR_GROUPS`): a network
-  admin edits the ACL policy and DNS only; an auditor sees everything an
-  admin sees — every machine, Users, DNS, Access controls, Logs — but can
-  never change anything, anywhere. No Authentik blueprint changes needed:
-  the existing `profile` OIDC scope already sends every group a user belongs
-  to.
-
-## [1.2.0] - 2026-09-29
-
-### Added
-- **Visual ACL policy editor.** Access controls now has four tabs: **Rules**
-  (who can reach what, with source/destination/port/protocol forms),
-  **Groups & tags** (reusable groups and tag owners), **Test access** (a
-  simulator: pick a source and a destination and it says whether the policy
-  allows it and which rule matched — not a live packet test), and **Advanced
-  (HuJSON)**, the original text editor kept as a full fallback. Under the
-  hood, visual edits rewrite only the `acls`, `groups` or `tagOwners` block
-  they touch and leave the rest of the file — comments, key order, hand-written
-  `ssh` or `autoApprovers` sections — untouched. Verified against a live
-  Headscale instance: real device connectivity (per-user isolation and a
-  tag-based rule) matched the simulator's predictions in every case tested.
-- **Optional public DERP servers.** The installer now asks whether to also use
-  Tailscale's public DERP relays (default: yes); answering no gives a fully
-  self-hosted install with only the embedded relay (`DERP_USE_PUBLIC` in
-  `.env`). `uninstall.sh` gains a `--lang en|es` option.
-
-## [1.1.0] - 2026-09-29
-
-Built by five agents working in parallel, one feature each, then integrated
-and tested together.
-
-### Added
-- **Invitations and password reset.** Admins invite people from Users →
-  Invite user (member or admin, optional email, 1–30 days, QR code for the
-  link); the person chooses their own user name and password. Pending
-  invitations can be copied again or revoked. "Password reset link…" makes a
-  single-use link for any account, no email needed. Optional SMTP (asked by the
-  installer) adds "Forgot password?" on the sign-in page and lets invitations
-  and reset links be emailed.
-- **Expiry warnings and inactive machines.** An orange "Expires soon" badge
-  (14 days, `EXPIRY_WARNING_DAYS`), a notice at the top of Machines with a link
-  that filters them, "Expiring soon" and "Offline for 30+ days" filters
-  (`INACTIVE_DAYS`), and bulk removal of inactive machines (admins, with
-  confirmation; each machine is checked again before removal).
-- **Activity log** (Logs page, admins): configuration changes made in the web
-  UI (machines, users, keys, ACL with a diff, DNS before/after, key expiry,
-  two-factor, invitations, password resets), console sign-ins and failed
-  sign-ins with the client IP, and device events (registered, removed,
-  connected, disconnected, key expired, Tailscale version changed, renamed
-  outside the console). Search, filters, CSV export, live updates. Kept
-  `AUDIT_RETENTION_DAYS` (90) in `./data/web/audit.db`, included in backups.
-  Secrets are never stored.
-- **QR codes** in Add device (server URL on the iOS and Android tabs, whose
-  steps now follow Tailscale's current custom-server flow) and for new auth
-  keys, generated by the web UI itself (no JavaScript or third-party code).
-- **DNS page like Tailscale's**: the implicit MagicDNS nameserver
-  (100.100.100.100), split DNS and global nameservers as rows with add/remove,
-  "Use local DNS settings", the tailnet domain as the fixed first search
-  domain, custom records as rows, and confirmation before renaming the tailnet
-  or disabling MagicDNS. Works without JavaScript.
-- Unit tests (`make test`, run in CI).
-
-### Fixed
-- The Spanish strings of custom DNS records were lost in 1.0.7.
-
-## [1.0.7] - 2026-09-29
-
-### Added
-- Custom DNS records in the DNS page (`name address`, A or AAAA), resolved by
-  every device of the tailnet (Headscale's `dns.extra_records`).
-
-## [1.0.6] - 2026-09-29
-
-### Added
-- Optional daily backups: the installer asks (off by default, recommended) and
-  lets you choose the time, folder and retention. A `backup` container
-  (Compose profile `backup`) backs up Headscale's database and private keys,
-  Authentik's database, the configuration and Caddy's internal CA. The
-  installer makes a first backup right away and shows the exact restore
-  command.
-- `make restore file=...` (`scripts/restore.sh`): restores all of it, also on a
-  new server. `make backup` makes a one-off backup, with or without the
-  schedule.
-
-### Fixed
-- `make backup` copied Headscale's SQLite files while Headscale was writing,
-  which could produce an inconsistent database. It now uses SQLite's online
-  backup and checks the copy's integrity.
-
-## [1.0.5] - 2026-09-29
-
-### Added
-- Two-factor authentication with the built-in Authentik: an authenticator app
-  (TOTP) or a passkey after the password. Required for admins by default;
-  `MFA_REQUIRED` (asked by the installer) can make it required for everyone or
-  optional. Users who already have a second factor are always asked for it.
-- Admins change the two-factor mode live from the web UI (Settings → General
-  → Two-factor authentication), without reinstalling. The web UI uses an
-  Authentik API token (`PORTAL_AUTHENTIK_TOKEN`, generated by the installer)
-  of a service account that may only read and change the two-factor policy;
-  restarting Authentik keeps the admin's choice, and `MFA_REQUIRED` is the
-  initial value (re-running the installer applies the value chosen there).
-  Without the built-in Authentik the section is hidden; without the token it
-  is read-only.
-
-## [1.0.4] - 2026-09-29
-
-### Fixed
-- The web UI stopped working 90 days after installing, when its Headscale API
-  key expired. It now renews the key by itself 15 days before (keeping the new
-  one in `data/web/api-key` and expiring the old one); the installer reuses the
-  renewed key. If no valid key is left, the web UI says how to fix it instead
-  of showing a generic error.
-- API key prefixes containing "-" were misread, which could hide the "Used by
-  Headscale Easy" mark on the web UI's own key.
-
-## [1.0.3] - 2026-09-29
-
-### Fixed
-- Devices were always added with key expiry disabled, whatever the auth key's
-  expiry: Headscale's `node.expiry` defaults to never. New devices now expire
-  after 180 days, like in Tailscale, and admins change it in Settings →
-  General → Device management. The auth key dialog explains that its expiry
-  only limits until when the key can add devices.
-- Live updates stopped while any menu or dialog was open, e.g. Add device or a
-  freshly generated key, exactly while adding a device. Now only menus and
-  dialogs inside the refreshed area pause them, and the page also refreshes
-  when the window gets the focus back.
-
-## [1.0.2] - 2026-09-29
-
-### Added
-- Live updates: the Machines, machine details and Users pages refresh on
-  their own every few seconds, so machines appear, connect and disconnect
-  without reloading. Paused while the tab is hidden or a menu or dialog is
-  open.
-
-### Changed
-- Automatic naming of machines called `localhost` logs whether it is on and
-  what it finds, to diagnose devices it could not rename.
-
-## [1.0.1] - 2026-09-29
-
-### Fixed
-- The sign-in page said "Welcome to authentik!" and the "Sign in with Google"
-  button could disappear: Authentik resets its default flows, so Headscale Easy
-  now has its own sign-in, sign-out and Google flows.
-- Signing out could leave a blank page or a half-closed session when the web UI
-  had been open for more than an hour (expired ID token). It now always ends
-  the Authentik session and returns to the web UI with "You have signed out".
-- The add-user form accepted an email (or user name) already used by another
-  account, including one created by signing in with Google.
-- Apple devices registered from the Tailscale app were called `localhost`: the
-  web UI now renames them to `<owner>-<device>` (e.g. `ana-iphone`). Disable
-  with `AUTO_RENAME_LOCALHOST=false`.
-
-## [1.0.0] - 2026-09-28
-
-First release as **Headscale Easy**.
-
-### Added
-- Web console modelled on Tailscale's admin panel, at `/admin`: machines
-  (status, addresses, OS and client version, rename, expire, remove, key
-  expiry, tags, subnet routes, exit nodes, filters, search, CSV export), users,
-  DNS editor, ACL policy editor, auth and API keys, register by auth ID.
-- Members see and manage only their own devices; admins manage everything.
-- English and Spanish, in the installer and the console.
-- Docker image `ghcr.io/insanerask77/headscale-easy` (amd64, arm64).
-- Built-in Authentik with a themed login, a simple add-user form at `/add-user`
-  and optional Google sign-in.
-- Per-user network isolation policy (`autogroup:self`) on new installs.
-- Ready-made configuration for Nginx Proxy Manager, nginx, Traefik and Caddy
-  when another proxy terminates TLS.
-- Documentation site on GitHub Pages, in English and Spanish:
-  https://insanerask77.github.io/headscale-easy/
-
-[1.5.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.5.0
-[1.4.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.4.0
-[1.3.1]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.3.1
-[1.3.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.3.0
-[1.2.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.2.0
-[1.1.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.1.0
-[1.0.7]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.7
-[1.0.6]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.6
-[1.0.5]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.5
-[1.0.4]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.4
-[1.0.3]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.3
-[1.0.2]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.2
-[1.0.1]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.1
-[1.0.0]: https://github.com/insanerask77/headscale-easy/releases/tag/v1.0.0
+### Releases
+- Images are published as `ghcr.io/insanerask77/headscale-easy` and `headscale-easy-backup` with the tags
+  `X.Y.Z`, `X.Y`, `X` and `latest`. `VERSION` is the single source of the version; CI checks that the
+  compose file, the image and this changelog agree.

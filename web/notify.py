@@ -13,6 +13,7 @@ Configured with two environment variables (see .env.example):
                    device.key_expired  a device's key expired
                    device.expiring     a device's key expires soon (EXPIRY_WARNING_DAYS)
                    device.removed      a device was deleted
+                   backup.failed       a scheduled backup failed (all-in-one image)
 
 Sending never blocks the caller and never raises: every message goes out in a
 daemon thread with a timeout and a few retries; failures are only logged.
@@ -34,7 +35,7 @@ from datetime import datetime, timezone
 
 log = logging.getLogger("headscale-easy")
 
-ALL_EVENTS = ("device.registered", "device.key_expired", "device.expiring", "device.removed")
+ALL_EVENTS = ("device.registered", "device.key_expired", "device.expiring", "device.removed", "backup.failed")
 TIMEOUT = 10  # seconds per attempt
 ATTEMPTS = 3
 RETRY_DELAY = 2  # seconds, multiplied by the attempt number
@@ -118,6 +119,9 @@ def message(action: str, target: str = "", details: dict | None = None) -> str:
         return f"Key expiring: {name}{user} expires{when}."
     if action == "device.removed":
         return f"Device removed: {name}{user} is no longer in the tailnet."
+    if action == "backup.failed":
+        why = f": {details['error']}" if details.get("error") else "."
+        return f"Backup failed{why}"
     if action == "test":
         return "Test notification from Headscale Easy: this destination works."
     return f"{action}: {name}"
@@ -225,6 +229,33 @@ def check_expiring(nodes: list[dict], now: datetime | None = None) -> int:
     return len(fresh)
 
 
+def new_backup_failure(backup: dict | None, seen: str | None) -> tuple[dict | None, str | None]:
+    """The scheduled backup that just failed, if any, and the `at` of the last
+    run seen. A failure is reported once; manual runs are not (the person who
+    clicked already sees the result). `seen` None = first look: remember, say nothing."""
+    last = (backup or {}).get("last") or {}
+    at = last.get("at")
+    if not at:
+        return None, seen
+    if seen is None or at == seen:
+        return None, at
+    failed = not last.get("ok") and last.get("trigger") == "scheduled"
+    return (last if failed else None), at
+
+
+def check_backup(backup: dict | None) -> bool:
+    """One pass over the supervisor's backup summary (status page data). Remembers
+    the last run seen in the activity log database so a restart does not repeat it."""
+    import audit
+
+    failure, seen = new_backup_failure(backup, audit.get_state("notify.backup"))
+    if seen is not None:
+        audit.set_state("notify.backup", seen)
+    if failure:
+        event("backup.failed", "backup", {"error": str(failure.get("error") or "")[:200]})
+    return bool(failure)
+
+
 def _loop() -> None:
     import headscale as hs  # needs HEADSCALE_API_KEY: imported here, not by the tests
 
@@ -232,6 +263,8 @@ def _loop() -> None:
         try:
             if "device.expiring" in events():
                 check_expiring(hs.all_nodes())
+            if "backup.failed" in events():
+                check_backup((hs.control_status() or {}).get("backup"))
         except Exception as exc:  # noqa: BLE001 - keep the thread alive
             log.warning("notifications: expiry check failed: %s", exc)
         time.sleep(CHECK_INTERVAL)

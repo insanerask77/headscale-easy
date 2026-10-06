@@ -3,12 +3,11 @@ app.py checks the role before rendering any of them."""
 
 from __future__ import annotations
 
-import accounts as acc
 import acl_pages
 import policy
 from i18n import _, ngettext
 from pages import dialog
-from ui import (BASE, LOGO, badge, bare_page, csrf_input, esc, flash_html, icon, initials, layout, notice,
+from ui import (BASE, LOGO, badge, bare_page, copy_btn, csrf_input, esc, flash_html, icon, initials, layout, notice,
                 page_head, time_tag, user_label)
 
 
@@ -17,10 +16,82 @@ from ui import (BASE, LOGO, badge, bare_page, csrf_input, esc, flash_html, icon,
 # Users
 # -----------------------------------------------------------------------------
 
+signup_open = lambda: False  # noqa: E731 - app.py replaces it: is self-registration on?
+
+def _password_fields() -> str:
+    return (f'<label class="field">{esc(_("New password"))}<input name="password" type="password" required minlength="8" '
+            f'autocomplete="new-password"></label>'
+            f'<label class="check"><input type="checkbox" name="must_change" value="1" checked>'
+            f'<span>{esc(_("They must choose another password when they sign in"))}</span></label>')
+
+
+def _account_fields() -> str:
+    roles = (("member", _("Member")), ("auditor", _("Auditor")), ("network_admin", _("Network admin")), ("admin", _("Admin")))
+    options = "".join(f'<option value="{k}">{esc(v)}</option>' for k, v in roles)
+    return (f'<p class="muted small">{esc(_("To let this person sign in, fill in the rest:"))}</p>'
+            f'<label class="field">{esc(_("Email"))}<input name="email" type="email" autocomplete="off"></label>'
+            f'<label class="field">{esc(_("Password"))}<input name="password" type="password" minlength="8" '
+            f'autocomplete="new-password"></label>'
+            f'<label class="field">{esc(_("Role"))}<select name="role">{options}</select></label>'
+            f'<label class="check"><input type="checkbox" name="must_change" value="1" checked>'
+            f'<span>{esc(_("They must choose another password when they sign in"))}</span></label>')
+
+
+def _invite_fields() -> str:
+    roles = (("member", _("Member")), ("auditor", _("Auditor")), ("network_admin", _("Network admin")), ("admin", _("Admin")))
+    options = "".join(f'<option value="{k}">{esc(v)}</option>' for k, v in roles)
+    days = "".join(f'<option value="{d}"{" selected" if d == "7" else ""}>{esc(ngettext("{n} day", "{n} days", int(d)))}</option>'
+                   for d in ("1", "7", "30"))
+    return (f'<label class="field">{esc(_("Email"))}<input name="email" type="email" required autocomplete="off"></label>'
+            f'<label class="field">{esc(_("Role"))}<select name="role">{options}</select></label>'
+            f'<label class="field">{esc(_("Valid for"))}<select name="days">{days}</select></label>')
+
+
+def link_result_box(session: dict, result: dict, can_mail: bool) -> str:
+    """The single-use link of a new invitation or password reset. It is shown once: only the
+    hash is stored, so a lost link means making another one."""
+    reset = result.get("kind") == "reset"
+    title = _("Password reset link created") if reset else _("Invitation created")
+    who = result.get("email") or ""
+    mail = ""
+    if result.get("sent"):
+        mail = notice("ok", _("E-mail sent to {to}.", to=who))
+    elif can_mail and who:
+        mail = (f'<form method="post" action="{BASE}/users/send-link" class="inline-form">{csrf_input(session)}'
+                f'<input type="hidden" name="kind" value="{esc(result.get("kind", "invite"))}">'
+                f'<input type="hidden" name="link" value="{esc(result["link"])}">'
+                f'<input type="hidden" name="expires" value="{esc(result.get("expires", ""))}">'
+                f'<input type="hidden" name="to" value="{esc(who)}">'
+                f'<button class="btn" type="submit">{esc(_("Send by e-mail to {to}", to=who))}</button></form>')
+    return f"""
+    <section class="card keybox inv-result">
+      <h2>{esc(title)}</h2>
+      <p>{esc(_("Copy the link now and send it to {who}: it is not shown again.", who=who or _("the person")))}
+        {esc(_("It works once and expires on"))} {time_tag(result.get("expires"))}.</p>
+      <div class="code"><code>{esc(result["link"])}</code>{copy_btn(result["link"])}</div>
+      {mail}
+    </section>"""
+
+
+def invitations_section(session: dict, invites: list[dict]) -> str:
+    if not invites:
+        return ""
+    rows = "".join(
+        f'<tr><td>{esc(i.get("email") or "—")}</td><td>{esc(i.get("role") or "")}</td><td>{time_tag(i.get("expires"))}</td>'
+        f'<td><form method="post" action="{BASE}/invitations/{esc(i["token_hash"])}/revoke">{csrf_input(session)}'
+        f'<button class="btn" type="submit">{esc(_("Revoke"))}</button></form></td></tr>' for i in invites)
+    return f"""
+    <section class="card">
+      <h2>{esc(_("Pending invitations"))}</h2>
+      <div class="table-wrap"><table class="machines">
+        <thead><tr><th>{esc(_("Email"))}</th><th>{esc(_("Role"))}</th><th>{esc(_("Expires"))}</th><th></th></tr></thead>
+        <tbody>{rows}</tbody></table></div>
+    </section>"""
+
+
 def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], flash: str, error: str = "",
-               accounts: dict | None = None, result: dict | None = None) -> str:
-    # accounts: Authentik data for invitations and reset links (accounts.page_data)
-    linked = (accounts or {}).get("linked") or {}
+               result: dict | None = None, signins: dict | None = None, extra: str = "",
+               invites: list[dict] | None = None, can_mail: bool = False) -> str:
     counts: dict[str, int] = {}
     online: dict[str, int] = {}
     for n in nodes:
@@ -53,7 +124,8 @@ def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], f
                 <a href="{BASE}/machines?owner={uid}">{esc(_("View machines"))}</a>
                 <a href="{BASE}/settings/keys?user={uid}#new">{esc(_("Generate auth key for this user"))}</a>
                 <button type="button" data-open="ren-user-{uid}">{esc(_("Rename…"))}</button>
-                {acc.reset_item(linked.get(str(u["id"])))}
+                {f'<button type="button" data-open="pw-user-{uid}">{esc(_("Set password…"))}</button>' if u.get("name") in (signins or {}) else ""}
+                {f'<button type="button" data-open="rl-user-{uid}">{esc(_("Password reset link…"))}</button>' if u.get("name") in (signins or {}) else ""}
                 <hr>{delete}
               </div>
             </details>
@@ -65,23 +137,26 @@ def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], f
                               f"{BASE}/users/{uid}/rename", session, submit=_("Save"),
                               fields=f'<label class="field">{esc(_("Name"))}<input name="name" value="{esc(u.get("name"))}" '
                                      f'required autocomplete="off" spellcheck="false"></label>'))
+        if u.get("name") in (signins or {}):
+            dialogs.append(dialog(f"pw-user-{uid}", _("Set the password of {name}", name=u.get("name")),
+                                  esc(_("Their open sessions are signed out.")),
+                                  f"{BASE}/users/{uid}/password", session, submit=_("Set password"),
+                                  fields=_password_fields()))
+        if u.get("name") in (signins or {}):
+            dialogs.append(dialog(f"rl-user-{uid}", _("Password reset link for {name}", name=u.get("name")),
+                                  esc(_("Makes a single-use link, valid for 24 hours. Their open sessions stay signed in until they use it.")),
+                                  f"{BASE}/users/{uid}/reset-link", session, submit=_("Create link")))
         dialogs.append(dialog(f"del-user-{uid}", _("Delete {name}?", name=u.get("name")),
                               esc(_("The user is deleted from Headscale. Their sign-in account is not touched: "
                                     "if they sign in again, the user is created again.")),
                               f"{BASE}/users/{uid}/delete", session, submit=_("Delete user"), danger=True))
 
-    actions = f'<button class="btn" type="button" data-open="new-user">{esc(_("Create local user"))}</button>'
-    if ctx.get("authentik"):
-        primary = "" if accounts is not None else " primary"
-        actions += f'<a class="btn{primary}" href="{esc(ctx["public_url"])}/add-user">{esc(_("Add user"))}</a>'
-        if accounts is not None and not accounts.get("error"):
-            actions += acc.invite_button()
+    actions = (f'<button class="btn" type="button" data-open="invite-user">{esc(_("Invite user"))}</button> '
+               f'<button class="btn" type="button" data-open="new-user">{esc(_("Create local user"))}</button>')
     sub = _("Users of the tailnet. They are created automatically the first time someone connects a device by signing in.")
-    if ctx.get("authentik"):
-        sub += " " + _("Accounts (user name and password) are created in Authentik.")
     body = page_head(_("Users"), esc(sub), actions) + flash_html(flash) + (notice("error", error) if error else "")
-    if accounts is not None:
-        body += acc.flash_html(flash) + (acc.result_box(result) if result else "")
+    if result:
+        body += link_result_box(session, result, can_mail)
     body += f"""
     <div class="toolbar">
       <label class="search">{icon("search")}<input type="search" placeholder="{esc(_("Search users…"))}" data-filter aria-label="{esc(_("Search users"))}"></label>
@@ -91,20 +166,22 @@ def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], f
       <table class="machines users">
         <thead><tr><th>{esc(_("User"))}</th><th>{esc(_("Headscale name"))}</th><th>{esc(_("Sign-in"))}</th>
           <th>{esc(_("Machines"))}</th><th class="hide-sm">{esc(_("Joined"))}</th><th></th></tr></thead>
-        <tbody data-live="rows">{"".join(rows)}</tbody>
+        <tbody data-live="rows" data-stream="{BASE}/events">{"".join(rows)}</tbody>
       </table>
     </div>
     <p class="no-results muted" hidden>{esc(_("No users match the search."))}</p>
+    {dialog("invite-user", _("Invite a user"),
+            esc(_("They get a single-use link to choose their user name and password.")),
+            f"{BASE}/invitations", session, submit=_("Create invitation"), fields=_invite_fields())}
     {dialog("new-user", _("Create local user"),
-            esc(_("A Headscale user without sign-in, for servers or devices that connect with auth keys. For people, create an account instead.")),
+            esc(_("Without a password: a Headscale user without sign-in, for servers or devices that connect with auth keys. "
+                  "With a password: an account the person can sign in with.")),
             f"{BASE}/users", session, submit=_("Create"),
             fields=f'<label class="field">{esc(_("Name"))}<input name="name" required placeholder="servers" autocomplete="off" spellcheck="false"></label>'
-                   f'<label class="field">{esc(_("Display name (optional)"))}<input name="display_name" autocomplete="off"></label>')}
+                   f'<label class="field">{esc(_("Display name (optional)"))}<input name="display_name" autocomplete="off"></label>'
+                   + _account_fields())}
     <div data-live="dialogs">{"".join(dialogs)}</div>"""
-    if accounts is not None:
-        body += acc.sections(session, accounts) + acc.invite_dialog(session) + "".join(
-            acc.reset_dialog(session, a) for a in linked.values() if acc.reset_item(a))
-    return layout(_("Users"), "users", body, session, ctx)
+    return layout(_("Users"), "users", body + invitations_section(session, invites or []) + extra, session, ctx)
 
 
 # -----------------------------------------------------------------------------
@@ -148,7 +225,7 @@ def _raw_panel(session: dict, text: str, updated: str | None, result: tuple[str,
         <div class="kv"><dt><code>tag:name</code></dt><dd>{esc(_("Machines with that tag; the tag needs an owner in tagOwners."))}</dd></div>
         <div class="kv"><dt><code>user@</code></dt><dd>{esc(_("The machines of one user."))}</dd></div>
       </dl>
-      <p class="muted small">{esc(_("Per-user isolation (the installer's default policy):"))}</p>
+      <p class="muted small">{esc(_("Per-user isolation (the default policy):"))}</p>
       <div class="code"><code class="pre">{esc(ISOLATION)}</code></div>
     </div>"""
 
@@ -217,22 +294,41 @@ def acl_page(session: dict, ctx: dict, policy_data: dict, nodes: list[dict], use
 # Sign in
 # -----------------------------------------------------------------------------
 
-def login_page(sso: bool, apikey: bool, error: str = "", info: str = "") -> str:
-    sso_html = f'<a class="btn primary wide" href="{BASE}/login/sso">{esc(_("Sign in"))}</a>' if sso else ""
-    sep = f'<div class="sep"><span>{esc(_("or"))}</span></div>' if sso and apikey else ""
+def login_page(sso: bool, apikey: bool, error: str = "", info: str = "", local: bool = True) -> str:
+    # Local account sign-in (username + password)
+    local_html = ""
+    if local:
+        local_html = f"""
+      <form method="post" action="{BASE}/login/local" class="stack">
+        <label class="field">{esc(_("Username"))}<input name="username" type="text" required
+          autocomplete="username" spellcheck="false" autofocus></label>
+        <label class="field">{esc(_("Password"))}<input name="password" type="password" required
+          autocomplete="current-password"></label>
+        <button class="btn wide primary" type="submit">{esc(_("Sign in"))}</button>
+      </form>"""
+
+    signup_html = (f'<p class="muted small"><a href="{BASE}/signup">{esc(_("Create an account"))}</a></p>'
+                   if local and signup_open() else "")
+    sso_html = f'<a class="btn wide" href="{BASE}/login/sso">{esc(_("Sign in with SSO"))}</a>' if sso else ""
+
+    # Separators
+    sep1 = f'<div class="sep"><span>{esc(_("or"))}</span></div>' if local and (sso or apikey) else ""
+    sep2 = f'<div class="sep"><span>{esc(_("or"))}</span></div>' if sso and apikey else ""
+
     key_html = ""
     if apikey:
         key_html = f"""
       <form method="post" action="{BASE}/login/apikey" class="stack">
         <label class="field">{esc(_("Headscale API key"))}<input name="api_key" type="password" required
           placeholder="hskey-api-…" autocomplete="off" spellcheck="false"></label>
-        <button class="btn wide {"" if sso else "primary"}" type="submit">{esc(_("Sign in with API key"))}</button>
+        <button class="btn wide" type="submit">{esc(_("Sign in with API key"))}</button>
         <p class="muted small">{esc(_("Gives admin access. Create one with:"))} <code>docker exec headscale headscale apikeys create</code></p>
       </form>"""
+
     return bare_page(_("Sign in"), f"""
     <section class="card narrow center login">
       <div class="big-logo">{LOGO}</div>
       <h1>Headscale Easy</h1>
       <p class="muted">{esc(_("Sign in to manage your tailnet."))}</p>
-      {notice("error", error) if error else ""}{notice("ok", info) if info else ""}{sso_html}{sep}{key_html}
+      {notice("error", error) if error else ""}{notice("ok", info) if info else ""}{local_html}{signup_html}{sep1}{sso_html}{sep2}{key_html}
     </section>""")

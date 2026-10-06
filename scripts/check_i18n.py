@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Check that every UI string has a translation in each web/locales/*.json.
 
-Strings are the literal arguments of _() and ngettext() in web/*.py.
-Exits 1 when a translation is missing or a call does not use a literal.
+Strings are the literal arguments of _() and ngettext() in web/*.py and aio/*.py.
+Exits 1 when a translation is missing, a catalog entry is unused, or a call does not use a literal.
 """
 import ast
 import json
@@ -10,11 +10,12 @@ import pathlib
 import sys
 
 WEB = pathlib.Path(__file__).resolve().parent.parent / "web"
+AIO = WEB.parent / "aio"  # the setup wizard shares the catalogs
 
 
 def ui_strings():
     keys, errors = [], []
-    for f in sorted(WEB.glob("*.py")):
+    for f in sorted([*WEB.glob("*.py"), *AIO.glob("*.py")]):
         if f.name == "i18n.py":  # defines _() and ngettext() themselves
             continue
         for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
@@ -47,7 +48,7 @@ def main():
             print(f"  missing: {k!r}")
         for k in unused:
             print(f"  unused:  {k!r}")
-        failed |= bool(missing)
+        failed |= bool(missing) or bool(unused)  # an entry nothing asks for is dead weight: remove it
     sys.exit(1 if failed else 0)
 
 

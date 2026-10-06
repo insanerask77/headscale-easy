@@ -1,0 +1,9 @@
+{
+  "Protect your account with two-factor authentication": "Proteja a sua conta com a autenticação de dois fatores",
+  "Two-factor authentication is not enabled on your account. It takes a minute and keeps your tailnet safe even if your password leaks.": "A autenticação de dois fatores não está ativada na sua conta. Demora um minuto e mantém a sua tailnet segura mesmo que a palavra-passe seja divulgada.",
+  "Remind me later": "Lembrar mais tarde",
+  "You can turn on two-factor authentication from the console after signing in.": "Pode ativar a autenticação de dois fatores na consola depois de iniciar sessão.",
+  "Open the console": "Abrir a consola",
+  "Waiting for the console to start; you will be taken to the sign-in page.": "A aguardar que a consola arranque; será levado para a página de acesso.",
+  "The console is taking longer than expected. Check the container logs, then open it with the button below.": "A consola está a demorar mais do que o esperado. Verifique os logs do contentor e abra-a com o botão abaixo."
+}

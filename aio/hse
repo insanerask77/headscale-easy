@@ -1,0 +1,321 @@
+#!/usr/bin/env python3
+"""hse: control CLI of the all-in-one image.
+
+    hse health                 exit 0 when every supervised process runs (HEALTHCHECK)
+    hse reload                 re-render the config and restart Caddy / Headscale
+    hse backup [--out DIR]     make a backup now (the same archive as the scheduled one)
+    hse backups                list the backups and the result of the last run
+    hse restore FILE [--yes] [--with-postgres]
+                               restore a backup (running container, or a stopped
+                               volume: docker run --rm -v hse:/data --entrypoint hse IMAGE restore ...)
+
+Talks to the supervisor through the control socket (GET /status), SIGHUP and
+SIGUSR1 (pid in the run dir). backup and restore work on /data directly (see
+aio/backup.py and aio/restore.py). Exit codes: 0 ok, 1 failed, 2 usage, 3 a
+backup or restore is already running. Standard library only.
+"""
+import http.client
+import importlib
+import json
+import os
+import signal
+import socket
+import sys
+import time
+from datetime import datetime
+
+RUN_DIR = os.environ.get("HSE_RUN_DIR", "/run/hse")
+DATA_DIR = os.environ.get("HSE_DATA_DIR", "/data")
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))  # hse is symlinked into /usr/local/bin
+ARCHIVE_GLOB_PREFIX, ARCHIVE_SUFFIX = "headscale-easy-", ".tar.gz"
+RESTORE_WAIT = float(os.environ.get("HSE_RESTORE_WAIT", "120"))
+EXIT_BUSY = 3
+
+
+class _Unix(http.client.HTTPConnection):
+    def __init__(self, path, timeout=5):
+        super().__init__("localhost", timeout=timeout)
+        self._path = path
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(self._path)
+
+
+def status():
+    conn = _Unix(os.path.join(RUN_DIR, "control.sock"))
+    try:
+        conn.request("GET", "/status", headers={"Content-Length": "0"})
+        resp = conn.getresponse()
+        return json.loads(resp.read()) if resp.status == 200 else None
+    finally:
+        conn.close()
+
+
+def health():
+    try:
+        data = status()
+    except (OSError, ValueError) as exc:
+        print("unhealthy: supervisor not answering: %s" % exc, file=sys.stderr)
+        return 1
+    rows = (data or {}).get("processes") or []
+    bad = [r["name"] for r in rows if r.get("state") != "running" or r.get("health") == "unhealthy"]
+    if not rows or bad:
+        print("unhealthy: %s" % (", ".join(bad) or "no processes"), file=sys.stderr)
+        return 1
+    print("healthy (%s mode): %s" % (data.get("mode"), ", ".join(r["name"] for r in rows)))
+    return 0
+
+
+def reload():
+    try:
+        with open(os.path.join(RUN_DIR, "supervisor.pid"), encoding="utf-8") as fh:
+            pid = int(fh.read().strip())
+        os.kill(pid, signal.SIGHUP)
+    except (OSError, ValueError) as exc:
+        print("cannot signal the supervisor: %s" % exc, file=sys.stderr)
+        return 1
+    print("reload requested")
+    return 0
+
+
+def _load(name):
+    """aio.backup / aio.restore / aio.render, imported on demand so that
+    `hse health` (the HEALTHCHECK, every 15 s) stays light."""
+    if ROOT not in sys.path:
+        sys.path.insert(0, ROOT)
+    return importlib.import_module("aio." + name)
+
+
+def _err(msg):
+    print(msg, file=sys.stderr)
+
+
+def _size(n):
+    n = float(n or 0)
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return ("%.0f %s" % (n, unit)) if unit == "B" else ("%.1f %s" % (n, unit))
+        n /= 1024
+
+
+def _age(seconds):
+    if seconds < 90:
+        return "just now"
+    for size, unit in ((86400, "day"), (3600, "hour"), (60, "minute")):
+        if seconds >= size:
+            n = int(seconds // size)
+            return "%d %s%s ago" % (n, unit, "" if n == 1 else "s")
+
+
+def _usage_error(text):
+    _err(text)
+    return 2
+
+
+# -- backup ------------------------------------------------------------------------------
+
+def backups_dir():
+    return os.path.join(DATA_DIR, "backups")
+
+
+def backup(args):
+    out = None
+    if args[:1] == ["--out"] and len(args) == 2:
+        out = args[1]
+    elif args:
+        return _usage_error("usage: hse backup [--out DIR]")
+    try:
+        bk, render = _load("backup"), _load("render")
+        settings = render.load_settings(os.environ, render.paths(DATA_DIR)["settings"])
+        result = bk.create(DATA_DIR, out_dir=out, settings=settings, trigger="manual")
+    except ImportError as exc:
+        _err("backups are not available in this image: %s" % exc)
+        return 1
+    except ValueError as exc:  # invalid settings
+        _err("invalid settings: %s" % exc)
+        return 1
+    except Exception as exc:  # noqa: BLE001 - BackupBusy lives in the backup module
+        if type(exc).__name__ == "BackupBusy":
+            _err("a backup is already running")
+            return EXIT_BUSY
+        raise
+    if not result.ok:
+        _err("backup failed: %s" % result.error)
+        return 1
+    print("%s (%s, %d files, %.1f s)" % (result.path, _size(result.size), result.files, result.duration))
+    return 0
+
+
+def _read_json(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _utc(value):
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).strftime("%Y-%m-%d %H:%M UTC")
+    except ValueError:
+        return str(value)
+
+
+def backups(args):
+    if args:
+        return _usage_error("usage: hse backups")
+    folder = backups_dir()
+    rows = []
+    try:
+        for name in os.listdir(folder):
+            if name.startswith(ARCHIVE_GLOB_PREFIX) and name.endswith(ARCHIVE_SUFFIX):  # not .part files
+                st = os.stat(os.path.join(folder, name))
+                rows.append((st.st_mtime, name, st.st_size))
+    except OSError:
+        pass
+    rows.sort(reverse=True)
+    last = _read_json(os.path.join(folder, "status.json")).get("last")
+    if not rows and not last:
+        print("No backups yet in %s" % folder)
+        return 0
+    print("%d backup%s in %s (%s)" % (len(rows), "" if len(rows) == 1 else "s", folder,
+                                      _size(sum(r[2] for r in rows))))
+    if isinstance(last, dict):
+        if last.get("ok"):
+            print("Last run: ok, %s (%s)" % (_utc(last.get("at")), last.get("trigger") or "?"))
+        else:
+            print("Last run: FAILED, %s (%s): %s" % (_utc(last.get("at")), last.get("trigger") or "?",
+                                                      last.get("error") or "unknown error"))
+    now = time.time()
+    for mtime, name, size in rows:
+        note = "  (taken before a restore)" if "-pre-restore-" in name else ""
+        print("  %-44s %9s  %s%s" % (name, _size(size), _age(now - mtime), note))
+    return 0
+
+
+# -- restore -----------------------------------------------------------------------------
+
+def _supervisor_pid():
+    """Pid of the running supervisor, or None (a stopped volume: offline restore)."""
+    try:
+        with open(os.path.join(RUN_DIR, "supervisor.pid"), encoding="utf-8") as fh:
+            pid = int(fh.read().strip())
+        os.kill(pid, 0)
+        return pid
+    except PermissionError:
+        return pid
+    except (OSError, ValueError):
+        return None
+
+
+def _write_private(path, data):
+    tmp = path + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(data, fh)
+    os.replace(tmp, path)
+
+
+def _restore_online(pid, archive, with_postgres):
+    """Hand the restore to the supervisor (it stops the processes, applies the
+    archive and starts them again), then wait for its answer."""
+    result_path = os.path.join(RUN_DIR, "restore-result.json")
+    try:
+        os.unlink(result_path)
+    except FileNotFoundError:
+        pass
+    requested = time.time()
+    try:
+        _write_private(os.path.join(RUN_DIR, "restore.json"),
+                       {"archive": archive, "requested": requested, "with_postgres": with_postgres})
+        os.kill(pid, signal.SIGUSR1)
+    except OSError as exc:
+        _err("cannot ask the supervisor to restore: %s" % exc)
+        return 1
+    print("restoring: the processes restart, this takes a moment ...")
+    deadline = time.monotonic() + RESTORE_WAIT
+    while time.monotonic() < deadline:
+        data = _read_json(result_path)
+        if data and data.get("requested", requested) == requested:
+            if data.get("ok"):
+                print("restored")
+                if data.get("safety_copy"):
+                    print("the previous data was saved first: %s" % data["safety_copy"])
+                return 0
+            error = str(data.get("error") or "unknown error")
+            _err("restore failed: %s" % error)
+            return EXIT_BUSY if "already running" in error else 1
+        time.sleep(0.5)
+    _err("no answer from the supervisor after %d s; look at `docker logs` before trying again" % RESTORE_WAIT)
+    return 1
+
+
+def restore(args):
+    yes = "--yes" in args
+    with_postgres = "--with-postgres" in args
+    files = [a for a in args if not a.startswith("--")]
+    if len(files) != 1 or any(a.startswith("--") and a not in ("--yes", "--with-postgres") for a in args):
+        return _usage_error("usage: hse restore FILE [--yes] [--with-postgres]")
+    archive = files[0]
+    if not os.path.isfile(archive) and os.path.isfile(os.path.join(backups_dir(), archive)):
+        archive = os.path.join(backups_dir(), archive)  # a bare name from `hse backups`
+    if not os.path.isfile(archive):
+        _err("no such file: %s" % files[0])
+        return 1
+    archive = os.path.abspath(archive)
+    try:
+        rs = _load("restore")
+    except ImportError as exc:
+        _err("restore is not available in this image: %s" % exc)
+        return 1
+    try:
+        meta = rs.inspect(archive)  # nothing in /data changes until this passes
+    except rs.RestoreError as exc:
+        _err("cannot restore %s: %s" % (os.path.basename(archive), exc))
+        return 1
+    print("%s: created %s, Headscale %s, %s database, %d files" % (
+        os.path.basename(archive), meta.get("created", "?"), meta.get("headscale_version") or "?",
+        meta.get("db_type") or "sqlite", len(meta.get("files") or {})))
+    if not yes:
+        if not sys.stdin.isatty():
+            return _usage_error("this replaces users, machines, accounts and settings: pass --yes to confirm")
+        answer = input("Replace the current users, machines, accounts and settings with this backup? [y/N] ")
+        if answer.strip().lower() not in ("y", "yes"):
+            print("cancelled")
+            return 0
+    pid = _supervisor_pid()
+    if pid:
+        return _restore_online(pid, archive, with_postgres)
+    try:
+        result = rs.restore(archive, DATA_DIR, offline=True, with_postgres=with_postgres)
+    except rs.RestoreError as exc:
+        _err("restore failed: %s" % exc)
+        return 1
+    except Exception as exc:  # noqa: BLE001 - BackupBusy lives in the backup module
+        if type(exc).__name__ == "BackupBusy":
+            _err("a backup is already running")
+            return EXIT_BUSY
+        raise
+    print("restored")
+    if (result or {}).get("safety_copy"):
+        print("the previous data was saved first: %s" % result["safety_copy"])
+    return 0
+
+
+def main(argv):
+    simple = {"health": health, "reload": reload}
+    with_args = {"backup": backup, "backups": backups, "restore": restore}
+    cmd = argv[1] if len(argv) > 1 else ""
+    if cmd in simple and len(argv) == 2:
+        return simple[cmd]()
+    if cmd in with_args:
+        return with_args[cmd](argv[2:])
+    print(__doc__.strip(), file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

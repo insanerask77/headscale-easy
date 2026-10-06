@@ -2,15 +2,13 @@
 
 ## In five minutes
 
-1. **Clone:** `git clone https://github.com/insanerask77/headscale-easy.git && cd headscale-easy`
-2. **Run the installer:** `./install.sh`
-3. **Configure the domain:** enter the domain that points at this server and
-   choose who handles HTTPS (Let's Encrypt is the default).
-4. **Configure sign-in:** built-in Authentik (accounts, two-factor, optional
-   Google), your own OIDC provider, or none (API key only).
-5. **Log in:** open `https://<your-domain>/admin` with the credentials the
-   installer prints.
-6. **Connect your first device:** `tailscale up --login-server=https://<your-domain>`
+1. **Download:** `mkdir headscale-easy && cd headscale-easy && curl -fsSLO https://raw.githubusercontent.com/insanerask77/headscale-easy/main/compose.yaml`
+2. **Start it:** `docker compose up -d`. One container, version 2.0 pinned in the file.
+3. **Set it up:** open `http://<your-server>/admin/setup` and enter the one-time token (from
+   `docker compose logs`): administrator, public address and HTTPS, tailnet name, relay (DERP),
+   sign-up and backups.
+4. **Log in:** open `https://<your-domain>/admin`.
+5. **Connect your first device:** `tailscale up --login-server=https://<your-domain>`
    ([details below](#connect-your-first-device)).
 
 This gets you a working server. Before relying on it — or exposing it to the
@@ -19,38 +17,44 @@ Internet for other people — go through
 
 ## Requirements
 
-- A Linux host (a small VPS is plenty: 1 vCPU, 1 GB RAM without Authentik,
-  2 GB with it).
-- Docker with the Compose plugin — the installer offers to install it.
+- A Linux host (a small VPS is plenty: 1 vCPU and 1 GB of RAM; the container
+  idles under 100 MB).
+- Docker with the Compose plugin (v2.24 or newer).
 - For real HTTPS: a domain name pointing at the host, and ports 80/443 open.
 - **UDP 3478** reachable from the Internet (STUN for the embedded DERP relay).
 
 ## Install
 
 ```bash
-git clone https://github.com/insanerask77/headscale-easy.git
-cd headscale-easy
-./install.sh
+mkdir headscale-easy && cd headscale-easy
+curl -fsSLO https://raw.githubusercontent.com/insanerask77/headscale-easy/main/compose.yaml
+docker compose up -d
 ```
 
-The installer asks a handful of questions — language, domain, who handles HTTPS,
-how users sign in — then writes the configuration, starts everything and prints
-your URLs and first credentials:
+`compose.yaml` is the whole app: one service, two named volumes (`hse-data` and
+`hse-backups`), no added capability, no Docker socket. Open the setup wizard and answer
+there; the one-time token is in `docker compose logs headscale-easy`.
 
-```text
-  Web UI:        https://vpn.example.com/admin/
-  Control plane: https://vpn.example.com
+To answer in advance (or to start unattended), put the answers in a `.env` next to it:
 
-  Sign in:
-    User: akadmin   Password: ••••••••••••
-    Add people at https://vpn.example.com/add-user or from Users in the web UI.
+```bash
+curl -fsSL https://raw.githubusercontent.com/insanerask77/headscale-easy/main/.env.example -o .env
+chmod 600 .env        # then uncomment and edit what you need
 ```
 
-!!! tip "Changing settings later"
-    Run `./install.sh` again at any time. Your previous answers become the
-    defaults and no data is lost.
+For example `HSE_PUBLIC_URL`, `HSE_TLS` (`auto`: Let's Encrypt, needs `ACME_EMAIL`; `internal`:
+a certificate of Caddy's own CA; `off`: plain HTTP, or a proxy you already run terminates
+TLS), and `HSE_ADMIN_EMAIL` with `HSE_ADMIN_PASSWORD` to skip the wizard: the server then
+starts with that account.
 
-See [Configuration](configuration.md) for every option.
+!!! tip "Updating"
+    Change `HSE_VERSION` in `.env` (or the tag in `compose.yaml`), then
+    `docker compose pull && docker compose up -d`. The data lives in the volumes and is
+    never touched; take a backup first with `docker exec headscale-easy hse backup`.
+
+Everything else — an identity provider, a proxy in front, PostgreSQL, remote
+backups — is in [Advanced configurations](advanced/index.md). See
+[All-in-one image](all-in-one.md) and [Configuration](configuration.md) for every setting.
 
 ## Ports
 

@@ -22,7 +22,7 @@ from i18n import _
 log = logging.getLogger("headscale-easy")
 
 DERP_FILE = os.environ.get("HEADSCALE_DERP_FILE", "/etc/headscale/derp.yaml")
-DERP_FILE_IN_CONFIG = "/etc/headscale/derp.yaml"  # where Headscale sees it
+DERP_FILE_IN_CONFIG = os.environ.get("HEADSCALE_DERP_FILE_IN_CONFIG", "/etc/headscale/derp.yaml")  # where Headscale sees it
 BEGIN = "  # >>> derp map: managed by Headscale Easy (do not edit between these markers)"
 END = "  # <<< derp map"
 MIN_REGION, MAX_REGION = 900, 998  # 900-999 are for own relays; 999 is the embedded one
@@ -230,12 +230,12 @@ def editable() -> str:
     except OSError:
         marked = writable = False
     if not marked:
-        return _("config.yaml has no managed DERP block: run ./install.sh once to enable it.")
+        return _("config.yaml has no managed DERP block: restart the container to regenerate it.")
     if not (os.access(DERP_FILE, os.W_OK) if os.path.exists(DERP_FILE) else os.access(os.path.dirname(DERP_FILE), os.W_OK)):
-        return _("Headscale Easy cannot write the DERP map file: run ./install.sh once to enable it.")
+        return _("Headscale Easy cannot write the DERP map file: check the permissions of /data/config.")
     if not writable:
         return _("Headscale Easy cannot write config.yaml.")
-    if not hs.docker_available():
+    if not hs.control_available():
         return _("Headscale Easy has no access to Docker to restart Headscale.")
     return ""
 
@@ -260,7 +260,7 @@ def apply(new_relays: list[dict]) -> tuple[bool, str]:
         return False, _("Headscale Easy cannot write the DERP map file: {error}", error=exc.strerror or str(exc))
     ok, error = hs._apply_config(
         lambda text: replace_block(text, bool(new_relays)),
-        _("config.yaml has no managed DERP block. Run ./install.sh once to enable it."),
+        _("config.yaml has no managed DERP block. Restart the container to regenerate it."),
         _("Headscale did not start with the new DERP map; the previous one was restored."))
     if not ok and previous is not None:
         try:

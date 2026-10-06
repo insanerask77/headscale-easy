@@ -1,4 +1,4 @@
-# Secrets and generated configuration (written by install.sh)
+# Secrets and generated configuration
 .env
 .env.local
 headscale-config.yaml
@@ -28,3 +28,9 @@ site/
 
 # Claude Code local state (worktrees, settings)
 .claude/
+
+# Golden files of tests/test_render.py are frozen outputs and committed
+!tests/fixtures/render/*/Caddyfile
+!advanced/proxy/Caddyfile
+!advanced/oidc/pocket-id/Caddyfile
+!tests/fixtures/render/*/headscale-config.yaml

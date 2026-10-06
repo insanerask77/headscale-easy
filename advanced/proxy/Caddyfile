@@ -1,0 +1,46 @@
+# =============================================================================
+# vpn.example.com — Headscale Easy
+# =============================================================================
+# Add this block to your edge proxy's Caddyfile and reload it:
+#
+#   caddy validate --config /etc/caddy/Caddyfile
+#   systemctl reload caddy
+#
+# Behind it the Headscale Easy image already routes by path (/ -> Headscale,
+# /admin -> web UI), so forwarding the whole domain is enough.
+#
+# Replace: vpn.example.com, AIO_HOST:8080 (the host and the HSE_HTTP_PORT you
+# published). In the image's .env:
+#   HSE_PUBLIC_URL=https://vpn.example.com
+#   HSE_TLS=off
+#   HSE_TRUSTED_PROXIES=<this Caddy's address>/32     <- this proxy ONLY, not its network
+#
+# DERP: the image listens for STUN on UDP 3478 and that does NOT go through an HTTP
+# reverse proxy. Publish it straight to AIO_HOST, or use the public relays
+# (HSE_DERP_MODE=public).
+
+vpn.example.com {
+    # Automatic HTTPS with Let's Encrypt: Caddy does it by itself for a
+    # domain name. Uncomment one of these only if you want something else:
+    #   tls you@example.com                renewal notices from Let's Encrypt
+    #   tls /path/cert.pem /path/key.pem   your own certificate
+    #   tls internal                       Caddy's internal CA
+
+    log {
+        output file /var/log/caddy/vpn.example.com.access.log
+        format json
+    }
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    reverse_proxy AIO_HOST:8080 {
+        header_up X-Real-IP {remote_host}
+        # /machine/map is a long-poll that stays open: stream it right away
+        flush_interval -1
+    }
+}

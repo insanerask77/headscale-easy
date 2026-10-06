@@ -3,6 +3,8 @@ the editor for an own DERP map (admins). The data comes from derp.py."""
 
 from __future__ import annotations
 
+import os
+
 from i18n import _
 from ui import BASE, csrf_input, esc, flash_html, layout, notice, page_head
 
@@ -99,10 +101,14 @@ def derp_page(session: dict, ctx: dict, rows: list[dict], embedded: int | None, 
     """reason: why the editor is read only ('' = editable); only admins edit."""
     if not session.get("admin"):
         reason = _("Only an admin can change the DERP map.")
+    modes = {"embedded": _("This server (recommended)"), "public": _("Tailscale's public relays"),
+             "custom": _("My own DERP map")}
+    mode = modes.get(os.environ.get("HSE_DERP_MODE", ""))
+    mode_note = f'<p class="muted">{esc(_("Mode in use: {mode}", mode=mode))}</p>' if mode else ""
     body = page_head(_("DERP relays"),
                      esc(_("Relays carry traffic between devices that cannot connect directly. Each device uses the closest one."))) \
         + flash_html(flash) + (notice("error", error) if error else "") + f"""
-    <section class="card"><h2>{esc(_("Relay status"))}</h2>{_status_table(rows, embedded)}
+    <section class="card"><h2>{esc(_("Relay status"))}</h2>{mode_note}{_status_table(rows, embedded)}
       <p class="muted small">{esc(_("From what the devices report. Latency is the median of the devices that measured it."))}</p></section>
     {editor(session, relays, reason)}"""
     return layout(_("DERP relays"), "derp", body, session, ctx)

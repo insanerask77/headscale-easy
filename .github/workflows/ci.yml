@@ -3,10 +3,16 @@ name: CI
 on:
   push:
     branches: [main, next]
+    tags: ["v*.*.*"]
   pull_request:
 
 permissions:
   contents: read
+
+# A newer push to the same branch or PR replaces the run in progress; a release tag is never cancelled
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   lint:
@@ -15,14 +21,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: ShellCheck
-        run: shellcheck -S warning install.sh uninstall.sh scripts/*.sh backup/*.sh
+        run: shellcheck -S warning scripts/*.sh backup/*.sh
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
       - name: Python syntax
-        run: python -m py_compile web/*.py helper/*.py scripts/check_i18n.py
+        run: python -m py_compile web/*.py aio/*.py scripts/check_i18n.py
 
       - name: Translations
         run: python scripts/check_i18n.py
@@ -33,62 +39,122 @@ jobs:
       - name: Project checks
         run: ./scripts/validate.sh
 
-  image:
+  # Builds the all-in-one image and the backup sidecar once (layers cached between runs) and hands them to the
+  # test jobs below, which run in parallel.
+  build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build the console image
-        run: docker build -t headscale-easy:ci web
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Build the backup image
-        run: docker build -t headscale-easy-backup:ci backup
+      - name: Build the all-in-one image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: aio/Dockerfile
+          tags: hse-aio:ci
+          outputs: type=docker,dest=${{ runner.temp }}/hse-aio.tar
+          cache-from: type=gha,scope=ci-aio
+          cache-to: type=gha,mode=max,scope=ci-aio
 
-      - name: Build the helper image
-        run: docker build -t headscale-easy-helper:ci helper
+      - name: Build the backup sidecar
+        uses: docker/build-push-action@v6
+        with:
+          context: backup
+          tags: hse-backup:ci
+          outputs: type=docker,dest=${{ runner.temp }}/hse-backup.tar
+          cache-from: type=gha,scope=ci-backup
+          cache-to: type=gha,mode=max,scope=ci-backup
 
-      - name: Helper smoke test
-        # Hardened like in docker-compose.yml, with the Docker socket: /status
-        # answers, anything else is refused, and other uids cannot connect.
-        run: |
-          docker run -d --name hsh --network none --read-only --cap-drop ALL \
-            --security-opt no-new-privileges:true --user 1000:1000 \
-            --group-add "$(stat -c %g /var/run/docker.sock)" \
-            -v /var/run/docker.sock:/var/run/docker.sock -v hse-ci:/run/hse-helper \
-            headscale-easy-helper:ci
-          probe='
-          import http.client, json, socket, sys
-          class C(http.client.HTTPConnection):
-              def connect(self):
-                  self.sock = socket.socket(socket.AF_UNIX)
-                  self.sock.connect("/run/hse-helper/helper.sock")
-          def get(m, p):
-              c = C("x"); c.request(m, p); r = c.getresponse(); return r.status, json.loads(r.read())
-          s, body = get("GET", "/status")
-          assert s == 200 and body["docker"] is True and body["api"] == 1, body
-          assert get("GET", "/containers/json")[0] == 404
-          assert get("POST", "/status")[0] == 405
-          assert get("POST", "/restart?t=0")[0] == 400
-          print("helper OK")'
-          for i in $(seq 1 20); do
-            docker run --rm --user 1000:1000 -v hse-ci:/run/hse-helper --entrypoint python \
-              headscale-easy-helper:ci -c "$probe" && break
-            [ "$i" = 20 ] && { docker logs hsh; exit 1; }
-            sleep 1
-          done
-          if docker run --rm --user 2000:2000 -v hse-ci:/run/hse-helper --entrypoint python \
-               headscale-easy-helper:ci -c "$probe"; then
-            echo "another uid could use the helper socket"; exit 1
-          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: images
+          path: ${{ runner.temp }}/*.tar
+          retention-days: 1
+          compression-level: 1
 
-      - name: Smoke test
-        run: |
-          docker run -d --name hse -e SESSION_SECRET=ci -e PUBLIC_URL=http://localhost \
-            -e HEADSCALE_URL=http://127.0.0.1:1 -e HEADSCALE_API_KEY=ci \
-            -e PORTAL_API_KEY_LOGIN=true -p 8000:8000 headscale-easy:ci
-          for i in $(seq 1 20); do
-            curl -fsS http://localhost:8000/admin/healthz && exit 0
-            sleep 1
-          done
-          docker logs hse
-          exit 1
+  # The all-in-one image: headless and setup-mode smoke tests, the built-in backups (archive, offline and
+  # online restore, a scheduled run) and the size target (scripts/aio-smoke.sh). On a release tag it also
+  # measures RAM, idle and during a backup.
+  aio:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: images
+          path: ${{ runner.temp }}
+      - name: Load the images
+        run: for f in "$RUNNER_TEMP"/*.tar; do docker load -i "$f"; done
+
+      - name: Smoke tests, backups and image size (plus RAM on a release tag)
+        # The measured size goes to the job summary (scripts/aio-smoke.sh), for the docs.
+        env:
+          HSE_SMOKE_PERF: ${{ startsWith(github.ref, 'refs/tags/v') && '1' || '0' }}
+        run: ./scripts/aio-smoke.sh hse-aio:ci
+
+  # One job per PostgreSQL server version: it starts a real server (docker run) with Headscale on it, the
+  # console through the read-only role, a backup with its dump and a restore that loads it; then the same
+  # version through the advanced overlay (bundled server).
+  postgres:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["16", "17", "18"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: images
+          path: ${{ runner.temp }}
+      - name: Load the images
+        run: for f in "$RUNNER_TEMP"/*.tar; do docker load -i "$f"; done
+
+      - name: External PostgreSQL ${{ matrix.version }}
+        env:
+          HSE_SMOKE_PG: "1"
+          HSE_SMOKE_PG_ONLY: "1"
+          HSE_SMOKE_PG_VERSIONS: ${{ matrix.version }}
+        run: ./scripts/aio-smoke.sh hse-aio:ci
+
+      - name: Advanced overlay, PostgreSQL ${{ matrix.version }} (bundled server, read-only role, backup and restore)
+        run: ./scripts/advanced-smoke.sh postgres "${{ matrix.version }}" hse-aio:ci
+
+  compose:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: images
+          path: ${{ runner.temp }}
+      - name: Load the images
+        run: for f in "$RUNNER_TEMP"/*.tar; do docker load -i "$f"; done
+
+      - name: The Compose app (hardened, named volumes) and the backup-remote overlay
+        run: ./scripts/compose-smoke.sh hse-aio:ci hse-backup:ci
+
+  proxy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: images
+          path: ${{ runner.temp }}
+      - name: Load the images
+        run: for f in "$RUNNER_TEMP"/*.tar; do docker load -i "$f"; done
+
+      - name: Advanced overlay, a proxy in front (real nginx, real client address)
+        run: ./scripts/advanced-smoke.sh proxy hse-aio:ci

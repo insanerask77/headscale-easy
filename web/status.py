@@ -1,5 +1,5 @@
 """Server status: versions (with an update notice from GitHub's releases API,
-cached 12 h), container health (hs-helper GET /status), disk use and basic
+cached 12 h), process health (supervisor GET /status), disk use and basic
 Headscale metrics (Prometheus text format). Standard library only. Every
 source can fail on its own: the page shows what it has."""
 
@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import stat
 import threading
 import time
 import urllib.request
@@ -25,10 +26,45 @@ RELEASES = {
 }
 CACHE_TTL = 12 * 3600
 FAIL_TTL = 900  # retry a failed lookup sooner
-DISKS = (("data", "/data"), ("headscale", "/headscale"))
+def _disks_from_env(raw: str | None) -> tuple[tuple[str, str], ...]:
+    """STATUS_DISKS='data:/data,headscale:/headscale' -> (("data", "/data"), ...)."""
+    pairs = []
+    for item in (raw or "").split(","):
+        key, sep, path = item.strip().partition(":")
+        if sep and key.strip() and path.strip():
+            pairs.append((key.strip(), path.strip()))
+    return tuple(pairs) or (("data", "/data"), ("headscale", "/headscale"))
+
+
+DISKS = _disks_from_env(os.environ.get("STATUS_DISKS"))
 
 _cache: dict[str, tuple[float, str | None]] = {}
 _lock = threading.Lock()
+
+
+# What aio/backup.py writes: no path separators, no leading dot (those are its work files)
+BACKUP_NAME_RE = re.compile(r"^headscale-easy-[0-9A-Za-z][0-9A-Za-z._-]*\.tar\.gz$")
+
+
+def open_backup(name: str):
+    """An archive of BACKUP_DIR opened for reading: (file object, size), or None when the name is not one
+    of ours, the directory is not configured, or the file is missing, a link or not a regular file.
+    Opened with O_NOFOLLOW and checked on the descriptor, so nothing can swap it in between."""
+    directory = os.environ.get("BACKUP_DIR", "")
+    if not directory or not isinstance(name, str) or not BACKUP_NAME_RE.match(name):
+        return None
+    try:
+        fd = os.open(os.path.join(directory, name), os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise OSError("not a regular file")
+        return os.fdopen(fd, "rb"), st.st_size
+    except OSError:
+        os.close(fd)
+        return None
 
 
 def parse_version(text: str | None) -> tuple[int, ...] | None:
@@ -135,18 +171,19 @@ def online_nodes() -> tuple[int, int] | None:
 
 def collect() -> dict:
     """Everything the page shows. Each part is None/empty when its source is down."""
-    helper = hs.helper_status()
-    hs_version = ((helper or {}).get("headscale") or {}).get("version")
+    control = hs.control_status()
+    hs_version = ((control or {}).get("headscale") or {}).get("version")
     disks = []
     for key, path in DISKS:
         usage = disk_usage(path)
         if usage:
             disks.append((key, usage))
     return {
-        "helper": helper,  # None: hs-helper missing or not answering
+        "control": control,  # None: the supervisor is not answering
         "headscale": {"version": hs_version, "latest": latest_release("headscale")},
         "easy": {"version": VERSION, "latest": latest_release("easy")},
-        "containers": (helper or {}).get("containers") or [],
+        "processes": (control or {}).get("processes") or [],
+        "backup": (control or {}).get("backup"),  # all-in-one supervisor only
         "disks": disks,
         "metrics": fetch_metrics(),
         "online": online_nodes(),

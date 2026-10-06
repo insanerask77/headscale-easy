@@ -1,17 +1,15 @@
 """Keeps the web UI's Headscale API key alive.
 
-The installer creates the key with an expiry (90 days by default) and puts it
-in .env, which the web UI cannot write. Without renewal the web UI would stop
-working when it expires. A background thread therefore:
+The supervisor creates the key with an expiry (90 days by default) and saves it in
+KEY_FILE. Without renewal the web UI would stop working when it expires. A background thread therefore:
 
-  - picks, among the key from .env and the one saved in KEY_FILE, the valid
-    one that expires last (so re-running the installer keeps working);
+  - picks, among the key from the environment and the one saved in KEY_FILE,
+    the valid one that expires last;
   - when it has less than RENEW_BEFORE_DAYS left, creates a new key for
     RENEW_FOR_DAYS, saves it in KEY_FILE, starts using it and expires the old
     one (only that one: keys created by admins are never touched).
 
-KEY_FILE lives in ./data/web on the host, owned by the same user as the
-project files, so the installer can read it back into .env.
+KEY_FILE lives in /data/console, private to the container's user.
 """
 
 from __future__ import annotations
@@ -97,7 +95,7 @@ def check() -> None:
                 candidates.append((expiry or datetime.max.replace(tzinfo=timezone.utc), key, entry))
     if not candidates:
         problem = "expired"
-        log.error("no valid Headscale API key left: run ./install.sh on the server to create one")
+        log.error("no valid Headscale API key left: delete /data/console/api-key and restart the container to create one")
         return
     expiry, key, entry = max(candidates, key=lambda c: c[0])
     if key != hs.HEADSCALE_API_KEY:

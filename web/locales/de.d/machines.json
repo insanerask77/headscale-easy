@@ -21,5 +21,7 @@
   "{n} machine removed.": "{n} Gerät entfernt.",
   "{n} machines removed.": "{n} Geräte entfernt.",
   "Tag added to {n} machine.": "Tag zu {n} Gerät hinzugefügt.",
-  "Tag added to {n} machines.": "Tag zu {n} Geräten hinzugefügt."
+  "Tag added to {n} machines.": "Tag zu {n} Geräten hinzugefügt.",
+  "Live": "Live",
+  "Reconnecting…": "Verbindung wird wiederhergestellt…"
 }

@@ -231,6 +231,56 @@
   // "#new" opens the matching dialog (e.g. Add device → Generate auth key)
   if (location.hash === "#new") openDialog("new");
 
+  // Setup complete page: the console needs a moment to start. Wait until it answers (the wizard answers
+  // the same path with a redirect, a proxy error means "not yet"), then go to the sign-in page.
+  (function () {
+    var box = document.querySelector("[data-await-console]");
+    if (!box) return;
+    var target = box.dataset.awaitConsole, probe = box.dataset.probe, started = Date.now();
+    var waiting = box.querySelector("[data-await-waiting]"), slow = box.querySelector("[data-await-slow]");
+    function poll() {
+      fetch(probe, { cache: "no-store", redirect: "manual", credentials: "omit" }).then(function (r) {
+        if (r.status === 200 && r.type === "basic") { location.replace(target); return; }
+        again();
+      }, again);
+    }
+    function again() {
+      if (Date.now() - started > 120000) {
+        if (waiting) waiting.hidden = true;
+        if (slow) slow.hidden = false;
+        return;
+      }
+      setTimeout(poll, 1500);
+    }
+    setTimeout(poll, 1000);
+  })();
+
+  // Restoring page: the console is stopped and started again by the restore. Poll until it answers that
+  // this restore (its id is in the probe URL) is done; the connection errors in between just mean "not yet".
+  (function () {
+    var box = document.querySelector("[data-await-restore]");
+    if (!box) return;
+    var target = box.dataset.awaitRestore, probe = box.dataset.probe, started = Date.now();
+    var waiting = box.querySelector("[data-await-waiting]"), slow = box.querySelector("[data-await-slow]");
+    function poll() {
+      fetch(probe, { cache: "no-store", credentials: "omit" }).then(function (r) {
+        return r.status === 200 ? r.json() : null;
+      }).then(function (j) {
+        if (j && j.done) { location.replace(target); return; }
+        again();
+      }, again);
+    }
+    function again() {
+      if (Date.now() - started > 300000) {
+        if (waiting) waiting.hidden = true;
+        if (slow) slow.hidden = false;
+        return;
+      }
+      setTimeout(poll, 2000);
+    }
+    setTimeout(poll, 2000);
+  })();
+
   // Slow forms (saving DNS restarts Headscale): lock the button while working
   document.addEventListener("submit", function (ev) {
     var form = ev.target;
@@ -257,8 +307,13 @@
       document.querySelector("[data-live] details.dropdown[open], [data-live] dialog[open]");
   }
   var liveBusy = false;
+  var livePending = false;  // a change arrived while a menu was open: refresh as soon as it closes
+  var lastRefresh = Date.now();
+  var streamUp = false;     // the event stream is connected
   function liveRefresh() {
-    if (liveBusy || liveBlocked()) return;
+    if (liveBusy) return;
+    if (liveBlocked()) { livePending = true; return; }
+    livePending = false;
     liveBusy = true;
     fetch(location.href, { credentials: "same-origin", cache: "no-store", headers: { "X-Live": "1" } })
       .then(function (r) {
@@ -272,17 +327,61 @@
         document.querySelectorAll("[data-live]").forEach(function (el) {
           var fresh = doc.querySelector('[data-live="' + el.dataset.live + '"]');
           if (!fresh || fresh.innerHTML === liveSrc[el.dataset.live]) return;
+          var before = rowHtml(el);
           liveSrc[el.dataset.live] = fresh.innerHTML;
           el.innerHTML = fresh.innerHTML;
+          highlightChanged(el, before);
           changed = true;
         });
         if (changed) { formatDates(document); filterRows(); }
+        lastRefresh = Date.now();
       })
       .catch(function () {})
       .then(function () { liveBusy = false; });
   }
+
+  // Rows that changed get a short highlight (CSS skips it for prefers-reduced-motion)
+  function rowHtml(root) {
+    var out = {};
+    root.querySelectorAll("tr[data-href]").forEach(function (r) { out[r.dataset.href] = r.innerHTML; });
+    return out;
+  }
+  function highlightChanged(root, before) {
+    root.querySelectorAll("tr[data-href]").forEach(function (r) {
+      if (before[r.dataset.href] !== r.innerHTML) r.classList.add("changed");
+    });
+  }
+
+  // ---- Event stream: a device connected, disconnected, was added or removed ---------
+  // The server pushes one small message per change; the page then re-fetches its own
+  // (already filtered) HTML. While the stream is up the timer only acts as a safety net.
+  var streamEl = document.querySelector("[data-stream]");
+  var indicator = document.querySelector("[data-live-indicator]");
+  function setIndicator(up) {
+    streamUp = up;
+    if (!indicator) return;
+    indicator.hidden = false;
+    indicator.classList.toggle("on", up);
+    indicator.querySelector("b").textContent = up ? indicator.dataset.on : indicator.dataset.off;
+  }
+  if (streamEl && window.EventSource) {
+    var debounce = null;
+    var es = new EventSource(streamEl.dataset.stream);
+    es.onopen = function () { setIndicator(true); liveRefresh(); };  // catch up with what was missed
+    es.onerror = function () { setIndicator(false); };               // the browser reconnects by itself
+    es.addEventListener("node", function () {
+      clearTimeout(debounce);
+      debounce = setTimeout(liveRefresh, 150);
+    });
+    window.addEventListener("beforeunload", function () { es.close(); });
+  }
+
   if (Object.keys(liveSrc).length) {
-    setInterval(liveRefresh, LIVE_EVERY);
+    // Without the stream: every few seconds. With it: only when a refresh was postponed
+    // or as a once-a-minute safety net.
+    setInterval(function () {
+      if (!streamUp || livePending || Date.now() - lastRefresh > 60000) liveRefresh();
+    }, LIVE_EVERY);
     document.addEventListener("visibilitychange", function () { if (!document.hidden) liveRefresh(); });
     window.addEventListener("focus", liveRefresh);
   }
@@ -416,10 +515,27 @@
       sync();
     }
   });
+
   document.addEventListener("click", function (ev) {
     var el = ev.target.closest("[data-bulk-clear]");
     if (!el) return;
     items().forEach(function (i) { i.checked = false; });
     sync();
   });
+})();
+
+// ---- Two-factor suggestion: once per browser session ------------------------------
+(function () {
+  var dlg = document.getElementById("nudge-2fa");
+  if (!dlg || !dlg.showModal) return;
+  try { if (sessionStorage.getItem("hse_nudge_2fa")) return; } catch (e) { /* storage blocked: show it */ }
+  dlg.addEventListener("close", function () {
+    try { sessionStorage.setItem("hse_nudge_2fa", "1"); } catch (e) { /* ignore */ }
+  });
+  dlg.querySelectorAll("a").forEach(function (a) {
+    a.addEventListener("click", function () {
+      try { sessionStorage.setItem("hse_nudge_2fa", "1"); } catch (e) { /* ignore */ }
+    });
+  });
+  dlg.showModal();
 })();

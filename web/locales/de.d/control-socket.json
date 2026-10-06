@@ -1,0 +1,7 @@
+{
+  "config.yaml has no managed DNS block.": "config.yaml hat keinen verwalteten DNS-Block.",
+  "The supervisor is not answering, so Headscale cannot be validated and restarted from here. Check the container with: docker compose ps": "Der Supervisor antwortet nicht, daher kann Headscale von hier aus weder geprüft noch neu gestartet werden. Prüfen Sie den Container mit: docker compose ps",
+  "The supervisor is not answering, so the processes cannot be listed.": "Der Supervisor antwortet nicht, die Prozesse können nicht aufgelistet werden.",
+  "No processes found.": "Keine Prozesse gefunden.",
+  "Processes": "Prozesse"
+}

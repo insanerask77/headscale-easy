@@ -11,7 +11,7 @@ hide:
 # Headscale Easy
 
 **Headscale, con todo lo que lo rodea.**<br>
-Una capa de despliegue y gestión para Headscale: instalador, HTTPS, cuentas e
+Una capa de despliegue y gestión para Headscale: una app Compose, HTTPS, cuentas e
 inicio de sesión, una consola web estilo Tailscale y copias de seguridad. Se
 instala con un solo comando.
 
@@ -35,8 +35,8 @@ instala con un solo comando.
 lo que lleva tiempo es el pegamento alrededor: auth, DNS, HTTPS, gestión de
 dispositivos y copias. **Headscale Easy** usa el Headscale oficial sin
 modificar y empaqueta ese pegamento, como hace [wg-easy](https://github.com/wg-easy/wg-easy)
-con WireGuard: instalado por un script
-interactivo y gestionado desde una consola inspirada en el panel de Tailscale.
+con WireGuard: un solo contenedor, configurado
+desde el navegador y gestionado desde una consola inspirada en el panel de Tailscale.
 En los dispositivos usas las apps oficiales de Tailscale; sólo el servidor es tuyo.
 
 ## Funcionalidades
@@ -50,8 +50,8 @@ En los dispositivos usas las apps oficiales de Tailscale; sólo el servidor es t
 
 -   :material-account-lock: **Cuentas de usuario reales**
 
-    Contraseñas con Authentik integrado, **login con Google** opcional o tu
-    propio proveedor OIDC.
+    Contraseñas con doble factor, invitaciones y registro integrados, o tu
+    propio proveedor OIDC (Authentik, Keycloak, Pocket ID, Google).
 
 -   :material-shield-account: **Una VPN privada por usuario**
 
@@ -69,17 +69,17 @@ En los dispositivos usas las apps oficiales de Tailscale; sólo el servidor es t
 
 -   :material-lock-check: **HTTPS a tu manera**
 
-    Let's Encrypt, autofirmado, detrás de tu proxy (se genera la configuración)
+    Let's Encrypt, autofirmado, detrás de tu proxy (con ejemplos listos)
     o HTTP en una LAN.
 
 -   :material-translate: **Inglés, español, francés, alemán y portugués**
 
-    En el instalador y en la consola. Se aceptan más idiomas.
+    En la consola, en español e inglés. Se aceptan más idiomas.
 
 -   :material-feather: **Ligero**
 
     La consola es Python de la librería estándar: sin compilación, sin framework
-    JavaScript y sin base de datos propia.
+    JavaScript y sin servidor de base de datos: un contenedor, unos 70 MB de RAM.
 
 </div>
 

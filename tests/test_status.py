@@ -1,5 +1,5 @@
 """Server status page tests: Prometheus parsing, version comparison, the
-release cache, and the page through the real request handler (with the helper
+release cache, and the page through the real request handler (with the control
 down, up, and for each role). Standard library only; no Headscale:
 
     python3 tests/test_status.py
@@ -43,8 +43,8 @@ broken line here
 bad_value NaN
 """
 
-HELPER = {"api": 1, "docker": True, "headscale": {"container": "headscale", "version": "v0.26.1"},
-          "containers": [
+CONTROL = {"api": 1, "headscale": {"process": "headscale", "version": "v0.26.1"},
+           "processes": [
               {"name": "headscale", "service": "headscale", "image": "headscale/headscale:latest",
                "state": "running", "health": "healthy", "status": "Up 2 hours (healthy)"},
               {"name": "caddy", "service": "caddy", "image": "caddy:2", "state": "exited", "health": None,
@@ -66,6 +66,23 @@ def request(method, path, session=None):
     getattr(h, f"do_{method}")()
     head, _sep, rest = h.wfile.getvalue().partition(b"\r\n\r\n")
     return int(head.decode().split("\r\n")[0].split()[1]), rest.decode(errors="replace")
+
+
+def post(path, session, form=None):
+    """A POST through the real handler: (status, response head, body)."""
+    body = "&".join(f"{k}={v}" for k, v in (form or {}).items()).encode()
+    msg = email.message.Message()
+    if session is not None:
+        msg["Cookie"] = f"hse_session={app.sign(dict(session, sid=sessions.create(session)))}"
+    msg["Content-Length"] = str(len(body))
+    h = app.Handler.__new__(app.Handler)
+    h.rfile, h.wfile = io.BytesIO(body), io.BytesIO()
+    h.headers, h.command, h.path = msg, "POST", path
+    h.request_version, h.requestline, h.client_address = "HTTP/1.1", f"POST {path} HTTP/1.1", ("127.0.0.1", 1)
+    h.close_connection = True
+    h.do_POST()
+    head, _sep, rest = h.wfile.getvalue().partition(b"\r\n\r\n")
+    return int(head.decode().split("\r\n")[0].split()[1]), head.decode(), rest.decode(errors="replace")
 
 
 class Parsing(unittest.TestCase):
@@ -120,8 +137,8 @@ class Releases(unittest.TestCase):
 
 
 @contextlib.contextmanager
-def sources(helper, metrics=None, latest="v1.4.0"):
-    with mock.patch.object(hs, "helper_status", return_value=helper), \
+def sources(control, metrics=None, latest="v1.4.0"):
+    with mock.patch.object(hs, "control_status", return_value=control), \
             mock.patch.object(status, "fetch_metrics", return_value=metrics), \
             mock.patch.object(status, "latest_release", return_value=latest), \
             mock.patch.object(status, "online_nodes", return_value=(2, 3)):
@@ -134,7 +151,7 @@ class Page(unittest.TestCase):
             return request("GET", f"{B}/settings/status", session)
 
     def test_helper_down_still_renders(self):
-        code, html = self.get(ADMIN, helper=None)
+        code, html = self.get(ADMIN, control=None)
         self.assertEqual(code, 200)
         self.assertIn("not answering", html)
         self.assertIn("not reachable", html)
@@ -142,7 +159,7 @@ class Page(unittest.TestCase):
 
     def test_full_page(self):
         metrics = status.summarize_metrics(status.parse_metrics(METRICS))
-        code, html = self.get(ADMIN, helper=HELPER, metrics=metrics, latest="v99.0.0")
+        code, html = self.get(ADMIN, control=CONTROL, metrics=metrics, latest="v99.0.0")
         self.assertEqual(code, 200)
         self.assertIn("v0.26.1", html)
         self.assertIn("Update available: v99.0.0", html)
@@ -151,24 +168,278 @@ class Page(unittest.TestCase):
         self.assertIn("Requests served", html)
 
     def test_up_to_date(self):
-        _c, html = self.get(ADMIN, helper=HELPER, latest="v0.26.1")
+        _c, html = self.get(ADMIN, control=CONTROL, latest="v0.26.1")
         self.assertIn("Up to date", html)
 
     def test_auditor_sees_it_member_does_not(self):
-        self.assertEqual(self.get(AUDITOR, helper=None)[0], 200)
-        self.assertEqual(self.get(MEMBER, helper=None)[0], 403)
+        self.assertEqual(self.get(AUDITOR, control=None)[0], 200)
+        self.assertEqual(self.get(MEMBER, control=None)[0], 403)
 
     def test_requires_sign_in(self):
-        self.assertNotEqual(self.get(None, helper=None)[0], 200)
+        self.assertNotEqual(self.get(None, control=None)[0], 200)
 
     def test_nav_link_only_for_admins(self):
-        self.assertIn("settings/status", self.get(ADMIN, helper=None)[1])
+        self.assertIn("settings/status", self.get(ADMIN, control=None)[1])
         with sources(None):
             _c, html = request("GET", f"{B}/settings/general", MEMBER)
         self.assertNotIn("settings/status", html)
 
 
+BACKUP_OK = {"enabled": True, "schedule": "0 3 * * *", "next_run": "2026-10-06T03:00:00Z", "keep_days": 14,
+             "running": False, "count": 3, "bytes": 5242880,
+             "last": {"at": "2026-10-05T03:00:04Z", "ok": True, "file": "headscale-easy-20261005-030000.tar.gz",
+                      "size": 1048576, "duration": 4.2, "trigger": "scheduled", "error": None}}
+BACKUP_OK["last_ok"] = BACKUP_OK["last"]
+BACKUP_FAILED = dict(BACKUP_OK, last={"at": "2026-10-05T03:00:04Z", "ok": False, "file": None, "size": 0,
+                                      "duration": 1.0, "trigger": "scheduled", "error": "disk <full>"},
+                     last_ok={"at": "2026-10-04T03:00:04Z", "ok": True, "file": "x.tar.gz", "size": 1})
+
+
+class BackupCard(unittest.TestCase):
+    def page(self, backup, session=ADMIN):
+        control = dict(CONTROL, **({"backup": backup} if backup is not None else {}))
+        with sources(control=control):
+            return request("GET", f"{B}/backups", session)
+
+    def test_hidden_without_the_backup_key(self):
+        _c, html = self.page(None)
+        self.assertNotIn("Back up now", html)
+        self.assertNotIn('data-live="backup"', html)
+
+    def test_times_as_epoch_seconds_as_backup_py_writes_them(self):
+        epoch = dict(BACKUP_OK["last"], at=1791209576)  # 2026-10-05 14:12:56 UTC
+        code, html = self.page(dict(BACKUP_OK, last=epoch, last_ok=epoch))
+        self.assertEqual(code, 200)
+        self.assertIn("2026-10-05 14:12 UTC", html)
+
+    def test_odd_times_never_break_the_page(self):
+        for at in (None, True, 10**30, -1, [1], {"a": 1}, "yesterday", ""):
+            odd = dict(BACKUP_OK["last"], at=at)
+            code, html = self.page(dict(BACKUP_OK, last=odd, last_ok=odd, next_run=at))
+            self.assertEqual(code, 200, at)
+            self.assertIn('data-live="backup"', html)
+
+    def test_ok_state(self):
+        code, html = self.page(BACKUP_OK)
+        self.assertEqual(code, 200)
+        self.assertIn('data-live="backup"', html)
+        self.assertIn("headscale-easy-20261005-030000.tar.gz", html)
+        self.assertIn("1.0 MB", html)
+        self.assertIn("0 3 * * *", html)
+        self.assertIn("2026-10-06 03:00 UTC", html)  # next run
+        self.assertIn("14 days", html)
+        self.assertIn("3 backups", html)
+        self.assertIn("/data/backups", html)
+        self.assertIn(f'action="{B}/backups/run"', html)
+
+    def test_failed_state_shows_the_error_escaped_and_the_last_good_one(self):
+        _c, html = self.page(BACKUP_FAILED)
+        self.assertIn("Failed", html)
+        self.assertIn("disk &lt;full&gt;", html)
+        self.assertNotIn("disk <full>", html)
+        self.assertIn("Last good backup", html)
+
+    def test_never_and_running_and_off(self):
+        _c, html = self.page(dict(BACKUP_OK, last=None, last_ok=None))
+        self.assertIn("Never", html)
+        _c, html = self.page(dict(BACKUP_OK, running=True))
+        self.assertIn("Running", html)
+        self.assertIn("disabled", html)  # no second run from the button
+        _c, html = self.page(dict(BACKUP_OK, enabled=False, schedule="off", next_run=None))
+        self.assertIn('<span class="muted">Off</span>', html)
+        self.assertIn("Back up now", html)  # manual backups still work
+
+    def test_the_page_is_for_admins_only(self):
+        for session in (AUDITOR, MEMBER):
+            code, html = self.page(BACKUP_OK, session)
+            self.assertEqual(code, 403)
+            self.assertNotIn("headscale-easy-20261005-030000.tar.gz", html)
+            self.assertNotIn("Back up now", html)
+
+    def test_flash_messages(self):
+        for code, text in (("backup-started", "Backup started"), ("backup-busy", "already running"),
+                           ("backup-unavailable", "not available"), ("backup-error", "Could not start")):
+            with sources(dict(CONTROL, backup=BACKUP_OK)):
+                _c, html = request("GET", f"{B}/backups?m={code}", ADMIN)
+            self.assertIn(text, html, code)
+
+
+class BackupSettingsCard(unittest.TestCase):
+    def page(self, backup, session=ADMIN):
+        control = dict(CONTROL, **({"backup": backup} if backup is not None else {}))
+        with sources(control=control):
+            return request("GET", f"{B}/backups", session)
+
+    def test_form_for_admins(self):
+        _c, html = self.page(BACKUP_OK)
+        self.assertIn(f'action="{B}/backups/settings"', html)
+        self.assertIn('name="backup_enabled"', html)
+        self.assertIn('name="backup_schedule" value="0 3 * * *"', html)
+        self.assertIn('name="backup_keep_days" min="1" max="3650" value="14"', html)
+        self.assertNotIn("disabled", html.split("<h2>Schedule</h2>", 1)[1].split("</section>", 1)[0])
+        self.assertIn('<h1>Backups</h1>', html)
+
+    def test_no_forms_without_the_backup_key_and_none_for_non_admins(self):
+        code, html = self.page(None)
+        self.assertEqual(code, 200)
+        self.assertIn("not available here", html)
+        self.assertNotIn("/backups/settings", html)
+        self.assertEqual(self.page(BACKUP_OK, MEMBER)[0], 403)
+
+    def test_off_state_offers_the_default_schedule(self):
+        _c, html = self.page(dict(BACKUP_OK, enabled=False, schedule="off"))
+        self.assertIn('<option value="off" selected>', html)
+        self.assertIn('name="backup_schedule" value="0 3 * * *"', html)
+
+    def test_environment_values_are_read_only(self):
+        _c, html = self.page(dict(BACKUP_OK, env_locked={"schedule": True, "keep_days": True}))
+        card = html.split("<h2>Schedule</h2>", 1)[1].split("</section>", 1)[0]
+        self.assertEqual(card.count(" disabled"), 3)
+        self.assertNotIn('type="submit"', card)
+        self.assertIn("fixed by environment variables", card)
+
+
+FILES = [{"name": "headscale-easy-20261005-030000.tar.gz", "size": 2097152, "mtime": 1791169200},
+         {"name": "headscale-easy-20261004-030000-pre-restore-20261004120000.tar.gz", "size": 1024, "mtime": 1791082800}]
+
+
+class BackupFilesCard(unittest.TestCase):
+    def page(self, backup, session=ADMIN):
+        control = dict(CONTROL, **({"backup": backup} if backup is not None else {}))
+        with sources(control=control):
+            return request("GET", f"{B}/backups", session)
+
+    def card(self, html):
+        return html.split("Available backups", 1)[1].split("</section>", 1)[0]
+
+    def test_list_with_download_and_restore(self):
+        _c, html = self.page(dict(BACKUP_OK, files=FILES))
+        card = self.card(html)
+        self.assertIn("headscale-easy-20261005-030000.tar.gz", card)
+        self.assertIn("2.0 MB", card)
+        self.assertIn("pre-restore", card)
+        self.assertEqual(card.count(f'action="{B}/backups/download"'), 2)
+        self.assertEqual(card.count(f'action="{B}/backups/restore"'), 2)
+        self.assertIn('name="name" value="headscale-easy-20261005-030000.tar.gz"', card)
+        self.assertIn('name="confirm" required pattern="RESTORE"', card)
+        self.assertEqual(card.count('name="csrf"'), 4)  # every form carries the token
+        self.assertNotIn("<a ", card.split("<table", 1)[1])  # downloads are POSTs, not links
+
+    def test_empty_list(self):
+        _c, html = self.page(dict(BACKUP_OK, files=[]))
+        self.assertIn("There are no backups yet.", self.card(html))
+        self.assertNotIn("backup/restore", self.card(html))
+
+    def test_hidden_for_non_admins_without_the_key_and_on_1x(self):
+        self.assertNotIn("Available backups", self.page(dict(BACKUP_OK, files=FILES), MEMBER)[1])
+        self.assertNotIn("Available backups", self.page(BACKUP_OK)[1])  # no `files` key
+        self.assertNotIn("Available backups", self.page(None)[1])
+
+    def test_file_names_are_escaped(self):
+        _c, html = self.page(dict(BACKUP_OK, files=[{"name": '"><b>x</b>', "size": 1, "mtime": 1}]))
+        self.assertNotIn("<b>x</b>", html)
+
+    def test_restore_done_message_follows_the_result(self):
+        for result, text in (({"ok": True, "requested": 1.0}, "Backup restored"),
+                             ({"ok": False, "requested": 1.0}, "restore failed"), (None, "restore failed")):
+            with mock.patch.object(hs, "restore_result", return_value=result), sources(dict(CONTROL)):
+                code, html = request("GET", f"{B}/backups?m=backup-restore-done", ADMIN)
+            self.assertEqual(code, 200)
+            self.assertIn(text, html, result)
+
+
+class BackupSettingsSave(unittest.TestCase):
+    URL = f"{B}/backups/settings"
+
+    def run_post(self, session, result=("saved", ""), csrf="tok", **form):
+        form = dict({"csrf": csrf, "backup_enabled": "on", "backup_schedule": "0 4 * * *", "backup_keep_days": "7"}, **form)
+        with mock.patch.object(hs, "control_backup_settings", return_value=result) as call, \
+                mock.patch.object(app.audit, "request_event") as event:
+            code, head, _body = post(self.URL, session, form)
+        return code, head, call, event
+
+    def test_admin_saves_and_it_is_audited(self):
+        code, head, call, event = self.run_post(ADMIN)
+        self.assertEqual(code, 303)
+        self.assertIn("backups?m=backup-settings-saved", head)
+        call.assert_called_once()
+        self.assertEqual(call.call_args.args, (True, "0 4 * * *", "7"))
+        self.assertEqual(event.call_args.args[2], "backup.settings")
+
+    def test_off_is_passed_on(self):
+        _c, _h, call, _e = self.run_post(ADMIN, backup_enabled="off")
+        self.assertIs(call.call_args.args[0], False)
+
+    def test_other_results_redirect_with_their_message_and_are_not_audited(self):
+        for result in ("invalid", "locked", "unavailable", "error"):
+            code, head, _call, event = self.run_post(ADMIN, (result, "x"))
+            self.assertEqual(code, 303)
+            self.assertIn(f"m=backup-settings-{result}", head)
+            event.assert_not_called()
+
+    def test_only_admins_and_only_with_the_token(self):
+        for session, csrf in ((MEMBER, "tok"), (ADMIN, "bad")):
+            code, _head, call, _event = self.run_post(session, csrf=csrf)
+            self.assertEqual(code, 403)
+            call.assert_not_called()
+
+
+class BackupNow(unittest.TestCase):
+    URL = f"{B}/backups/run"
+
+    def run_post(self, session, result="started", csrf="tok"):
+        with mock.patch.object(hs, "control_backup", return_value=result) as call, \
+                mock.patch.object(app.audit, "request_event") as event:
+            code, head, _body = post(self.URL, session, {"csrf": csrf})
+        return code, head, call, event
+
+    def test_admin_starts_a_backup_and_it_is_audited(self):
+        code, head, call, event = self.run_post(ADMIN)
+        self.assertEqual(code, 303)
+        self.assertIn("backups?m=backup-started", head)
+        call.assert_called_once_with()
+        self.assertEqual(event.call_args.args[2], "backup.run")
+
+    def test_busy_unavailable_and_error_redirect_with_their_message(self):
+        for result in ("busy", "unavailable", "error"):
+            code, head, _call, _event = self.run_post(ADMIN, result)
+            self.assertEqual(code, 303)
+            self.assertIn(f"m=backup-{result}", head)
+
+    def test_only_started_and_busy_are_audited(self):
+        for result, audited in (("started", 1), ("busy", 1), ("unavailable", 0), ("error", 0)):
+            _c, _h, _call, event = self.run_post(ADMIN, result)
+            self.assertEqual(event.call_count, audited, result)
+
+    def test_other_roles_are_refused_and_nothing_runs(self):
+        network_admin = dict(MEMBER, role="network_admin")
+        for who in (MEMBER, AUDITOR, network_admin):
+            code, _head, call, event = self.run_post(who)
+            self.assertEqual(code, 403)
+            call.assert_not_called()
+            event.assert_not_called()
+
+    def test_csrf_is_required(self):
+        for token in ("", "wrong"):
+            code, _head, call, _event = self.run_post(ADMIN, csrf=token)
+            self.assertEqual(code, 403)
+            call.assert_not_called()
+
+    def test_requires_sign_in_and_get_is_not_the_action(self):
+        with mock.patch.object(hs, "control_backup") as call:
+            code, head, _ = post(self.URL, None, {"csrf": "tok"})
+            self.assertEqual(code, 303)
+            self.assertIn("login", head)
+            self.assertNotEqual(request("GET", self.URL, ADMIN)[0], 200)
+        call.assert_not_called()
+
+
 class Disk(unittest.TestCase):
+    def test_disks_from_env(self):
+        self.assertEqual(status._disks_from_env("data:/data, extra:/mnt/x"), (("data", "/data"), ("extra", "/mnt/x")))
+        self.assertEqual(status._disks_from_env(None), (("data", "/data"), ("headscale", "/headscale")))
+        self.assertEqual(status._disks_from_env("junk,:/x,y:"), (("data", "/data"), ("headscale", "/headscale")))
+
     def test_disk_usage(self):
         d = status.disk_usage(tempfile.gettempdir())
         self.assertTrue(0 <= d["percent"] <= 100)

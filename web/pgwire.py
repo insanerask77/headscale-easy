@@ -13,7 +13,7 @@ there is no psycopg.
     clear error: MD5 of a password is not something to keep around.
   - Simple query protocol only, results in text format (str or None). Every
     session is read-only: default_transaction_read_only=on is sent in the
-    startup packet, on top of the read-only database role the installer
+    startup packet, on top of the read-only database role the image
     creates for the web UI.
 
 There are no query parameters: callers build SQL from trusted values only

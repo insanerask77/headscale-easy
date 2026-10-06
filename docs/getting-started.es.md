@@ -1,38 +1,58 @@
 # Primeros pasos
 
+## En cinco minutos
+
+1. **Descarga:** `mkdir headscale-easy && cd headscale-easy && curl -fsSLO https://raw.githubusercontent.com/insanerask77/headscale-easy/main/compose.yaml`
+2. **Arráncalo:** `docker compose up -d`. Un contenedor, con la versión 2.0 fijada en el archivo.
+3. **Configúralo:** abre `http://<tu-servidor>/admin/setup` y escribe el token de un solo uso (de
+   `docker compose logs`): administrador, dirección pública y HTTPS, nombre de la tailnet, relay
+   (DERP), registro y copias.
+4. **Entra:** abre `https://<tu-dominio>/admin`.
+5. **Conecta tu primer dispositivo:** `tailscale up --login-server=https://<tu-dominio>`.
+
+Esto te da un servidor que funciona. Antes de fiarte de él, o de exponerlo a otras personas,
+repasa [Producción y bastionado](hardening.md).
+
 ## Requisitos
 
-- Un Linux (basta un VPS pequeño: 1 vCPU, 1 GB de RAM sin Authentik, 2 GB con él).
-- Docker con el plugin de Compose; el instalador se ofrece a instalarlo.
+- Un Linux (basta un VPS pequeño: 1 vCPU y 1 GB de RAM; el contenedor en reposo usa menos de
+  100 MB).
+- Docker con el plugin de Compose (v2.24 o más reciente).
 - Para HTTPS real: un dominio que apunte a la máquina y los puertos 80/443 abiertos.
 - El **UDP 3478** accesible desde internet (STUN del relay DERP integrado).
 
 ## Instalación
 
 ```bash
-git clone https://github.com/insanerask77/headscale-easy.git
-cd headscale-easy
-./install.sh
+mkdir headscale-easy && cd headscale-easy
+curl -fsSLO https://raw.githubusercontent.com/insanerask77/headscale-easy/main/compose.yaml
+docker compose up -d
 ```
 
-El instalador hace unas pocas preguntas (idioma, dominio, quién pone el HTTPS,
-cómo inician sesión los usuarios), escribe la configuración, arranca todo y
-muestra las URLs y las primeras credenciales:
+`compose.yaml` es toda la app: un servicio, dos volúmenes con nombre (`hse-data` y
+`hse-backups`), sin capabilities añadidas y sin socket de Docker. Abre el asistente y
+responde ahí; el token de un solo uso está en `docker compose logs headscale-easy`.
 
-```text
-  Panel web:        https://vpn.example.com/admin/
-  Plano de control: https://vpn.example.com
+Para responder de antemano (o arrancar sin asistente), pon las respuestas en un `.env` al lado:
 
-  Inicio de sesión:
-    Usuario: akadmin   Contraseña: ••••••••••••
-    Da de alta usuarios en https://vpn.example.com/add-user o desde Usuarios en el panel.
+```bash
+curl -fsSL https://raw.githubusercontent.com/insanerask77/headscale-easy/main/.env.example -o .env
+chmod 600 .env        # luego descomenta y edita lo que necesites
 ```
 
-!!! tip "Cambiar la configuración más adelante"
-    Vuelve a ejecutar `./install.sh` cuando quieras. Tus respuestas anteriores
-    son los valores por defecto y no se pierde ningún dato.
+Por ejemplo `HSE_PUBLIC_URL`, `HSE_TLS` (`auto`: Let's Encrypt, necesita `ACME_EMAIL`; `internal`:
+un certificado de la CA propia de Caddy; `off`: HTTP sin cifrar, o lo termina un proxy que ya
+tienes) y `HSE_ADMIN_EMAIL` con `HSE_ADMIN_PASSWORD` para saltarte el asistente: el servidor
+arranca con esa cuenta.
 
-Todas las opciones están en [Configuración](configuration.md).
+!!! tip "Actualizar"
+    Cambia `HSE_VERSION` en `.env` (o la etiqueta en `compose.yaml`) y ejecuta
+    `docker compose pull && docker compose up -d`. Los datos viven en los volúmenes y no se tocan;
+    haz antes una copia con `docker exec headscale-easy hse backup`.
+
+Todo lo demás (un proveedor de identidad, un proxy delante, PostgreSQL, copias remotas) está en
+[Configuraciones avanzadas](advanced/index.md). Mira [Imagen todo en uno](all-in-one.md) y
+[Configuración](configuration.md) para todos los ajustes.
 
 ## Puertos
 

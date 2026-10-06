@@ -15,8 +15,9 @@ import expiry
 import notify
 from i18n import LANGUAGES, _, get_lang, ngettext
 from qr import qr_figure
-from ui import (BASE, LOGO, badge, copy_btn, csrf_input, docs_url, esc, flash_html, icon, initials, layout, notice,
-                page_head, parse_time, relative, time_tag, user_label)
+import docker_tab
+from ui import (BASE, LOGO, badge, bare_page, copy_btn, csrf_input, docs_url, esc, flash_html, icon, initials, layout, live_indicator,
+                notice, page_head, parse_time, relative, time_tag, user_label)
 
 OS_NAMES = {"linux": "Linux", "windows": "Windows", "macos": "macOS", "ios": "iOS",
             "android": "Android", "freebsd": "FreeBSD", "openbsd": "OpenBSD", "tvos": "tvOS"}
@@ -233,6 +234,37 @@ def register_dialog(session: dict, users: list[dict]) -> str:
                          f'<label class="field">{esc(_("Owner"))}<select name="user" required>{opts}</select></label>')
 
 
+def register_page(session: dict, ctx: dict, auth_id: str, users: list[dict] | None, owner: dict | None,
+                  error: str = "") -> str:
+    """Approve a device that ran 'tailscale up' without a key: Caddy sends the
+    /register/<id> link Headscale prints here (AUTH_PROVIDER=none). Admins
+    choose the owner (users); everyone else adds it to their own user (owner)."""
+    head = page_head(_("Add a device"), esc(_("A device is waiting to join the tailnet. Only approve it if you "
+                                               "just ran 'tailscale up' or signed in on that device yourself.")))
+    head += notice("error", error) if error else ""
+    if users is not None:
+        opts = "".join(f'<option value="{esc(u["name"])}"{" selected" if owner and u["name"] == owner["name"] else ""}>'
+                       f'{esc(user_label(u))}</option>' for u in sorted(users, key=lambda u: user_label(u).lower()))
+        who = f'<label class="field">{esc(_("Owner"))}<select name="user" required>{opts}</select></label>'
+    elif owner:
+        who = f'<p>{esc(_("It will be added to your account, {user}.", user=user_label(owner)))}</p>'
+    else:
+        body = head + f"""
+    <section class="card"><p>{esc(_("Your account has no Headscale user yet, so it cannot own devices. Ask an admin."))}</p>
+      <p><a class="btn" href="{BASE}/machines">{esc(_("Back to Machines"))}</a></p></section>"""
+        return layout(_("Add a device"), "machines", body, session, ctx)
+    body = head + f"""
+    <section class="card">
+      <form method="post" action="{BASE}/register/{esc(auth_id)}">{csrf_input(session)}
+        <dl class="kvs"><dt>{esc(_("Request"))}</dt><dd><code>{esc(auth_id)}</code></dd></dl>
+        {who}
+        <div class="dialog-actions"><a class="btn" href="{BASE}/machines">{esc(_("Cancel"))}</a>
+          <button class="btn primary" type="submit">{esc(_("Approve device"))}</button></div>
+      </form>
+    </section>"""
+    return layout(_("Add a device"), "machines", body, session, ctx)
+
+
 def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: bool, flash: str,
                   users: list[dict] | None = None, error: str = "") -> str:
     admin = session.get("admin")
@@ -321,7 +353,7 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
           <th class="hide-sm">{esc(_("Version"))}</th>
           <th class="hide-sm"><span title="{esc(_("The DERP relay the machine prefers and its latency"))}">{esc(_("Relay"))} {icon("info", "i-xs")}</span></th>
           <th>{esc(_("Last seen"))}</th><th></th></tr></thead>
-        <tbody data-live="rows">{"".join(rows)}
+        <tbody data-live="rows" data-stream="{BASE}/events">{"".join(rows)}
         </tbody>
       </table>
     </div>
@@ -357,7 +389,7 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
       <span class="spacer"></span>
       <a class="icon-btn boxed" href="{BASE}/machines.csv" title="{esc(_("Export to CSV"))}" aria-label="{esc(_("Export to CSV"))}">{icon("download")}</a>
     </div>
-    <span class="pill" data-count data-one="{esc(_("1 machine"))}" data-many="{esc(_("{n} machines"))}">{esc(ngettext("{n} machine", "{n} machines", len(machines)))}</span>
+    <span class="pill" data-count data-one="{esc(_("1 machine"))}" data-many="{esc(_("{n} machines"))}">{esc(ngettext("{n} machine", "{n} machines", len(machines)))}</span> {live_indicator()}
     {table}
     <div data-live="dialogs">{"".join(dialogs)}</div>
     {f'<div data-live="inactive">{expiry.remove_inactive_dialog(machines, session)}</div>' if admin else ""}"""
@@ -485,7 +517,7 @@ def machine_page(session: dict, ctx: dict, m: Machine, flash: str, error: str = 
     <div class="page-head">
       <div>
         <h1 data-live="title">{esc(m.name)}</h1>
-        <div class="meta" data-live="meta">{status_html(m)}<span class="muted">{esc(m.owner_label)}</span>{m.badges()}</div>
+        <div class="meta" data-live="meta" data-stream="{BASE}/events">{status_html(m)}<span class="muted">{esc(m.owner_label)}</span>{m.badges()}</div>
       </div>
       <div class="head-actions">
         <button class="btn" type="button" data-open="rename-{m.id}">{esc(_("Edit machine name"))}</button>
@@ -509,7 +541,8 @@ def machine_page(session: dict, ctx: dict, m: Machine, flash: str, error: str = 
 # Add device
 # -----------------------------------------------------------------------------
 
-def add_page(session: dict, ctx: dict) -> str:
+def add_page(session: dict, ctx: dict, docker: dict | None = None) -> str:
+    """docker: what the Docker tab shows after its form was sent (values, key, error, users)."""
     url = ctx["public_url"]
     login = f"tailscale up --login-server={url}"
 
@@ -560,9 +593,13 @@ def add_page(session: dict, ctx: dict) -> str:
           </div>
           <p class="muted small">{_("To connect without signing in, set the server first and then choose Use an auth key in the same ⋮ menu, with a key from {link}.", link=f'<a class="link" href="{BASE}/settings/keys">' + esc(_("Settings → Keys")) + "</a>")}</p>"""),
     }
-    tabs = "".join(f'<button type="button" role="tab" data-tab="{k}" class="{"active" if k == "linux" else ""}">{label}</button>'
+    docker = docker or {}
+    panels["docker"] = ("Docker", docker_tab.panel(session, url, docker.get("values"), docker.get("key", ""),
+                                                   docker.get("error", ""), docker.get("users")))
+    first = "docker" if docker else "linux"
+    tabs = "".join(f'<button type="button" role="tab" data-tab="{k}" class="{"active" if k == first else ""}">{label}</button>'
                    for k, (label, _c) in panels.items())
-    bodies = "".join(f'<div class="tab-panel" data-panel="{k}" {"" if k == "linux" else "hidden"}>{content}</div>'
+    bodies = "".join(f'<div class="tab-panel" data-panel="{k}" {"" if k == first else "hidden"}>{content}</div>'
                      for k, (_l, content) in panels.items())
     body = page_head(_("Add device"), esc(_("Install Tailscale and point it at this server instead of Tailscale's."))) + f"""
     <section class="card"><div class="ostabs" role="tablist">{tabs}</div>{bodies}</section>
@@ -776,52 +813,16 @@ def dns_page(session: dict, ctx: dict, dns: dict, machines: list[Machine], error
 # Settings
 # -----------------------------------------------------------------------------
 
-def mfa_options() -> list[tuple[str, str, str]]:
-    """(value, label, description) of each two-factor mode."""
-    return [
-        ("admins", _("Required for admins"),
-         _("Admins (vpn-admins, authentik Admins) must set it up the first time they sign in; members may.")),
-        ("everyone", _("Required for everyone"), _("Every user must set it up when signing in.")),
-        ("optional", _("Optional"), _("Nobody is forced; each user decides in their account settings.")),
-    ]
-
-
-def mfa_section(session: dict, mfa: dict) -> str:
-    """Admins: the two-factor mode of the built-in Authentik. mfa has 'mode'
-    (the one in use, or the installer's choice when it cannot be read),
-    'editable' and, when not editable, 'reason'."""
-    labels = {value: label for value, label, _d in mfa_options()}
-    head = f"""
-    <section class="card">
-      <h2>{esc(_("Two-factor authentication"))}</h2>
-      <p class="muted">{esc(_("A code from an authenticator app or a passkey after the password, when signing in with Authentik. Users who already set one up are always asked for it."))}</p>"""
-    if not mfa.get("editable"):
-        return head + f"""
-      <dl class="kvs">{kv(_("Mode"), esc(labels.get(mfa.get("mode"), mfa.get("mode"))))}</dl>
-      <p class="muted small">{esc(mfa.get("reason") or "")}</p>
-    </section>"""
-    radios = "".join(
-        f"""<label class="check"><input type="radio" name="mode" value="{value}" {"checked" if value == mfa.get("mode") else ""} required>
-          <span><b>{esc(label)}</b><span class="muted">{esc(desc)}</span></span></label>"""
-        for value, label, desc in mfa_options())
-    return head + f"""
-      <form method="post" action="{BASE}/settings/mfa" class="stack" data-busy>{csrf_input(session)}
-        {radios}
-        <p class="muted small">{esc(_("Applied in Authentik right away: it affects the next sign-in, nobody is signed out."))}</p>
-        <div><button class="btn primary" type="submit">{esc(_("Save"))}</button></div>
-      </form>
-    </section>"""
-
-
 def notify_section(session: dict) -> str:
     """Settings > General (admins): where notifications go, and "Send a test"."""
     dests = notify.destinations()
     if not dests:
         body = (f'<p class="muted">{esc(_("Get a message in Slack, Telegram, ntfy or any webhook when a device joins, is removed or its key expires."))}</p>'
-                f'<p class="muted small">{esc(_("Set NOTIFY_URLS in .env (or run ./install.sh) and restart the web container."))}</p>')
+                f'<p class="muted small">{esc(_("Set NOTIFY_URLS in .env and restart the container."))}</p>')
     else:
         labels = {"device.registered": _("New device"), "device.key_expired": _("Key expired"),
-                  "device.expiring": _("Key expiring soon"), "device.removed": _("Device removed")}
+                  "device.expiring": _("Key expiring soon"), "device.removed": _("Device removed"),
+                  "backup.failed": _("Backup failed")}
         chosen = notify.events()
         items = "".join(f"<li>{esc(d['label'])}</li>" for d in dests)
         evs = ", ".join(labels[e] for e in notify.ALL_EVENTS if e in chosen)
@@ -837,14 +838,12 @@ def notify_section(session: dict) -> str:
 
 
 def general_page(session: dict, ctx: dict, flash: str = "", key_expiry: int | None = None,
-                 error: str = "", mfa: dict | None = None) -> str:
+                 error: str = "", extra: str = "") -> str:
     role = _("Admin") if session.get("admin") else _("Member")
     if session.get("kind") == "apikey":
         role = _("Admin (Headscale API key session)")
     groups = ", ".join(session.get("groups") or []) or "—"
     name = session.get("name") or session.get("username") or _("Administrator")
-    manage = (f'<a class="btn" href="{esc(ctx["public_url"])}/authentik/if/user/#/settings">{esc(_("Account, password and two-factor authentication"))}</a>'
-              if ctx.get("authentik") and session.get("kind") != "apikey" else "")
     langs = "".join(f'<button type="submit" name="lang" value="{code}" class="{"active" if get_lang() == code else ""}">{esc(label)}</button>'
                     for code, label in LANGUAGES.items())
     devices = ""
@@ -874,11 +873,10 @@ def general_page(session: dict, ctx: dict, flash: str = "", key_expiry: int | No
         {kv(_("Role"), esc(role))}
         {kv(_("Groups"), esc(groups)) if session.get("kind") != "apikey" else ""}
       </dl>
-      {manage}
     </section>
     {devices}
     {notifications}
-    {mfa_section(session, mfa) if session.get("admin") and mfa is not None else ""}
+    {extra}
     <section class="card">
       <h2>{esc(_("Appearance"))}</h2>
       <p class="muted">{esc(_("Saved in this browser."))}</p>
@@ -1067,3 +1065,256 @@ def sessions_page(session: dict, ctx: dict, rows: list[dict], flash: str = "") -
       {table}
     </section>"""
     return layout(_("Sessions"), "sessions", body, session, ctx)
+
+
+# --- TOTP and account settings (Block 3.3) ---
+
+def totp_verify_page(username: str, error: str | None = None) -> str:
+    """TOTP verification page (second step after password)."""
+    error_html = f'<p class="error">{esc(error)}</p>' if error else ""
+    body = f"""
+    <div class="login-container">
+      <div class="login-card">
+        {LOGO}
+        <h1>{esc(_("Two-factor authentication"))}</h1>
+        <p>{esc(_("Enter the 6-digit code from your authenticator app."))}</p>
+        {error_html}
+        <form method="post" action="{BASE}/login/totp">
+          <label>{esc(_("Code"))}
+            <input type="text" name="code" inputmode="numeric" pattern="[0-9]{{6}}"
+                   autocomplete="one-time-code" required autofocus maxlength="6">
+          </label>
+          <button type="submit" class="btn btn-primary">{esc(_("Verify"))}</button>
+          <details style="margin-top: 1rem">
+            <summary>{esc(_("Use a recovery code"))}</summary>
+            <p style="margin-top: 0.5rem; font-size: 0.9rem">{esc(_("Enter one of your recovery codes if you don't have access to your authenticator app."))}</p>
+            <input type="hidden" name="use_recovery" value="1">
+          </details>
+        </form>
+        <p class="login-footer">{esc(_("Signed in as"))} <strong>{esc(username)}</strong></p>
+      </div>
+    </div>"""
+    return bare_page(_("Two-factor authentication"), body)
+
+
+def account_settings_page(session: dict, ctx: dict, account: dict, flash: str = "") -> str:
+    """Account settings page for local accounts."""
+    username = account['username']
+    email = account['email']
+    role = account['role']
+    totp_enabled = account.get('totp_confirmed', 0) == 1
+
+    role_labels = {
+        'admin': _("Administrator"),
+        'network_admin': _("Network Administrator"),
+        'auditor': _("Auditor"),
+        'member': _("Member")
+    }
+    role_label = role_labels.get(role, role)
+
+    totp_section = f"""
+    <section class="card">
+      <div class="card-title"><h2>{esc(_("Two-factor authentication"))}</h2></div>
+      <p>{esc(_("Two-factor authentication (2FA) adds an extra layer of security to your account."))}</p>
+      {"<p class='success'>" + esc(_("Two-factor authentication is enabled.")) + "</p>" if totp_enabled else ""}
+      <div class="btn-group">
+        {"" if totp_enabled else f'<a href="{BASE}/settings/account/totp/enroll" class="btn btn-primary">{esc(_("Enable 2FA"))}</a>'}
+        {f'''<form method="post" action="{BASE}/settings/account/totp/disable" class="inline" onsubmit="return confirm('{esc(_("Are you sure you want to disable two-factor authentication?"))}')">{csrf_input(session)}
+          <button type="submit" class="btn">{esc(_("Disable 2FA"))}</button></form>''' if totp_enabled else ""}
+        {f'''<form method="post" action="{BASE}/settings/account/totp/recovery/reset" class="inline">{csrf_input(session)}
+          <button type="submit" class="btn">{esc(_("Reset recovery codes"))}</button></form>''' if totp_enabled else ""}
+      </div>
+    </section>"""
+
+    body = page_head(_("Account settings"), "") + flash_html(flash) + f"""
+    <section class="card">
+      <div class="card-title"><h2>{esc(_("Account information"))}</h2></div>
+      <dl class="info-list">
+        <dt>{esc(_("Username"))}</dt><dd>{esc(username)}</dd>
+        <dt>{esc(_("Email"))}</dt><dd>{esc(email)}</dd>
+        <dt>{esc(_("Role"))}</dt><dd>{esc(role_label)}</dd>
+      </dl>
+    </section>
+    <section class="card">
+      <div class="card-title"><h2>{esc(_("Change password"))}</h2></div>
+      <form method="post" action="{BASE}/settings/account/password">
+        {csrf_input(session)}
+        <label>{esc(_("Current password"))}
+          <input type="password" name="old_password" required autocomplete="current-password">
+        </label>
+        <label>{esc(_("New password"))}
+          <input type="password" name="new_password" required autocomplete="new-password" minlength="8">
+        </label>
+        <label>{esc(_("Confirm new password"))}
+          <input type="password" name="new_password2" required autocomplete="new-password" minlength="8">
+        </label>
+        <button type="submit" class="btn btn-primary">{esc(_("Change password"))}</button>
+      </form>
+    </section>
+    {totp_section}"""
+    return layout(_("Account settings"), "settings", body, session, ctx)
+
+
+def totp_enroll_page(session: dict, ctx: dict, secret: str, qr_data: str) -> str:
+    """TOTP enrollment page with QR code."""
+    qr_svg = qr_figure(qr_data)
+
+    # Format secret in groups of 4 for easier manual entry
+    secret_formatted = " ".join([secret[i:i+4] for i in range(0, len(secret), 4)])
+
+    body = page_head(_("Set up two-factor authentication"),
+                    esc(_("Scan the QR code with your authenticator app, then enter a code to confirm."))) + f"""
+    <section class="card">
+      <div class="card-title"><h2>{esc(_("1. Scan QR code"))}</h2></div>
+      <div style="text-align: center; padding: 1rem;">
+        {qr_svg}
+      </div>
+      <details style="margin-top: 1rem">
+        <summary>{esc(_("Can't scan the QR code?"))}</summary>
+        <p style="margin-top: 0.5rem">{esc(_("Enter this code manually in your authenticator app:"))}</p>
+        <code style="display: block; padding: 0.5rem; background: var(--bg-2); border-radius: 4px; font-size: 0.9rem; word-break: break-all;">
+          {esc(secret_formatted)}
+        </code>
+      </details>
+    </section>
+    <section class="card">
+      <div class="card-title"><h2>{esc(_("2. Verify"))}</h2></div>
+      <p>{esc(_("Enter the 6-digit code from your authenticator app to confirm setup."))}</p>
+      <form method="post" action="{BASE}/settings/account/totp/confirm">
+        {csrf_input(session)}
+        <label>{esc(_("Verification code"))}
+          <input type="text" name="code" inputmode="numeric" pattern="[0-9]{{6}}"
+                 autocomplete="off" required autofocus maxlength="6"
+                 placeholder="000000">
+        </label>
+        <div class="btn-group">
+          <button type="submit" class="btn btn-primary">{esc(_("Confirm and enable"))}</button>
+          <a href="{BASE}/settings/account" class="btn">{esc(_("Cancel"))}</a>
+        </div>
+      </form>
+    </section>
+    <section class="card notice-info">
+      <p><strong>{esc(_("Recommended authenticator apps:"))}</strong></p>
+      <ul>
+        <li>Google Authenticator (iOS, Android)</li>
+        <li>Microsoft Authenticator (iOS, Android)</li>
+        <li>Authy (iOS, Android, Desktop)</li>
+        <li>1Password (all platforms)</li>
+      </ul>
+    </section>"""
+    return layout(_("Set up 2FA"), "settings", body, session, ctx)
+
+
+def recovery_codes_page(session: dict, ctx: dict, codes: list[str]) -> str:
+    """Show recovery codes after generation/reset."""
+    codes_html = "".join(f"<li><code>{esc(code)}</code></li>" for code in codes)
+
+    body = page_head(_("Recovery codes"),
+                    esc(_("Save these recovery codes in a safe place. Each code can only be used once."))) + f"""
+    <section class="card notice-warning">
+      <p><strong>{icon('alert-triangle')} {esc(_("Important:"))}</strong>
+         {esc(_("These codes will not be shown again. Save them now."))}</p>
+    </section>
+    <section class="card">
+      <div class="card-title"><h2>{esc(_("Your recovery codes"))}</h2></div>
+      <ul class="recovery-codes">
+        {codes_html}
+      </ul>
+      <p style="margin-top: 1rem; font-size: 0.9rem; color: var(--text-secondary);">
+        {esc(_("Use a recovery code if you lose access to your authenticator app. Each code can only be used once."))}
+      </p>
+      <div class="btn-group" style="margin-top: 1rem">
+        <button onclick="window.print()" class="btn">{icon('printer')} {esc(_("Print"))}</button>
+        <a href="{BASE}/settings/account" class="btn btn-primary">{esc(_("Done"))}</a>
+      </div>
+    </section>
+    <style>
+      .recovery-codes {{ list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem; }}
+      .recovery-codes li {{ background: var(--bg-2); padding: 0.75rem; border-radius: 4px; text-align: center; }}
+      .recovery-codes code {{ font-size: 1.1rem; font-weight: 600; letter-spacing: 0.05em; }}
+      @media print {{
+        .nav, .btn-group {{ display: none; }}
+        .recovery-codes {{ grid-template-columns: repeat(2, 1fr); }}
+      }}
+    </style>"""
+    return layout(_("Recovery codes"), "settings", body, session, ctx)
+
+
+def invitation_page(token: str, email: str, role: str, error: str = "") -> str:
+    """Accept invitation page - choose username and password."""
+    role_labels = {
+        'admin': _("Administrator"),
+        'network_admin': _("Network Administrator"),
+        'auditor': _("Auditor"),
+        'member': _("Member")
+    }
+    role_label = role_labels.get(role, role)
+
+    error_html = f'<p class="error">{esc(error)}</p>' if error else ""
+
+    body = f"""
+    <div class="login-container">
+      <div class="login-card">
+        {LOGO}
+        <h1>{esc(_("Accept invitation"))}</h1>
+        <p>{esc(_("You've been invited to join this Tailscale network."))}</p>
+        {error_html}
+        <form method="post" action="{BASE}/accept/{esc(token)}">
+          <div style="background: var(--bg-2); padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem;">
+            <div style="font-size: 0.9rem; color: var(--text-secondary);">{esc(_("Email"))}</div>
+            <div style="font-weight: 600;">{esc(email)}</div>
+            <div style="font-size: 0.9rem; color: var(--text-secondary); margin-top: 0.5rem;">{esc(_("Role"))}</div>
+            <div style="font-weight: 600;">{esc(role_label)}</div>
+          </div>
+          <label>{esc(_("Username"))}
+            <input type="text" name="username" required autofocus autocomplete="username"
+                   pattern="[a-zA-Z0-9_-]{{3,32}}" title="{esc(_("3-32 characters: letters, numbers, - and _"))}"
+                   placeholder="{esc(_("Choose a username"))}">
+          </label>
+          <label>{esc(_("Password"))}
+            <input type="password" name="password" required autocomplete="new-password"
+                   minlength="8" placeholder="{esc(_("At least 8 characters"))}">
+          </label>
+          <label>{esc(_("Confirm password"))}
+            <input type="password" name="password2" required autocomplete="new-password"
+                   placeholder="{esc(_("Re-enter your password"))}">
+          </label>
+          <button type="submit" class="btn btn-primary">{esc(_("Create account"))}</button>
+        </form>
+      </div>
+    </div>"""
+    return bare_page(_("Accept invitation"), body)
+
+
+def reset_password_page(token: str, username: str, error: str = "") -> str:
+    """Reset password page - choose new password."""
+    error_html = f'<p class="error">{esc(error)}</p>' if error else ""
+
+    body = f"""
+    <div class="login-container">
+      <div class="login-card">
+        {LOGO}
+        <h1>{esc(_("Reset password"))}</h1>
+        <p>{esc(_("Choose a new password for your account."))}</p>
+        {error_html}
+        <form method="post" action="{BASE}/reset/{esc(token)}">
+          <div style="background: var(--bg-2); padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem;">
+            <div style="font-size: 0.9rem; color: var(--text-secondary);">{esc(_("Username"))}</div>
+            <div style="font-weight: 600;">{esc(username)}</div>
+          </div>
+          <label>{esc(_("New password"))}
+            <input type="password" name="password" required autofocus autocomplete="new-password"
+                   minlength="8" placeholder="{esc(_("At least 8 characters"))}">
+          </label>
+          <label>{esc(_("Confirm password"))}
+            <input type="password" name="password2" required autocomplete="new-password"
+                   placeholder="{esc(_("Re-enter your password"))}">
+          </label>
+          <button type="submit" class="btn btn-primary">{esc(_("Reset password"))}</button>
+        </form>
+        <p class="login-footer">
+          <a href="{BASE}/login">{esc(_("Back to sign in"))}</a>
+        </p>
+      </div>
+    </div>"""
+    return bare_page(_("Reset password"), body)

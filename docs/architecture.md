@@ -1,38 +1,38 @@
 # Architecture and resources
 
 Headscale Easy is **not a fork or a replacement of Headscale**. It runs the
-official, unmodified `headscale/headscale` image and adds a deployment and
-management layer around it: an installer, a reverse proxy with HTTPS, an
-optional identity provider, a web console and backups.
+official, unmodified `headscale` binary and adds a deployment and management
+layer around it: HTTPS, local accounts, a web console and backups, all in **one
+container**.
 
 ## Components
 
 ```text
-Tailscale apps ──▶ Caddy /            ──▶ Headscale (official image)
-                    :80/:443                  control plane, DERP, SQLite, keys
-                                           ▲
-                                           │ REST API, read-only DB
-Browser ─────────▶ Caddy /admin       ──▶ Headscale Easy UI
-                                           ├─ hs-helper ─▶ Docker socket ─▶ configtest / restart Headscale
-                                           └─ Authentik API ─▶ users, invitations, 2FA mode
-
-Browser ─────────▶ Caddy /authentik   ──▶ Authentik ──▶ PostgreSQL      (optional)
-                                           OIDC provider for Headscale and the UI
-
-STUN, UDP 3478 ──────────────────────▶ Headscale's embedded DERP relay
-
-backup (optional): daily .tar.gz of databases, keys and configuration ──▶ ./backups
+               ┌──────────────── headscale-easy (one container) ────────────────┐
+ :80/:443 ───▶ │ caddy ──┬─ /       ──▶ headscale  (official binary, child proc)  │
+ :3478/udp ──▶ │         └─ /admin  ──▶ console    (Python, standard library)    │
+               │                                                                 │
+               │ supervisor: starts, restarts and stops the three, runs          │
+               │ configtest and backups                                          │
+               │                                                                 │
+               │ /data: headscale/ caddy/ console/ config/ backups/              │
+               └─────────────────────────────────────────────────────────────────┘
+       optional, outside: OIDC provider · PostgreSQL · front proxy · remote backups
 ```
 
-| Component | Image | What it does | What it does **not** do |
-|---|---|---|---|
-| **Headscale** | `headscale/headscale` (official, unmodified) | The coordination server: node registration, keys, IP addresses, ACL enforcement, MagicDNS, embedded DERP relay | — it is the part that does the real work |
-| **Headscale Easy UI** | `ghcr.io/insanerask77/headscale-easy` | Web console: machines, users, keys, routes, DNS, ACL editor, activity log. Talks to Headscale's REST API | Does not touch WireGuard traffic or replace any Headscale logic; if it stops, the tailnet keeps working |
-| **hs-helper** | `ghcr.io/insanerask77/headscale-easy-helper` | The only container with the Docker socket. Answers three fixed requests from the console on a Unix socket: validate Headscale's config, restart Headscale, report container health and Headscale's version. No network | Takes no parameters: it cannot run other commands or touch other containers |
-| **Caddy** | `caddy` | Single entry point, HTTPS (Let's Encrypt or self-signed), routes paths to each service | — |
-| **Authentik** (optional) | `ghcr.io/goauthentik/server`, `postgres` | Accounts, passwords, two-factor, Google sign-in, invitations; the OIDC provider for both Headscale and the console | Not needed with your own OIDC provider or with API key sign-in only |
-| **backup** (optional) | built locally from `backup/` | Daily consistent copies of Headscale's database and keys, Authentik's database, the configuration and the activity log | — |
-| **install.sh** | — | Asks a few questions, writes `.env`, `config.yaml`, the `Caddyfile` and the Authentik blueprint, starts everything | Not needed after installation, except to change settings |
+| Component | What it does | What it does **not** do |
+|---|---|---|
+| **Headscale** | The coordination server: node registration, keys, IP addresses, ACL enforcement, MagicDNS, the embedded DERP relay and STUN | — it is the part that does the real work |
+| **Console** | Web console at `/admin`: machines, users, keys, routes, DNS, access controls, backups, activity log. Local accounts with password and two-factor, invitations and sign-up. Talks to Headscale's REST API | Does not touch WireGuard traffic or replace any Headscale logic; if it stops, the tailnet keeps working |
+| **Caddy** | Single entry point: HTTPS (Let's Encrypt, internal CA or none), routes `/` to Headscale and `/admin` to the console | — |
+| **Supervisor** | PID 1's child (under `tini`). Starts the three processes, restarts a crashed one with backoff, forwards signals, validates the config (`headscale configtest`) and restarts Headscale when the console asks, and runs the scheduled backups. Serves a small Unix-socket protocol to the console | Answers a fixed set of requests (validate the config, restart Headscale, report status): the console cannot ask it to run anything else |
+| **Setup wizard** | First-run web wizard served instead of the console until setup is done | Not running once the server is configured |
+| **`hse`** | Command-line control: `health`, `reload`, `backup`, `backups`, `restore` | — |
+
+Optional pieces live **outside** the image: an OIDC provider (Authentik, Keycloak,
+Pocket ID, Google), an external PostgreSQL, a reverse proxy in front, and the
+`backup` sidecar that uploads archives to S3, SFTP or rsync. See the
+[advanced configurations](advanced/index.md).
 
 ### Who does what
 
@@ -44,56 +44,54 @@ backup (optional): daily .tar.gz of databases, keys and configuration ──▶ 
 - **DNS and device key expiry** are Headscale configuration file settings, not
   API calls. The console edits a marked block of `config.yaml`, validates it
   with `headscale configtest` and restarts Headscale, rolling back if
-  Headscale refuses the change. Both go through `hs-helper`: the console has
-  no Docker socket.
-- **Sign-in:** Headscale and the console use the same OIDC client, so a person
-  is the same user in both. Admins come from a group (`vpn-admins`) or a list
-  of emails.
+  Headscale refuses the change. Both go through the supervisor, inside the same
+  container: **there is no Docker socket anywhere**.
+- **Sign-in:** local accounts live in the console's own database. With an
+  external OIDC provider, Headscale and the console use the same client, so a
+  person is the same user in both. Admins come from the account's role, a group
+  or a list of e-mails.
 - **Everything on one domain:** Headscale at the root (Tailscale clients
   expect that), the console at `/admin` (the same path as Tailscale's own
-  console), Authentik at `/authentik`.
+  console).
+- **The container runs as uid 1000, with no added capability.** The three
+  processes share it, so a flaw in one reaches the others: the
+  [hardening guide](hardening.md) covers what to put around it.
 
 ## Resource usage
 
-Measured with `docker stats` on 2026-09-29, Headscale Easy 1.1.0, Headscale
-0.29.4, Authentik 2026.8.3, x86_64. **Idle, small test installation** (2
-users, no connected devices). Headscale's memory grows with the number of
+Measured by `scripts/aio-smoke.sh` on 2026-10-06 (Headscale 0.29.4, Caddy 2.11.4,
+x86_64, Docker): a freshly built image, started headless
+(`HSE_PUBLIC_URL=http://localhost`, `HSE_TLS=off`), a small test installation (one
+administrator, no connected devices). Headscale's memory grows with the number of
 devices; the other components barely change with tailnet size.
 
-| Container | RAM | CPU (idle) | Processes | Image size |
-|---|---:|---:|---:|---:|
-| `headscale` | 16–25 MB | < 1 % | 17 | 113 MB |
-| `headscale-easy` (console) | 28 MB | < 1 % | 4 | 70 MB |
-| `caddy` | 13–15 MB | < 1 % | 16 | 89 MB |
-| `authentik-server` (optional) | 570 MB | 1–3 % | 26 | 1.95 GB |
-| `authentik-worker` (optional) | 330 MB | < 1 % | 30 | *(same image)* |
-| `authentik-postgresql` (optional) | 170 MB | < 5 % | 17 | 420 MB |
-| `backup` (optional) | a few MB, runs once a day | — | 1 | 31 MB |
+| | Measured | CI limit |
+|---|---:|---:|
+| Image size | **232 MB** | 250 MB |
+| RAM, idle for 60 s | **71 MB** | 100 MB |
+| RAM while a backup runs | **71 MB** | 100 MB |
+| Processes in the container | 46 | — |
+| Containers | **1** | — |
 
-**Overhead over Headscale on its own:**
+The CI job fails the build above the limits, so these numbers cannot drift
+unnoticed. For comparison, Headscale alone idles at about 20 MB and its image is
+about 113 MB: the console, Caddy, the supervisor and the backups add roughly
+50 MB of RAM and 120 MB of disk, and replace the reverse proxy and the identity
+provider you would otherwise run next to it.
 
-| Setup | Containers | RAM (idle) | Disk (images) |
-|---|---:|---:|---:|
-| Headscale alone | 1 | ~20 MB | 113 MB |
-| + console + Caddy (no Authentik) | 3 | ~65 MB (**+45 MB**) | ~270 MB |
-| + Authentik (accounts, 2FA, Google) | 6 | ~1.1 GB (**+1 GB**) | ~2.6 GB |
-
-- The console and Caddy together add about **45 MB of RAM**; the console uses
-  almost no CPU: in the background it only asks Headscale for the device list
-  every 30 seconds (activity log) or 5 seconds (renaming "localhost" devices), and more
-  often while someone has a live page open. Most self-hosted Headscale
-  setups need a reverse proxy with HTTPS anyway.
-- **Authentik is the heavy part.** It is optional: with your own OIDC provider
-  (`AUTH_PROVIDER=external`) or API key sign-in only (`none`), it is not
-  installed. Plan 1 GB of RAM without Authentik and 2 GB with it.
-- Data on disk is small: Headscale's SQLite (or PostgreSQL) database, the activity log
-  (`data/web/audit.db`, capped by `AUDIT_RETENTION_DAYS`) and Caddy's logs are
-  a few MB for a small tailnet. Backups are one compressed file per day.
+- The console uses almost no CPU: in the background it only asks Headscale for the
+  device list every 30 seconds (activity log) or 5 seconds (renaming "localhost"
+  devices), and more often while someone has a live page open.
+- Data on disk is small: Headscale's SQLite database, the activity log
+  (`/data/console/audit.db`) and Caddy's logs are a few MB for a small tailnet.
+  Backups are one compressed file per night, 14 kept by default.
+- A running backup does not raise memory: the archive is streamed and the
+  largest backup upload tested (400 MB) peaked at 76 MB.
 
 Measure your own installation with:
 
 ```bash
 docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.PIDs}}'
-docker compose images
-du -sh data backups
+docker image ls ghcr.io/insanerask77/headscale-easy
+docker exec headscale-easy du -sh /data/*
 ```

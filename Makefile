@@ -2,8 +2,7 @@
 # Run `make` to list the targets.
 
 .DEFAULT_GOAL := help
-.PHONY: help install uninstall purge validate lint test i18n status logs restart health \
-        up down ps users nodes routes user key apikey backup restore update config
+.PHONY: help up down validate lint test i18n
 
 help: ## Show this help
 	@echo "Headscale Easy — make targets"
@@ -12,14 +11,11 @@ help: ## Show this help
 
 # --- Setup --------------------------------------------------------------------
 
-install: ## Run the interactive installer (also to reconfigure)
-	@./install.sh
+up: ## Start Headscale Easy (docker compose up -d)
+	@docker compose up -d
 
-uninstall: ## Remove the containers (keeps data)
-	@./uninstall.sh
-
-purge: ## Remove the containers AND all data
-	@./uninstall.sh --purge
+down: ## Stop it (keeps the data)
+	@docker compose down
 
 # --- Development ------------------------------------------------------------------
 
@@ -27,8 +23,8 @@ validate: ## Check the project structure and configuration
 	@./scripts/validate.sh
 
 lint: ## shellcheck + Python syntax + i18n coverage
-	@shellcheck -S warning install.sh uninstall.sh scripts/*.sh backup/*.sh
-	@python3 -m py_compile web/*.py helper/*.py
+	@shellcheck -S warning scripts/*.sh backup/*.sh
+	@python3 -m py_compile web/*.py aio/*.py
 	@python3 scripts/check_i18n.py
 
 test: ## Unit tests (Python standard library only)
@@ -36,60 +32,3 @@ test: ## Unit tests (Python standard library only)
 
 i18n: ## Report untranslated UI strings
 	@python3 scripts/check_i18n.py
-
-# --- Services ---------------------------------------------------------------------
-
-up: ## Start the stack
-	@docker compose up -d
-
-down: ## Stop the stack
-	@docker compose down
-
-ps: ## Container status
-	@docker compose ps
-
-status: ps
-
-logs: ## Follow logs (service=name for one)
-	@./scripts/utils.sh logs $(service)
-
-restart: ## Restart services (service=name for one)
-	@./scripts/utils.sh restart $(service)
-
-health: ## Health of every container
-	@./scripts/utils.sh health
-
-update: ## Pull new images and recreate containers
-	@./scripts/utils.sh update
-
-backup: ## Back up now (also daily; BACKUP_* in .env)
-	@./scripts/utils.sh backup
-
-restore: ## Restore a backup (file=backups/headscale-easy-....tar.gz or remote:path/...)
-	@test -n "$(file)" || { echo "Usage: make restore file=backups/headscale-easy-YYYYmmdd-HHMMSS.tar.gz"; exit 1; }
-	@./scripts/restore.sh $(file)
-
-config: ## Show .env with secrets hidden
-	@./scripts/utils.sh config:show
-
-# --- Headscale --------------------------------------------------------------------
-
-users: ## List users
-	@./scripts/utils.sh users:list
-
-nodes: ## List machines
-	@./scripts/utils.sh nodes:list $(user)
-
-routes: ## List subnet routes and exit nodes
-	@./scripts/utils.sh routes:list
-
-user: ## Create a user (name=...)
-	@test -n "$(name)" || { echo "Usage: make user name=alice"; exit 1; }
-	@./scripts/utils.sh users:create $(name)
-
-key: ## Create a reusable 24h auth key (user=...)
-	@test -n "$(user)" || { echo "Usage: make key user=alice"; exit 1; }
-	@./scripts/utils.sh preauth:create $(user)
-
-apikey: ## Create a Headscale API key
-	@./scripts/utils.sh apikey:create

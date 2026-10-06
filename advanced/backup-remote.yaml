@@ -1,0 +1,36 @@
+# Advanced: upload every new backup to S3, B2, SFTP (rclone) or a server (rsync over SSH).
+#
+#   docker compose -f compose.yaml -f advanced/backup-remote.yaml up -d
+#
+# Set BACKUP_REMOTE in .env; the rclone config or the SSH key goes in ./remote-config.
+services:
+  backup-remote:
+    image: ghcr.io/insanerask77/headscale-easy-backup:${HSE_VERSION:-2.0.0}
+    container_name: headscale-easy-backup-remote
+    restart: unless-stopped
+    depends_on:
+      - headscale-easy
+    environment:
+      BACKUP_MODE: sync
+      BACKUP_SYNC_INTERVAL: ${BACKUP_SYNC_INTERVAL:-15}
+      BACKUP_REMOTE: ${BACKUP_REMOTE:-}
+      BACKUP_REMOTE_KEEP_DAYS: ${BACKUP_REMOTE_KEEP_DAYS:-${BACKUP_KEEP_DAYS:-14}}
+      BACKUP_REMOTE_SSH_PORT: ${BACKUP_REMOTE_SSH_PORT:-22}
+      AWS_ACCESS_KEY_ID: ${BACKUP_AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${BACKUP_AWS_SECRET_ACCESS_KEY:-}
+      TZ: ${TZ:-UTC}
+    volumes:
+      # Only the backups, read-only: the archives are owned by uid 1000 with mode 600, hence DAC_OVERRIDE.
+      - hse-backups:/backups:ro
+      - ${HSE_REMOTE_CONFIG:-./remote-config}:/remote-config:ro
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_OVERRIDE
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
