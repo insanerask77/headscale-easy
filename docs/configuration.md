@@ -27,14 +27,13 @@ Every variable the image reads. The ones marked *wizard* are also asked by the
 | `HSE_PUBLIC_URL` | *(none: wizard)* | Public `http(s)://host[:port]` of the server. Setting it skips the wizard |
 | `HSE_TLS` | `auto` for https, `off` for http | Who terminates TLS: see [HTTPS modes](#https-modes). *wizard* |
 | `ACME_EMAIL` | | Required with `HSE_TLS=auto` |
-| `HSE_DERP_PORT` | `3478` | STUN port of the embedded DERP relay (publish it as UDP) |
+| `HSE_DERP_PORT` | `3478` | UDP port of the embedded DERP/STUN relay. `compose.yaml` publishes the same port on the host (clients are told this port): change it in `.env`, never only in the port mapping |
 | `HSE_DERP_MODE` | `embedded` | `embedded`, `public` (also Tailscale's relays) or `custom`: see [Relays](#relays-derp). *wizard* |
 | `HSE_DERP_URL` | | DERP map URL, with `HSE_DERP_MODE=custom` |
-| `DERP_USE_PUBLIC` | | Legacy alias: `true` = `public`, `false` = `embedded`; `HSE_DERP_MODE` wins |
 | `HEADSCALE_HTTP_PORT`, `HEADSCALE_METRICS_PORT`, `HEADSCALE_GRPC_PORT` | `8080`, `9090`, `50443` | Headscale's internal ports (inside the container; not published) |
 | `IP_PREFIXES_V4`, `IP_PREFIXES_V6` | `100.64.0.0/10`, `fd7a:115c:a1e0::/48` | Address ranges handed to devices. Changing them renumbers every device |
 | `LOG_LEVEL` | `info` | Headscale's log level |
-| `HSE_TRUSTED_PROXIES`, `HSE_TRUSTED_PROXIES_ANY` | | The proxy in front: real client IPs. See [Advanced edition](advanced.md#a-proxy-in-front) |
+| `HSE_TRUSTED_PROXIES`, `HSE_TRUSTED_PROXIES_ANY` | | The proxy in front: real client IPs. See [Advanced configurations](advanced/proxy.md) |
 | `UI_LANG` | `en` | Default console language (`en`, `es`, `fr`, `de`, `pt`) |
 | `TZ` | `UTC` | Time zone (also the clock of the backup schedule) |
 
@@ -55,7 +54,7 @@ Every variable the image reads. The ones marked *wizard* are also asked by the
 | `HSE_SIGNUP` | `off` | Self-registration: `off`, `invite` (needs an invitation key) or `open`. *wizard* |
 | `MFA_REQUIRED` | `admins` | Who must set up two-factor: `admins`, `everyone` or `optional`. Set it here; it is not changed from the console |
 | `SESSION_SECRET` | *(generated)* | Signs console sessions. Generated and kept in `/data/config/session-secret` when empty |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `SMTP_USE_SSL`, `SMTP_FROM` | | Reserved for e-mailing links: the console does not send e-mail yet, so copy the links and send them privately |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `SMTP_USE_SSL`, `SMTP_FROM` | | The mail server for invitation and password-reset links. With `SMTP_HOST` set, an administrator sees a **Send by e-mail** button next to a new link (never automatic); `SMTP_USE_TLS` is STARTTLS, `SMTP_USE_SSL` implicit TLS, `SMTP_PORT` defaults to 587. Without it, copy the link and send it privately |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | | Sign in with an external OIDC provider: see [Sign-in](#sign-in) |
 | `OIDC_SCOPE` | `openid profile email` | Scopes asked by the console and Headscale |
 | `HSE_OIDC_ALLOWED_DOMAINS`, `HSE_OIDC_ALLOWED_USERS`, `HSE_OIDC_ALLOWED_GROUPS` | | Who may sign in through the provider (comma-separated; empty = everyone the provider lets in) |
@@ -118,8 +117,7 @@ work with a publicly trusted certificate.
 
 Behind a reverse proxy you already run (nginx, Traefik, Caddy, Nginx Proxy
 Manager) use `HSE_TLS=off`, an `https://` `HSE_PUBLIC_URL` and
-`HSE_TRUSTED_PROXIES`: see [Advanced edition → A proxy in
-front](advanced.md#a-proxy-in-front) for the checklist and ready-made snippets.
+`HSE_TRUSTED_PROXIES`: see [Advanced configurations → A proxy in front](advanced/proxy.md) for the checklist and ready-made snippets.
 
 The embedded DERP relay needs **UDP 3478** reachable from the Internet in every
 mode: no HTTP proxy can carry it.
@@ -154,7 +152,7 @@ There are three ways to sign in to the console, and they combine:
 - **Users → ⋯ → Password reset link…** makes a single-use link (1 hour, 24 hours
   or 7 days). **Set password** sets a temporary one that the person must
   change at the next sign-in, and signs their open sessions out.
-- The console does not send e-mail: copy the link and send it privately.
+- The link is shown once, with a Copy button and its expiry. With [`SMTP_*`](#reference) set you can also click **Send by e-mail**; otherwise send it privately.
 - Passwords have at least 8 characters and are stored as salted hashes. Failed
   sign-ins are rate limited per address.
 - **Self-registration** from the sign-in page is `off`, `invite` or `open`
@@ -207,7 +205,7 @@ Register one client with **two** redirect URIs:
 
 The console and Headscale share the client so a person's identity (`sub`)
 matches in both. Step-by-step examples for Authentik, Pocket ID, Keycloak and
-Google are in the [advanced edition](advanced.md#identity-providers).
+Google are in the [advanced configurations](advanced/oidc.md).
 
 ## Network isolation and ACLs
 
@@ -339,7 +337,7 @@ and the right choice for almost every tailnet. **PostgreSQL** is supported as an
   `HEADSCALE_PG_SSLMODE` (`disable`, `prefer`, `require`, `verify-ca`,
   `verify-full`) applies to Headscale, the console and backups.
 - Backups use `pg_dump` (see [Operations → Backups](operations.md#backups)).
-  The [advanced edition](advanced.md#postgresql) has a compose file and a checklist.
+  The [advanced configurations](advanced/postgres.md) has a compose file and a checklist.
 
 ## Language
 

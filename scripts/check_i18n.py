@@ -2,7 +2,7 @@
 """Check that every UI string has a translation in each web/locales/*.json.
 
 Strings are the literal arguments of _() and ngettext() in web/*.py and aio/*.py.
-Exits 1 when a translation is missing or a call does not use a literal.
+Exits 1 when a translation is missing, a catalog entry is unused, or a call does not use a literal.
 """
 import ast
 import json
@@ -48,7 +48,7 @@ def main():
             print(f"  missing: {k!r}")
         for k in unused:
             print(f"  unused:  {k!r}")
-        failed |= bool(missing)
+        failed |= bool(missing) or bool(unused)  # an entry nothing asks for is dead weight: remove it
     sys.exit(1 if failed else 0)
 
 

@@ -27,14 +27,13 @@ Todas las variables que lee la imagen. Las marcadas *asistente* también las pre
 | `HSE_PUBLIC_URL` | *(ninguna: asistente)* | `http(s)://host[:puerto]` público del servidor. Definirla se salta el asistente |
 | `HSE_TLS` | `auto` con https, `off` con http | Quién termina TLS: ver [Modos de HTTPS](#https-modes). *asistente* |
 | `ACME_EMAIL` | | Obligatoria con `HSE_TLS=auto` |
-| `HSE_DERP_PORT` | `3478` | Puerto STUN del relé DERP integrado (publícalo como UDP) |
+| `HSE_DERP_PORT` | `3478` | Puerto UDP del relé DERP/STUN integrado. `compose.yaml` publica el mismo puerto en el host (los clientes reciben este puerto): cámbialo en `.env`, nunca solo en la asignación de puertos |
 | `HSE_DERP_MODE` | `embedded` | `embedded`, `public` (también los relés de Tailscale) o `custom`: ver [Relés](#relays-derp). *asistente* |
 | `HSE_DERP_URL` | | URL del mapa DERP, con `HSE_DERP_MODE=custom` |
-| `DERP_USE_PUBLIC` | | Alias antiguo: `true` = `public`, `false` = `embedded`; gana `HSE_DERP_MODE` |
 | `HEADSCALE_HTTP_PORT`, `HEADSCALE_METRICS_PORT`, `HEADSCALE_GRPC_PORT` | `8080`, `9090`, `50443` | Puertos internos de Headscale (dentro del contenedor; no se publican) |
 | `IP_PREFIXES_V4`, `IP_PREFIXES_V6` | `100.64.0.0/10`, `fd7a:115c:a1e0::/48` | Rangos de direcciones que reciben los dispositivos. Cambiarlos renumera todos los dispositivos |
 | `LOG_LEVEL` | `info` | Nivel de log de Headscale |
-| `HSE_TRUSTED_PROXIES`, `HSE_TRUSTED_PROXIES_ANY` | | El proxy delante: IP reales de los clientes. Ver [Edición avanzada](advanced.md#a-proxy-in-front) |
+| `HSE_TRUSTED_PROXIES`, `HSE_TRUSTED_PROXIES_ANY` | | El proxy delante: IP reales de los clientes. Ver [Configuraciones avanzadas](advanced/proxy.md) |
 | `UI_LANG` | `en` | Idioma por defecto de la consola (`en`, `es`, `fr`, `de`, `pt`) |
 | `TZ` | `UTC` | Zona horaria (también el reloj de la programación de copias) |
 
@@ -55,7 +54,7 @@ Todas las variables que lee la imagen. Las marcadas *asistente* también las pre
 | `HSE_SIGNUP` | `off` | Auto-registro: `off`, `invite` (pide una clave de invitación) u `open`. *asistente* |
 | `MFA_REQUIRED` | `admins` | Quién debe configurar la verificación en dos pasos: `admins`, `everyone` u `optional`. Se define aquí; no se cambia desde la consola |
 | `SESSION_SECRET` | *(generado)* | Firma las sesiones de la consola. Si está vacío se genera y se guarda en `/data/config/session-secret` |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `SMTP_USE_SSL`, `SMTP_FROM` | | Reservado para enviar enlaces por correo: la consola aún no envía correo, así que copia los enlaces y envíalos en privado |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `SMTP_USE_SSL`, `SMTP_FROM` | | El servidor de correo para los enlaces de invitación y de restablecimiento de contraseña. Con `SMTP_HOST` definido, un administrador ve un botón **Enviar por correo** junto a un enlace nuevo (nunca automático); `SMTP_USE_TLS` es STARTTLS, `SMTP_USE_SSL` TLS implícito y `SMTP_PORT` vale 587 por defecto. Sin él, copia el enlace y envíalo en privado |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | | Iniciar sesión con un proveedor OIDC externo: ver [Inicio de sesión](#sign-in) |
 | `OIDC_SCOPE` | `openid profile email` | Scopes que piden la consola y Headscale |
 | `HSE_OIDC_ALLOWED_DOMAINS`, `HSE_OIDC_ALLOWED_USERS`, `HSE_OIDC_ALLOWED_GROUPS` | | Quién puede entrar con el proveedor (separado por comas; vacío = todos los que el proveedor deje pasar) |
@@ -118,7 +117,7 @@ funcionan con un certificado de confianza pública.
 
 Detrás de un reverse proxy que ya usas (nginx, Traefik, Caddy, Nginx Proxy Manager)
 usa `HSE_TLS=off`, un `HSE_PUBLIC_URL` con `https://` y `HSE_TRUSTED_PROXIES`: mira
-[Edición avanzada → Un proxy delante](advanced.md#a-proxy-in-front) para la lista de
+[Configuraciones avanzadas → Un proxy delante](advanced/proxy.md) para la lista de
 comprobación y los ejemplos listos.
 
 El relé DERP integrado necesita el **UDP 3478** accesible desde Internet en todos los
@@ -154,7 +153,7 @@ Hay tres maneras de entrar en la consola, y se combinan:
 - **Usuarios → ⋯ → Enlace de restablecimiento…** crea un enlace de un solo uso (1 hora,
   24 horas o 7 días). **Establecer contraseña** pone una temporal que la persona debe
   cambiar en su próximo inicio de sesión, y cierra sus sesiones abiertas.
-- La consola no envía correo: copia el enlace y envíalo en privado.
+- El enlace se muestra una sola vez, con un botón Copiar y su caducidad. Con [`SMTP_*`](#reference) definido también puedes pulsar **Enviar por correo**; si no, envíalo en privado.
 - Las contraseñas tienen al menos 8 caracteres y se guardan como hashes con sal. Los
   inicios de sesión fallidos tienen límite de intentos por dirección.
 - El **auto-registro** desde la página de inicio de sesión es `off`, `invite` u `open`
@@ -206,7 +205,7 @@ Registra un cliente con **dos** redirect URI:
 
 La consola y Headscale comparten el cliente para que la identidad (`sub`) de una persona
 coincida en ambos. Hay ejemplos paso a paso para Authentik, Pocket ID, Keycloak y Google
-en la [edición avanzada](advanced.md#identity-providers).
+en la [configuraciones avanzadas](advanced/oidc.md).
 
 ## Aislamiento de red y ACL { #network-isolation-and-acls }
 
@@ -344,7 +343,7 @@ lo adecuado para casi cualquier tailnet. **PostgreSQL** se admite como servidor
   `HEADSCALE_PG_SSLMODE` (`disable`, `prefer`, `require`, `verify-ca`, `verify-full`)
   se aplica a Headscale, a la consola y a las copias.
 - Las copias usan `pg_dump` (ver [Operación → Copias de seguridad](operations.md#backups)).
-  La [edición avanzada](advanced.md#postgresql) tiene un compose y una lista de comprobación.
+  La [configuraciones avanzadas](advanced/postgres.md) tiene un compose y una lista de comprobación.
 
 ## Idioma { #language }
 

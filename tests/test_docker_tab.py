@@ -26,7 +26,7 @@ def parsed(**form):
 
 class Snippets(unittest.TestCase):
     def test_defaults(self):
-        v, err = parsed()
+        v, err = parsed(dns="1")
         self.assertEqual(err, "")
         run = docker_tab.docker_run(URL, v, "")
         self.assertIn("tailscale/tailscale:latest", run)
@@ -36,6 +36,8 @@ class Snippets(unittest.TestCase):
         self.assertIn("--cap-add NET_ADMIN", run)
         self.assertIn("--restart unless-stopped", run)
         self.assertIn("TS_STATE_DIR=/var/lib/tailscale", run)
+        self.assertIn("TS_AUTH_ONCE=true", run)
+        self.assertIn("TS_ACCEPT_DNS=true", run)
         self.assertNotIn("sysctl", run)
         yml = docker_tab.compose(URL, v, "")
         self.assertIn("restart: unless-stopped", yml)
@@ -46,7 +48,7 @@ class Snippets(unittest.TestCase):
         v, err = parsed(hostname="Edge-1", exit="1", routes="192.168.1.0/24, 10.0.0.0/8", dns="")
         self.assertEqual(err, "")
         run = docker_tab.docker_run(URL, v, "fake-authkey-one")
-        for part in ("--advertise-exit-node", "--advertise-routes=192.168.1.0/24,10.0.0.0/8", "--accept-dns=false",
+        for part in ("--advertise-exit-node", "TS_ROUTES=192.168.1.0/24,10.0.0.0/8", "TS_ACCEPT_DNS=false",
                      "TS_AUTHKEY=fake-authkey-one", "TS_HOSTNAME=edge-1", "net.ipv4.ip_forward=1"):
             self.assertIn(part, run)
         self.assertIn("sysctls:", docker_tab.compose(URL, v, ""))
@@ -63,7 +65,8 @@ class Snippets(unittest.TestCase):
     def test_shell_command_survives_a_shell_parse(self):
         v, _e = parsed(hostname="edge-1", routes="10.0.0.0/8", dns="1")
         words = shlex.split(docker_tab.docker_run(URL, v, "").replace("\\\n", " "))
-        self.assertIn("TS_EXTRA_ARGS=--login-server=https://vpn.example.com --advertise-routes=10.0.0.0/8", words)
+        self.assertIn("TS_ROUTES=10.0.0.0/8", words)
+        self.assertIn("TS_EXTRA_ARGS=--login-server=https://vpn.example.com", words)
 
     def test_compose_is_valid_json_quoted_yaml(self):
         v, _e = parsed(hostname="edge-1")

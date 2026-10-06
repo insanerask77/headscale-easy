@@ -7,7 +7,7 @@
 <p align="center">
   <b>Headscale, with everything around it.</b><br>
   A deployment and management layer for <a href="https://github.com/juanfont/headscale">Headscale</a>, the open source Tailscale control server:
-  installer, HTTPS, accounts and sign-in, a Tailscale-style web console and backups. One command to install.
+  HTTPS, accounts and sign-in, a Tailscale-style web console and backups. One Docker Compose file to install.
 </p>
 
 <p align="center">
@@ -41,7 +41,7 @@
 ## 🤔 Why Headscale Easy?
 
 [Headscale](https://github.com/juanfont/headscale) works well on its own, and
-Headscale Easy runs the **official, unmodified** Headscale image — it is not a
+Headscale Easy runs the **official, unmodified** Headscale binary — it is not a
 fork or a replacement. What takes time is the glue around it when you want a
 complete self-hosted setup for several people:
 
@@ -51,7 +51,7 @@ Headscale Easy packages that glue, in the spirit of
 [wg-easy](https://github.com/wg-easy/wg-easy) for WireGuard:
 
 - **One container** — Headscale, HTTPS and the console in a single image, set
-  up from your browser; run the installer again to update.
+  up from your browser; pull the new image to update.
 - **A web console** for everyday tasks, modelled on Tailscale's admin panel,
   where members manage only their own devices.
 - **Centralised configuration** — a few variables or the wizard, one domain.
@@ -92,7 +92,7 @@ includes its own console. See the [detailed comparison](https://insanerask77.git
 - 🔐 **HTTPS your way**: Let's Encrypt, self-signed, behind your existing proxy
   (Nginx Proxy Manager, nginx, Traefik, Caddy — ready-made snippets), or plain
   HTTP on a LAN.
-- 🌍 **English, Spanish, French, German and Portuguese** in the console (installer: English and Spanish; more welcome!).
+- 🌍 **English, Spanish, French, German and Portuguese** in the console (more welcome!).
 - 💾 **Daily backups** of everything (database, keys, accounts, configuration)
   and a one-command restore, also on a new server.
 - 🪶 **Lightweight**: one container, about 70 MB of RAM; the console is plain
@@ -112,29 +112,30 @@ includes its own console. See the [detailed comparison](https://insanerask77.git
 
 ## 🚀 Quick start
 
-You need a Linux host with Docker (the installer can install it) and, for real
-HTTPS, a domain pointing at it.
+You need a Linux host with Docker and the Compose plugin (v2.24 or newer) and, for
+real HTTPS, a domain pointing at it.
 
 ```bash
-git clone https://github.com/insanerask77/headscale-easy.git
-cd headscale-easy
-./install.sh
+mkdir headscale-easy && cd headscale-easy
+curl -fsSLO https://raw.githubusercontent.com/insanerask77/headscale-easy/main/compose.yaml
+docker compose up -d
 ```
 
-The installer asks the public address, who handles HTTPS (and the Let's Encrypt
-e-mail) and, if you want one, an administrator e-mail; it writes a small `.env` and a
-compose file in `./headscale-easy` (`--dir` changes it) and starts one container.
+That is the whole install: one container, version 2.0 pinned in `compose.yaml`.
 Then:
 
-1. **Open the setup wizard** at the address it prints and enter the one-time
-   token (`docker compose logs`). Create the administrator, name the tailnet,
-   choose the relay (DERP), sign-up mode and backups.
+1. **Open the setup wizard** at `http://<your-server>/admin/setup` and enter the
+   one-time token (`docker compose logs`). Create the administrator, name the
+   tailnet, set the public address and HTTPS (Let's Encrypt needs a domain and
+   ports 80/443 open), choose the relay (DERP), sign-up mode and backups.
 2. **Sign in** at `https://your-domain/admin`.
 3. **Connect your first device** with the official Tailscale app.
 
-No questions at all: `HSE_PUBLIC_URL=https://vpn.example.com HSE_TLS=auto
-ACME_EMAIL=me@example.com ./install.sh --yes`. Run it again any time to update:
-it only pulls the new image, your settings and data are never touched.
+Prefer to answer in advance? Copy [`.env.example`](.env.example) to `.env` (public
+address, HTTPS, administrator) before `docker compose up -d`: every line is optional.
+To update, change `HSE_VERSION` (or the tag in `compose.yaml`) and run
+`docker compose pull && docker compose up -d`; your settings and data live in
+volumes and are never touched.
 
 ```bash
 tailscale up --login-server=https://your-domain
@@ -155,25 +156,18 @@ off-site backups and updates.
 | 80 / 443 | TCP | Web console, control plane, Let's Encrypt |
 | 3478 | UDP | STUN for the embedded DERP relay (must be reachable) |
 
-## 🧪 Without the installer, and the advanced edition
+## ⚙️ Advanced configurations
 
-Headscale Easy ships as one container: Headscale + Caddy + the console, set up
-from your browser, no Docker socket. The installer above writes exactly this; to
-run it by hand:
+The simple install above is enough for most people. When you need more, each option
+is a small add-on to the same Compose app: an external PostgreSQL, your own identity
+provider (Authentik, Pocket ID, Keycloak, Google), a proxy in front, remote backups.
+See [Advanced configurations](https://insanerask77.github.io/headscale-easy/advanced/)
+and [`advanced/`](advanced/).
 
-```bash
-docker run -d --name headscale-easy -p 80:80 -p 443:443 -p 3478:3478/udp \
-  -v hse:/data ghcr.io/insanerask77/headscale-easy
-docker logs headscale-easy      # the one-time setup token
-```
-
-Then open `http://<your-server>/admin/setup`. Details, env vars for a headless
-start and limits: [all-in-one image](https://insanerask77.github.io/headscale-easy/all-in-one/).
-
-For a proxy in front, your own identity provider (Authentik, Pocket ID, Keycloak,
-Google), remote backups or the compose file with its profiles, see the
-[advanced edition](https://insanerask77.github.io/headscale-easy/advanced/) and
-[`deploy/`](deploy/).
+Without Compose, the same image runs with `docker run -d --name headscale-easy -p 80:80
+-p 443:443 -p 3478:3478/udp -v hse:/data ghcr.io/insanerask77/headscale-easy:2.0.0`; the
+[all-in-one image](https://insanerask77.github.io/headscale-easy/all-in-one/) page lists
+the variables for a headless start.
 
 ## 🧩 How it works
 
@@ -203,8 +197,8 @@ Measured by CI on a freshly built image (details and method in
 |---|---:|---:|
 | Containers | **1** | — |
 | Image size | **232 MB** | 250 MB |
-| RAM, idle | **72 MB** | 100 MB |
-| RAM, while a backup runs | **72 MB** | 100 MB |
+| RAM, idle | **71 MB** | 100 MB |
+| RAM, while a backup runs | **71 MB** | 100 MB |
 
 Headscale alone idles at about 20 MB: Caddy, the console, the supervisor and the
 backups add roughly 50 MB. An identity provider is optional and runs outside:

@@ -37,7 +37,7 @@ FULL = {"magic_dns": True, "base_domain": "corp.ts.net", "override_local_dns": T
                           {"name": "v6.example.com", "type": "AAAA", "value": "fd7a:115c:a1e0::5"}]}
 
 
-# The shape install.sh writes (templates/headscale-config.yaml.tmpl)
+# The shape the renderer writes (templates/headscale-config.yaml.tmpl)
 BASE_CONFIG = """---
 server_url: https://vpn.example.com
 # >>> dns: managed by Headscale Easy (do not edit between these markers)

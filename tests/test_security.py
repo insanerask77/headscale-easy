@@ -139,7 +139,7 @@ class Unauthenticated(Base):
 
 class Csrf(Base):
     def test_backup_now_needs_the_token_and_an_admin(self):
-        with mock.patch.object(app.hs, "helper_backup", return_value="started") as run:
+        with mock.patch.object(app.hs, "control_backup", return_value="started") as run:
             for form in ({}, {"csrf": ""}, {"csrf": "other"}):
                 status, _, _ = request("POST", f"{B}/backups/run", ADMIN, form)
                 self.assertEqual(status, 403, form)

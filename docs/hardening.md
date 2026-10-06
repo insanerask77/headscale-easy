@@ -59,7 +59,7 @@ sudo ufw enable
   container on port 80. Then the connection between your proxy and this host is
   plain HTTP: keep it on a private network or on the same machine, and make sure
   the proxy passes WebSockets and does not buffer (the
-  [examples](advanced.md#a-proxy-in-front) do both). Set `HSE_TRUSTED_PROXIES` to
+  [examples](advanced/proxy.md) do both). Set `HSE_TRUSTED_PROXIES` to
   the proxy's address only, never to a whole network.
 - **`internal`**: only for tests or closed networks; every client must trust
   Caddy's root certificate.
@@ -102,7 +102,7 @@ external provider, the sign-in pages. The admin console does not need to be publ
 
 The container's own Caddy is generated from your settings, so put the restriction
 in a proxy or firewall **in front** of it (see [A proxy in
-front](advanced.md#a-proxy-in-front)), or reach the console through the tailnet
+front](advanced/proxy.md)), or reach the console through the tailnet
 only. For nginx:
 
 ```nginx
@@ -130,7 +130,7 @@ that API, you can block `/api/` in your front proxy as well.
 ## No Docker socket
 
 Access to the Docker socket is **equivalent to root on the host**, so Headscale
-Easy has none: not the console, not a helper container, not the compose file.
+Easy has none: not the console, not the compose file.
 Validating the config and restarting Headscale are done by a small supervisor
 **inside the container**, which answers a fixed set of requests from the console on
 a Unix socket: validate the config (`headscale configtest`), restart Headscale, and
@@ -173,7 +173,7 @@ Headscale's private keys: whoever has one can impersonate your server.
 ## Updates
 
 ```bash
-./install.sh                              # or: docker compose pull && docker compose up -d
+docker compose pull && docker compose up -d   # after changing HSE_VERSION
 ```
 
 Pull the new image and recreate the container; the data is in the volume. Watch the

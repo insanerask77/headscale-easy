@@ -14,7 +14,6 @@
   "OK": "Réussie",
   "Failed": "Échec",
   "Back up now": "Sauvegarder maintenant",
-  "Off (BACKUP_SCHEDULE=off)": "Désactivée (BACKUP_SCHEDULE=off)",
   "{n} backup": "{n} sauvegarde",
   "{n} backups": "{n} sauvegardes",
   "next": "prochaine",

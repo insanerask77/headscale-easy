@@ -1,5 +1,5 @@
 """Server status: versions (with an update notice from GitHub's releases API,
-cached 12 h), container health (hs-helper GET /status), disk use and basic
+cached 12 h), process health (supervisor GET /status), disk use and basic
 Headscale metrics (Prometheus text format). Standard library only. Every
 source can fail on its own: the page shows what it has."""
 
@@ -48,7 +48,7 @@ BACKUP_NAME_RE = re.compile(r"^headscale-easy-[0-9A-Za-z][0-9A-Za-z._-]*\.tar\.g
 
 def open_backup(name: str):
     """An archive of BACKUP_DIR opened for reading: (file object, size), or None when the name is not one
-    of ours, the directory is not configured (1.x), or the file is missing, a link or not a regular file.
+    of ours, the directory is not configured, or the file is missing, a link or not a regular file.
     Opened with O_NOFOLLOW and checked on the descriptor, so nothing can swap it in between."""
     directory = os.environ.get("BACKUP_DIR", "")
     if not directory or not isinstance(name, str) or not BACKUP_NAME_RE.match(name):
@@ -171,19 +171,19 @@ def online_nodes() -> tuple[int, int] | None:
 
 def collect() -> dict:
     """Everything the page shows. Each part is None/empty when its source is down."""
-    helper = hs.helper_status()
-    hs_version = ((helper or {}).get("headscale") or {}).get("version")
+    control = hs.control_status()
+    hs_version = ((control or {}).get("headscale") or {}).get("version")
     disks = []
     for key, path in DISKS:
         usage = disk_usage(path)
         if usage:
             disks.append((key, usage))
     return {
-        "helper": helper,  # None: hs-helper missing or not answering
+        "control": control,  # None: the supervisor is not answering
         "headscale": {"version": hs_version, "latest": latest_release("headscale")},
         "easy": {"version": VERSION, "latest": latest_release("easy")},
-        "containers": (helper or {}).get("containers") or [],
-        "backup": (helper or {}).get("backup"),  # all-in-one supervisor only
+        "processes": (control or {}).get("processes") or [],
+        "backup": (control or {}).get("backup"),  # all-in-one supervisor only
         "disks": disks,
         "metrics": fetch_metrics(),
         "online": online_nodes(),

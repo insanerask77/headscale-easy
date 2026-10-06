@@ -1,4 +1,4 @@
-"""Restore a backup made by the all-in-one image (Phase 3, Block 3).
+"""Restore a backup made by the all-in-one image.
 
     inspect(archive)                 validate an archive, return its meta.json
     restore(archive, data_dir)       put it back into /data (the stack must be stopped)

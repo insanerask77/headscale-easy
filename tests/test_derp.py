@@ -239,7 +239,7 @@ class Pages(unittest.TestCase):
                    mock.patch.object(hs, "host_details", return_value={"1": {"hostinfo": {"NetInfo": {
                        "PreferredDERP": 999, "DERPLatency": {"999-v4": 0.02}}}}}),
                    mock.patch.object(hs, "derp_regions", return_value={999: "Custom Embedded DERP"}),
-                   mock.patch.object(hs, "docker_available", return_value=True)]
+                   mock.patch.object(hs, "control_available", return_value=True)]
         for p in patches:
             p.start()
             self.addCleanup(p.stop)

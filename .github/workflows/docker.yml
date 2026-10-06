@@ -2,10 +2,11 @@ name: Docker image
 
 # Publishes what 2.0 ships:
 #   ghcr.io/insanerask77/headscale-easy         the all-in-one image
-#   ghcr.io/insanerask77/headscale-easy-aio     the same image under its old name (an alias for one release)
 #   ghcr.io/insanerask77/headscale-easy-backup  remote copies of the backups (the optional sidecar)
-#   main        -> :edge
-#   tag v1.2.3  -> :1.2.3, :1.2, :1, :latest
+#   main        -> :edge  (a build of the branch: not for compose.yaml)
+#   tag v2.0.0  -> :2.0.0, :2.0, :2, :latest   (a pre-release such as v2.1.0-rc.1 only gets its own tag)
+# A release tag must equal the VERSION file and have a dated CHANGELOG.md entry (scripts/release_info.py),
+# and the published image is pulled back and run through scripts/compose-smoke.sh.
 on:
   push:
     branches: [main]
@@ -17,7 +18,20 @@ permissions:
   packages: write
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: VERSION, compose.yaml, Dockerfile and CHANGELOG.md agree
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            python3 scripts/release_info.py check --tag "$GITHUB_REF_NAME"
+          else
+            python3 scripts/release_info.py check
+          fi
+
   publish:
+    needs: verify
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -25,7 +39,6 @@ jobs:
           - image: headscale-easy-backup
             context: backup
           - image: headscale-easy
-            alias: headscale-easy-aio
             context: .
             file: aio/Dockerfile
     steps:
@@ -43,14 +56,14 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: |
-            ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
-            ${{ matrix.alias && format('ghcr.io/{0}/{1}', github.repository_owner, matrix.alias) || '' }}
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          flavor: latest=false
           tags: |
             type=edge,branch=main
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
 
       - uses: docker/build-push-action@v6
         with:
@@ -62,3 +75,21 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  # Only on a release tag: pull what was just published (not the local build) and run the Compose app on it
+  smoke-published:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pull the published images
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          docker pull "ghcr.io/${owner}/headscale-easy:${version}"
+          docker pull "ghcr.io/${owner}/headscale-easy-backup:${version}"
+          echo "IMAGE=ghcr.io/${owner}/headscale-easy:${version}" >> "$GITHUB_ENV"
+          echo "BACKUP_IMAGE=ghcr.io/${owner}/headscale-easy-backup:${version}" >> "$GITHUB_ENV"
+      - name: The Compose app on the published image
+        run: ./scripts/compose-smoke.sh "$IMAGE" "$BACKUP_IMAGE"

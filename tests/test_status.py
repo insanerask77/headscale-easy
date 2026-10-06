@@ -1,5 +1,5 @@
 """Server status page tests: Prometheus parsing, version comparison, the
-release cache, and the page through the real request handler (with the helper
+release cache, and the page through the real request handler (with the control
 down, up, and for each role). Standard library only; no Headscale:
 
     python3 tests/test_status.py
@@ -43,8 +43,8 @@ broken line here
 bad_value NaN
 """
 
-HELPER = {"api": 1, "docker": True, "headscale": {"container": "headscale", "version": "v0.26.1"},
-          "containers": [
+CONTROL = {"api": 1, "headscale": {"process": "headscale", "version": "v0.26.1"},
+           "processes": [
               {"name": "headscale", "service": "headscale", "image": "headscale/headscale:latest",
                "state": "running", "health": "healthy", "status": "Up 2 hours (healthy)"},
               {"name": "caddy", "service": "caddy", "image": "caddy:2", "state": "exited", "health": None,
@@ -137,8 +137,8 @@ class Releases(unittest.TestCase):
 
 
 @contextlib.contextmanager
-def sources(helper, metrics=None, latest="v1.4.0"):
-    with mock.patch.object(hs, "helper_status", return_value=helper), \
+def sources(control, metrics=None, latest="v1.4.0"):
+    with mock.patch.object(hs, "control_status", return_value=control), \
             mock.patch.object(status, "fetch_metrics", return_value=metrics), \
             mock.patch.object(status, "latest_release", return_value=latest), \
             mock.patch.object(status, "online_nodes", return_value=(2, 3)):
@@ -151,7 +151,7 @@ class Page(unittest.TestCase):
             return request("GET", f"{B}/settings/status", session)
 
     def test_helper_down_still_renders(self):
-        code, html = self.get(ADMIN, helper=None)
+        code, html = self.get(ADMIN, control=None)
         self.assertEqual(code, 200)
         self.assertIn("not answering", html)
         self.assertIn("not reachable", html)
@@ -159,7 +159,7 @@ class Page(unittest.TestCase):
 
     def test_full_page(self):
         metrics = status.summarize_metrics(status.parse_metrics(METRICS))
-        code, html = self.get(ADMIN, helper=HELPER, metrics=metrics, latest="v99.0.0")
+        code, html = self.get(ADMIN, control=CONTROL, metrics=metrics, latest="v99.0.0")
         self.assertEqual(code, 200)
         self.assertIn("v0.26.1", html)
         self.assertIn("Update available: v99.0.0", html)
@@ -168,18 +168,18 @@ class Page(unittest.TestCase):
         self.assertIn("Requests served", html)
 
     def test_up_to_date(self):
-        _c, html = self.get(ADMIN, helper=HELPER, latest="v0.26.1")
+        _c, html = self.get(ADMIN, control=CONTROL, latest="v0.26.1")
         self.assertIn("Up to date", html)
 
     def test_auditor_sees_it_member_does_not(self):
-        self.assertEqual(self.get(AUDITOR, helper=None)[0], 200)
-        self.assertEqual(self.get(MEMBER, helper=None)[0], 403)
+        self.assertEqual(self.get(AUDITOR, control=None)[0], 200)
+        self.assertEqual(self.get(MEMBER, control=None)[0], 403)
 
     def test_requires_sign_in(self):
-        self.assertNotEqual(self.get(None, helper=None)[0], 200)
+        self.assertNotEqual(self.get(None, control=None)[0], 200)
 
     def test_nav_link_only_for_admins(self):
-        self.assertIn("settings/status", self.get(ADMIN, helper=None)[1])
+        self.assertIn("settings/status", self.get(ADMIN, control=None)[1])
         with sources(None):
             _c, html = request("GET", f"{B}/settings/general", MEMBER)
         self.assertNotIn("settings/status", html)
@@ -197,8 +197,8 @@ BACKUP_FAILED = dict(BACKUP_OK, last={"at": "2026-10-05T03:00:04Z", "ok": False,
 
 class BackupCard(unittest.TestCase):
     def page(self, backup, session=ADMIN):
-        helper = dict(HELPER, **({"backup": backup} if backup is not None else {}))
-        with sources(helper=helper):
+        control = dict(CONTROL, **({"backup": backup} if backup is not None else {}))
+        with sources(control=control):
             return request("GET", f"{B}/backups", session)
 
     def test_hidden_without_the_backup_key(self):
@@ -259,15 +259,15 @@ class BackupCard(unittest.TestCase):
     def test_flash_messages(self):
         for code, text in (("backup-started", "Backup started"), ("backup-busy", "already running"),
                            ("backup-unavailable", "not available"), ("backup-error", "Could not start")):
-            with sources(dict(HELPER, backup=BACKUP_OK)):
+            with sources(dict(CONTROL, backup=BACKUP_OK)):
                 _c, html = request("GET", f"{B}/backups?m={code}", ADMIN)
             self.assertIn(text, html, code)
 
 
 class BackupSettingsCard(unittest.TestCase):
     def page(self, backup, session=ADMIN):
-        helper = dict(HELPER, **({"backup": backup} if backup is not None else {}))
-        with sources(helper=helper):
+        control = dict(CONTROL, **({"backup": backup} if backup is not None else {}))
+        with sources(control=control):
             return request("GET", f"{B}/backups", session)
 
     def test_form_for_admins(self):
@@ -305,8 +305,8 @@ FILES = [{"name": "headscale-easy-20261005-030000.tar.gz", "size": 2097152, "mti
 
 class BackupFilesCard(unittest.TestCase):
     def page(self, backup, session=ADMIN):
-        helper = dict(HELPER, **({"backup": backup} if backup is not None else {}))
-        with sources(helper=helper):
+        control = dict(CONTROL, **({"backup": backup} if backup is not None else {}))
+        with sources(control=control):
             return request("GET", f"{B}/backups", session)
 
     def card(self, html):
@@ -342,7 +342,7 @@ class BackupFilesCard(unittest.TestCase):
     def test_restore_done_message_follows_the_result(self):
         for result, text in (({"ok": True, "requested": 1.0}, "Backup restored"),
                              ({"ok": False, "requested": 1.0}, "restore failed"), (None, "restore failed")):
-            with mock.patch.object(hs, "restore_result", return_value=result), sources(dict(HELPER)):
+            with mock.patch.object(hs, "restore_result", return_value=result), sources(dict(CONTROL)):
                 code, html = request("GET", f"{B}/backups?m=backup-restore-done", ADMIN)
             self.assertEqual(code, 200)
             self.assertIn(text, html, result)
@@ -353,7 +353,7 @@ class BackupSettingsSave(unittest.TestCase):
 
     def run_post(self, session, result=("saved", ""), csrf="tok", **form):
         form = dict({"csrf": csrf, "backup_enabled": "on", "backup_schedule": "0 4 * * *", "backup_keep_days": "7"}, **form)
-        with mock.patch.object(hs, "helper_backup_settings", return_value=result) as call, \
+        with mock.patch.object(hs, "control_backup_settings", return_value=result) as call, \
                 mock.patch.object(app.audit, "request_event") as event:
             code, head, _body = post(self.URL, session, form)
         return code, head, call, event
@@ -388,7 +388,7 @@ class BackupNow(unittest.TestCase):
     URL = f"{B}/backups/run"
 
     def run_post(self, session, result="started", csrf="tok"):
-        with mock.patch.object(hs, "helper_backup", return_value=result) as call, \
+        with mock.patch.object(hs, "control_backup", return_value=result) as call, \
                 mock.patch.object(app.audit, "request_event") as event:
             code, head, _body = post(self.URL, session, {"csrf": csrf})
         return code, head, call, event
@@ -426,7 +426,7 @@ class BackupNow(unittest.TestCase):
             call.assert_not_called()
 
     def test_requires_sign_in_and_get_is_not_the_action(self):
-        with mock.patch.object(hs, "helper_backup") as call:
+        with mock.patch.object(hs, "control_backup") as call:
             code, head, _ = post(self.URL, None, {"csrf": "tok"})
             self.assertEqual(code, 303)
             self.assertIn("login", head)

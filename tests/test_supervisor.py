@@ -1,4 +1,4 @@
-"""aio/supervisor.py: process management and the helper protocol on a local socket.
+"""aio/supervisor.py: process management and the control protocol on a local socket.
 
 Real child processes, but fake ``headscale`` / ``caddy`` / console executables
 (small Python scripts) so nothing needs to be installed:
@@ -7,7 +7,7 @@ Real child processes, but fake ``headscale`` / ``caddy`` / console executables
 - SIGTERM stops everything in order (console -> caddy -> headscale);
 - the console waits for ``headscale health`` and gets the API key;
 - setup mode (no settings): wizard + caddy only, then run mode when the wizard exits 0;
-- the helper contract (tests/test_control.py) served by the supervisor.
+- the control contract (tests/test_control.py) served by the supervisor.
 
     python3 -m unittest tests.test_supervisor
 """
@@ -324,7 +324,7 @@ class SupervisorMixin:
                            backoff={"backoff_min": 0.05, "backoff_max": 0.2, "healthy_after": 5},
                            stop_timeouts={"console": 2, "wizard": 2, "caddy": 2, "headscale": 2})
         s.lines = lines
-        s.serve_helper()
+        s.serve_control()
         self.addCleanup(s.shutdown)
         return s
 
@@ -395,7 +395,7 @@ class SupervisorTest(SupervisorMixin, FakeCase):
         env = self.fakes.json("console_env.json")
         self.assertEqual(env["PUBLIC_URL"], "http://localhost")
         self.assertEqual(env["HSE_ADMIN_PASSWORD"], "fake-password")
-        self.assertEqual(env["HELPER_SOCKET"], "/run/hse/helper.sock")
+        self.assertEqual(env["CONTROL_SOCKET"], "/run/hse/control.sock")
         self.assertEqual(env["ACCOUNTS_DB"], self.fakes.data + "/console/accounts.db")
         self.assertGreaterEqual(len(env["SESSION_SECRET"]), 32)
         # the generated secret is persisted, so sessions survive a restart
@@ -456,7 +456,7 @@ class SupervisorTest(SupervisorMixin, FakeCase):
             s.start_children()
 
 
-# --- The helper contract, served by the supervisor ----------------------------------------
+# --- The control contract, served by the supervisor ----------------------------------------
 
 class HelperSocketTest(SupervisorMixin, FakeCase):
     def setUp(self):
@@ -465,7 +465,7 @@ class HelperSocketTest(SupervisorMixin, FakeCase):
         self.s.start_children()
         self.assertTrue(wait_for(lambda: self.s.children["headscale"].running and
                                  self.fakes.lines("console_starts")))
-        self.sock = self.s.helper_socket
+        self.sock = self.s.control_socket
 
     def req(self, method, target, **kw):
         return call(self.sock, method, target, **kw)
@@ -519,10 +519,10 @@ class HelperSocketTest(SupervisorMixin, FakeCase):
         code, _, data = self.req("GET", "/status")
         self.assertEqual(code, 200)
         self.assertEqual(data["api"], 1)
-        self.assertTrue(data["docker"])  # web/headscale.py treats this backend as available
+        self.assertNotIn("docker", data)
         self.assertEqual(data["mode"], "run")
         self.assertEqual(data["headscale"]["version"], "v0.26.1")
-        rows = {r["name"]: r for r in data["containers"]}
+        rows = {r["name"]: r for r in data["processes"]}
         self.assertEqual(sorted(rows), ["caddy", "console", "headscale"])
         for row in rows.values():
             self.assertEqual(sorted(row), ["health", "image", "name", "service", "state", "status"])
@@ -563,19 +563,19 @@ class HelperSocketTest(SupervisorMixin, FakeCase):
         os.kill(self.s.children["console"].pid, signal.SIGKILL)
         self.s.children["console"].backoff_min = 5  # keep it down for a moment
         self.assertTrue(wait_for(lambda: not self.s.children["console"].running))
-        rows = {r["name"]: r for r in self.req("GET", "/status")[2]["containers"]}
+        rows = {r["name"]: r for r in self.req("GET", "/status")[2]["processes"]}
         self.assertNotEqual(rows["console"]["state"], "running")
 
     def test_the_console_client_uses_it(self):
         sys.path.insert(0, os.path.join(ROOT, "web"))
         os.environ.update(HEADSCALE_API_KEY="x", PUBLIC_URL="https://vpn.example.com", SESSION_SECRET="s")
         import headscale as hs
-        with mock.patch.object(hs, "HELPER_SOCKET", self.sock):
-            self.assertTrue(hs.docker_available())
+        with mock.patch.object(hs, "CONTROL_SOCKET", self.sock):
+            self.assertTrue(hs.control_available())
             self.assertEqual(hs.headscale_configtest(), (True, "Config OK"))
             self.assertTrue(hs.restart_headscale(wait=5))
-            status = hs.helper_status()
-        self.assertEqual({c["name"] for c in status["containers"]}, {"caddy", "console", "headscale"})
+            status = hs.control_status()
+        self.assertEqual({c["name"] for c in status["processes"]}, {"caddy", "console", "headscale"})
 
 
 # --- The real thing: a supervisor process and signals ---------------------------------------
@@ -601,7 +601,7 @@ class ProcessTest(FakeCase):
         self.assertEqual(proc.wait(10), 0)
         self.assertLess(time.monotonic() - started, 8)  # docker stop gives 10 s
         self.assertEqual(self.fakes.lines("stops"), ["console", "caddy", "headscale"])
-        self.assertFalse(os.path.exists(os.path.join(self.fakes.run, "helper.sock")))
+        self.assertFalse(os.path.exists(os.path.join(self.fakes.run, "control.sock")))
 
     def test_sigint_also_stops(self):
         proc = self.launch()

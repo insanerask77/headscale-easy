@@ -11,7 +11,7 @@ hide:
 # Headscale Easy
 
 **Headscale, con todo lo que lo rodea.**<br>
-Una capa de despliegue y gestión para Headscale: instalador, HTTPS, cuentas e
+Una capa de despliegue y gestión para Headscale: una app Compose, HTTPS, cuentas e
 inicio de sesión, una consola web estilo Tailscale y copias de seguridad. Se
 instala con un solo comando.
 
@@ -74,7 +74,7 @@ En los dispositivos usas las apps oficiales de Tailscale; sólo el servidor es t
 
 -   :material-translate: **Inglés, español, francés, alemán y portugués**
 
-    En el instalador y en la consola. Se aceptan más idiomas.
+    En la consola, en español e inglés. Se aceptan más idiomas.
 
 -   :material-feather: **Ligero**
 

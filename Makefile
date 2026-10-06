@@ -2,7 +2,7 @@
 # Run `make` to list the targets.
 
 .DEFAULT_GOAL := help
-.PHONY: help install uninstall purge validate lint test i18n
+.PHONY: help up down validate lint test i18n
 
 help: ## Show this help
 	@echo "Headscale Easy — make targets"
@@ -11,14 +11,11 @@ help: ## Show this help
 
 # --- Setup --------------------------------------------------------------------
 
-install: ## Install the all-in-one image (asks a few questions; run again to update)
-	@./install.sh
+up: ## Start Headscale Easy (docker compose up -d)
+	@docker compose up -d
 
-uninstall: ## Remove the all-in-one container (keeps data)
-	@./uninstall.sh
-
-purge: ## Remove the all-in-one container AND all data
-	@./uninstall.sh --purge
+down: ## Stop it (keeps the data)
+	@docker compose down
 
 # --- Development ------------------------------------------------------------------
 
@@ -26,7 +23,7 @@ validate: ## Check the project structure and configuration
 	@./scripts/validate.sh
 
 lint: ## shellcheck + Python syntax + i18n coverage
-	@shellcheck -S warning install.sh uninstall.sh scripts/*.sh backup/*.sh
+	@shellcheck -S warning scripts/*.sh backup/*.sh
 	@python3 -m py_compile web/*.py aio/*.py
 	@python3 scripts/check_i18n.py
 

@@ -14,7 +14,6 @@
   "OK": "Correcta",
   "Failed": "Fallida",
   "Back up now": "Copiar ahora",
-  "Off (BACKUP_SCHEDULE=off)": "Desactivada (BACKUP_SCHEDULE=off)",
   "{n} backup": "{n} copia",
   "{n} backups": "{n} copias",
   "next": "próxima",

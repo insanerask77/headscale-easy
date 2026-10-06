@@ -1,7 +1,6 @@
 """Local account authentication: users, passwords, TOTP, invitations.
 
-Replaces the bundled Authentik (phase 1 of the simplification plan). Accounts
-are stored in /data/console/accounts.db (mode 600), passwords are hashed with
+Accounts are stored in /data/console/accounts.db (mode 600), passwords are hashed with
 scrypt, TOTP follows RFC 6238, and invitation/reset tokens are single-use.
 
 Standard library only, no dependencies.

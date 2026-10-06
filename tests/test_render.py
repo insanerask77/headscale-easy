@@ -193,7 +193,7 @@ class ConsoleEnvTest(unittest.TestCase):
         self.assertEqual(env["HEADSCALE_CONFIG"], "/data/config/config.yaml")
         self.assertEqual(env["HEADSCALE_DERP_FILE"], "/data/config/derp.yaml")
         self.assertEqual(env["HEADSCALE_DERP_FILE_IN_CONFIG"], "/data/config/derp.yaml")
-        self.assertEqual(env["HELPER_SOCKET"], "/run/hse/helper.sock")
+        self.assertEqual(env["CONTROL_SOCKET"], "/run/hse/control.sock")
         self.assertEqual(env["HEADSCALE_URL"], "http://127.0.0.1:8080")
         self.assertEqual(env["HEADSCALE_METRICS_URL"], "http://127.0.0.1:9090/metrics")
         self.assertNotIn("HEADSCALE_API_KEY", env)  # the supervisor adds it
@@ -223,10 +223,10 @@ class SettingsTest(unittest.TestCase):
         self.assertNotIn("public_url", s)
 
     def test_settings_file_over_defaults(self):
-        self.write({"tailnet_name": "fromfile", "derp_use_public": False})
+        self.write({"tailnet_name": "fromfile", "log_level": "debug"})
         s = render.load_settings({}, self.path)
         self.assertEqual(s["tailnet_name"], "fromfile")
-        self.assertEqual(s["derp_use_public"], "false")
+        self.assertEqual(s["log_level"], "debug")
 
     def test_env_over_settings_file(self):
         self.write({"tailnet_name": "fromfile", "public_url": "https://file.example.com"})
@@ -278,14 +278,11 @@ class SettingsTest(unittest.TestCase):
         self.assertIn("  auto_update_enabled: false", text)
         self.assertNotIn("controlplane.tailscale.com", text)
 
-    def test_derp_public_and_legacy_alias(self):
-        for extra in ({"derp_mode": "public"}, {"derp_use_public": "true"}):
-            text = self.derp_config(**extra)
-            self.assertIn("controlplane.tailscale.com/derpmap/default", text, extra)
-            self.assertIn("  auto_update_enabled: true", text)
-        self.assertIn("urls: []", self.derp_config(derp_use_public="false"))
-        # an explicit mode wins over the alias
-        self.assertIn("urls: []", self.derp_config(derp_mode="embedded", derp_use_public="true"))
+    def test_derp_public(self):
+        text = self.derp_config(derp_mode="public")
+        self.assertIn("controlplane.tailscale.com/derpmap/default", text)
+        self.assertIn("  auto_update_enabled: true", text)
+        self.assertIn("urls: []", self.derp_config(derp_mode="embedded"))
 
     def test_derp_custom(self):
         text = self.derp_config(derp_mode="custom", derp_url="https://derp.example.com/map.json")

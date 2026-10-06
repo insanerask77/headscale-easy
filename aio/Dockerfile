@@ -17,7 +17,11 @@ RUN apk add --no-cache libcap-utils && setcap -r /usr/bin/caddy && ! getcap /usr
 
 FROM python:3.13-alpine
 
+# The default is the VERSION file (tests/test_version.py keeps them equal); a release build passes it explicitly.
+ARG HSE_VERSION=2.0.0
+
 LABEL org.opencontainers.image.title="Headscale Easy (all-in-one)" \
+      org.opencontainers.image.version="${HSE_VERSION}" \
       org.opencontainers.image.description="Headscale + Caddy + web console in one container, set up from the browser" \
       org.opencontainers.image.url="https://github.com/insanerask77/headscale-easy" \
       org.opencontainers.image.source="https://github.com/insanerask77/headscale-easy" \
@@ -33,6 +37,7 @@ COPY --from=headscale /ko-app/headscale /usr/local/bin/headscale
 COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy
 
 WORKDIR /app
+COPY VERSION /app/VERSION
 COPY web /app/web
 COPY templates /app/templates
 COPY aio /app/aio

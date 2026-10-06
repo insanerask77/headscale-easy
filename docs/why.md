@@ -95,7 +95,7 @@ to a managed tailnet. With Headscale Easy:
 
 | Step | With Headscale Easy | By hand with Headscale |
 |---|---|---|
-| 1. **Install** | `./install.sh` (answers: public address and who handles HTTPS), then the setup wizard | Write `config.yaml`, a Compose file, reverse proxy config |
+| 1. **Install** | `docker compose up -d`, then the setup wizard (public address, who handles HTTPS) | Write `config.yaml`, a Compose file, reverse proxy config |
 | 2. **HTTPS** | Chosen at install; certificates automatic | Configure the proxy, certificates, WebSockets, DERP |
 | 3. **Sign-in** | Local accounts out of the box, or your provider's issuer + client | Deploy or configure a provider, clients, redirect URIs, groups |
 | 4. **DNS** | DNS page: MagicDNS, nameservers, split DNS, records; validated and applied | Edit YAML, `headscale configtest`, restart |

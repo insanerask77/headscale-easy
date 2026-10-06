@@ -1,0 +1,78 @@
+# Advanced: sign in with Pocket ID (passkeys), run beside the image behind a small Caddy that takes the HTTPS.
+#
+#   docker compose -f compose.yaml -f advanced/oidc/pocket-id.yaml up -d proxy pocket-id   # step 3
+#   docker compose -f compose.yaml -f advanced/oidc/pocket-id.yaml up -d                   # after step 7
+#
+# Two DNS names point at this host (HSE_DOMAIN for the console, ID_DOMAIN for Pocket ID). The steps and the
+# client's fields are in advanced/oidc/pocket-id.md. The Caddy has a fixed address in the project's network so
+# the image can trust that one address (HSE_TRUSTED_PROXIES) and nothing else.
+services:
+  proxy:
+    image: caddy:${CADDY_IMAGE_TAG:-2-alpine}
+    container_name: headscale-easy-proxy
+    restart: unless-stopped
+    environment:
+      HSE_DOMAIN: ${HSE_DOMAIN:?set HSE_DOMAIN in .env}
+      ID_DOMAIN: ${ID_DOMAIN:?set ID_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    ports:
+      - "${HSE_HTTP_PORT:-80}:80"
+      - "${HSE_HTTPS_PORT:-443}:443"
+      - "${HSE_HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./advanced/oidc/pocket-id/Caddyfile:/etc/caddy/Caddyfile:ro
+      - proxy-data:/data
+      - proxy-config:/config
+    networks:
+      default:
+        ipv4_address: 172.30.0.10
+        # Inside the project both names lead to this Caddy, so Headscale and the console reach Pocket ID,
+        # their issuer, at its public address with its real certificate.
+        aliases:
+          - ${HSE_DOMAIN}
+          - ${ID_DOMAIN}
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+
+  pocket-id:
+    image: ghcr.io/pocket-id/pocket-id:${POCKET_ID_IMAGE_TAG:-v1}
+    container_name: headscale-easy-pocket-id
+    restart: unless-stopped
+    environment:
+      APP_URL: https://${ID_DOMAIN:?set ID_DOMAIN in .env}
+      TRUST_PROXY: "true"
+      ENCRYPTION_KEY: ${POCKET_ID_ENCRYPTION_KEY:?set POCKET_ID_ENCRYPTION_KEY in .env}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - pocket-id-data:/app/data
+    security_opt:
+      - no-new-privileges:true
+
+  headscale-easy:
+    ports: !override
+      - "${HSE_DERP_PORT:-3478}:${HSE_DERP_PORT:-3478}/udp"   # DERP/STUN: not HTTP, the proxy cannot carry it
+    environment:
+      HSE_PUBLIC_URL: https://${HSE_DOMAIN}
+      HSE_TLS: "off"                      # the Caddy in front does the HTTPS
+      HSE_TRUSTED_PROXIES: 172.30.0.10/32 # that Caddy, and nothing else
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+    depends_on:
+      - proxy
+      - pocket-id
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  proxy-data:
+  proxy-config:
+  pocket-id-data:

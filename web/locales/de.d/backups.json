@@ -14,7 +14,6 @@
   "OK": "OK",
   "Failed": "Fehlgeschlagen",
   "Back up now": "Jetzt sichern",
-  "Off (BACKUP_SCHEDULE=off)": "Aus (BACKUP_SCHEDULE=off)",
   "{n} backup": "{n} Backup",
   "{n} backups": "{n} Backups",
   "next": "nächstes",

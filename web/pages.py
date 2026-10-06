@@ -818,7 +818,7 @@ def notify_section(session: dict) -> str:
     dests = notify.destinations()
     if not dests:
         body = (f'<p class="muted">{esc(_("Get a message in Slack, Telegram, ntfy or any webhook when a device joins, is removed or its key expires."))}</p>'
-                f'<p class="muted small">{esc(_("Set NOTIFY_URLS in .env (or run ./install.sh) and restart the web container."))}</p>')
+                f'<p class="muted small">{esc(_("Set NOTIFY_URLS in .env and restart the container."))}</p>')
     else:
         labels = {"device.registered": _("New device"), "device.key_expired": _("Key expired"),
                   "device.expiring": _("Key expiring soon"), "device.removed": _("Device removed"),

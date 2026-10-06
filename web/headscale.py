@@ -42,7 +42,7 @@ HEADSCALE_OIDC_ISSUER = os.environ.get("HEADSCALE_OIDC_ISSUER", "")
 HEADSCALE_DB = os.environ.get("HEADSCALE_DB", "/headscale/db.sqlite")
 # sqlite (default) or postgres: where host_details() reads Hostinfo from
 HEADSCALE_DB_TYPE = os.environ.get("HEADSCALE_DB_TYPE", "sqlite").strip().lower()
-# PostgreSQL: the web UI's read-only role (the installer creates it), not Headscale's
+# PostgreSQL: the web UI's read-only role (the image creates it), not Headscale's
 HEADSCALE_PG = {
     "host": os.environ.get("HEADSCALE_PG_HOST", "headscale-postgresql"),
     "port": int(os.environ.get("HEADSCALE_PG_PORT") or 5432),
@@ -253,7 +253,7 @@ def _rows_postgres(ids: list[int]) -> list[tuple]:
     try:
         rows = pgwire.query(sql, timeout=3, **HEADSCALE_PG)
     except (pgwire.PgError, OSError, ValueError) as exc:
-        hint = " (re-run ./install.sh to grant the read-only role access)" if getattr(exc, "code", "") == "42501" else ""
+        hint = " (check HEADSCALE_PG_RO_USER and HEADSCALE_PG_RO_PASS)" if getattr(exc, "code", "") == "42501" else ""
         log.warning("could not read Hostinfo from PostgreSQL: %s%s", exc, hint)
         return []
     return [(int(node_id), host_info, endpoints) for node_id, host_info, endpoints in rows]
@@ -326,7 +326,7 @@ def latest_tailscale_version() -> str:
 # (aio/supervisor.py) answers a few fixed requests on a Unix socket in the run
 # directory (see aio/control.py): POST /configtest, POST /restart, GET /status...
 
-HELPER_SOCKET = os.environ.get("HELPER_SOCKET", "/run/hse/helper.sock")
+CONTROL_SOCKET = os.environ.get("CONTROL_SOCKET", "/run/hse/control.sock")
 
 
 class _UnixHTTPConnection(http.client.HTTPConnection):
@@ -345,10 +345,10 @@ class _UnixHTTPConnection(http.client.HTTPConnection):
         self.sock = sock
 
 
-def helper(method: str, path: str, timeout: float = 30) -> tuple[int, dict]:
+def control(method: str, path: str, timeout: float = 30) -> tuple[int, dict]:
     """One request to the supervisor: (HTTP status, JSON body). Never sends a body
     or parameters: the control socket accepts none."""
-    conn = _UnixHTTPConnection(HELPER_SOCKET, timeout=timeout)
+    conn = _UnixHTTPConnection(CONTROL_SOCKET, timeout=timeout)
     try:
         conn.request(method, path, headers={"Content-Length": "0"})
         resp = conn.getresponse()
@@ -362,27 +362,27 @@ def helper(method: str, path: str, timeout: float = 30) -> tuple[int, dict]:
     return resp.status, data if isinstance(data, dict) else {}
 
 
-def helper_status() -> dict | None:
+def control_status() -> dict | None:
     """The supervisor's GET /status (see aio/control.py), or None when it is
     missing or does not answer."""
-    if not os.path.exists(HELPER_SOCKET):
+    if not os.path.exists(CONTROL_SOCKET):
         return None
     try:
-        code, data = helper("GET", "/status", timeout=20)
+        code, data = control("GET", "/status", timeout=20)
     except OSError:
         return None
     return data if code == 200 else None
 
 
-def helper_backup() -> str:
+def control_backup() -> str:
     """Ask the all-in-one supervisor for a backup now (POST /backup).
 
-    'started', 'busy' (one is already running), 'unavailable' (no helper, or
-    the 1.x helper, which has no such route: 404) or 'error'."""
-    if not os.path.exists(HELPER_SOCKET):
+    'started', 'busy' (one is already running), 'unavailable' (no supervisor, or
+    one without that route: 404) or 'error'."""
+    if not os.path.exists(CONTROL_SOCKET):
         return "unavailable"
     try:
-        code, data = helper("POST", "/backup", timeout=20)
+        code, data = control("POST", "/backup", timeout=20)
     except OSError:
         return "error"
     if code == 404:
@@ -394,20 +394,20 @@ def helper_backup() -> str:
     return "error"
 
 
-def helper_backup_settings(enabled: bool, schedule: str, keep_days: str) -> tuple[str, str]:
+def control_backup_settings(enabled: bool, schedule: str, keep_days: str) -> tuple[str, str]:
     """Turn scheduled backups on/off or change them (POST /backup-settings on the all-in-one supervisor).
 
-    The helper takes no body, so the values go in a file next to its socket. Returns (result, detail):
+    The supervisor takes no body, so the values go in a file next to its socket. Returns (result, detail):
     'saved', 'invalid' (detail says what), 'locked' (an environment variable fixes them), 'unavailable'
-    (no helper, or the 1.x one: 404) or 'error'."""
-    if not os.path.exists(HELPER_SOCKET):
+    (no supervisor, or one without that route: 404) or 'error'."""
+    if not os.path.exists(CONTROL_SOCKET):
         return "unavailable", ""
-    path = os.path.join(os.path.dirname(HELPER_SOCKET), "backup-settings.json")
+    path = os.path.join(os.path.dirname(CONTROL_SOCKET), "backup-settings.json")
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump({"enabled": bool(enabled), "schedule": schedule, "keep_days": keep_days}, fh)
-        code, data = helper("POST", "/backup-settings", timeout=20)
+        code, data = control("POST", "/backup-settings", timeout=20)
     except OSError:
         return "error", ""
     if code == 404:
@@ -422,23 +422,23 @@ def helper_backup_settings(enabled: bool, schedule: str, keep_days: str) -> tupl
 
 
 def _run_dir() -> str:
-    return os.path.dirname(HELPER_SOCKET)
+    return os.path.dirname(CONTROL_SOCKET)
 
 
-def helper_restore(name: str) -> tuple[str, str]:
+def control_restore(name: str) -> tuple[str, str]:
     """Ask the all-in-one supervisor to restore one backup of /data/backups (POST /restore).
 
-    The helper takes no body, so the name goes in a file next to its socket. Returns (result, detail):
+    The supervisor takes no body, so the name goes in a file next to its socket. Returns (result, detail):
     'started' (detail = the id of this restore, see restore_result), 'invalid' (not a valid backup),
-    'busy' (a backup or another restore is running), 'unavailable' (no helper, or the 1.x one) or 'error'."""
-    if not os.path.exists(HELPER_SOCKET):
+    'busy' (a backup or another restore is running), 'unavailable' (no supervisor) or 'error'."""
+    if not os.path.exists(CONTROL_SOCKET):
         return "unavailable", ""
     path = os.path.join(_run_dir(), "restore-ui.json")
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump({"name": name}, fh)
-        code, data = helper("POST", "/restore", timeout=120)  # it checks the whole archive first
+        code, data = control("POST", "/restore", timeout=120)  # it checks the whole archive first
     except OSError:
         return "error", ""
     if code == 404:
@@ -450,20 +450,20 @@ def helper_restore(name: str) -> tuple[str, str]:
     return "error", str(data.get("error", ""))
 
 
-def helper_backup_upload(tmp: str, name: str) -> tuple[str, str]:
+def control_backup_upload(tmp: str, name: str) -> tuple[str, str]:
     """Ask the all-in-one supervisor to check an uploaded file and keep it as a backup (POST /backup-upload).
 
     ``tmp`` is the file name inside BACKUP_DIR where the console wrote it; ``name`` the name the user's file had.
     Returns (result, detail): 'saved' (detail = the name it is kept under), 'invalid' (not a valid backup of this
     kind; the file is deleted), 'unavailable' or 'error'."""
-    if not os.path.exists(HELPER_SOCKET):
+    if not os.path.exists(CONTROL_SOCKET):
         return "unavailable", ""
     path = os.path.join(_run_dir(), "backup-upload.json")
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump({"tmp": tmp, "name": name}, fh)
-        code, data = helper("POST", "/backup-upload", timeout=900)  # it checks every file of the archive
+        code, data = control("POST", "/backup-upload", timeout=900)  # it checks every file of the archive
     except OSError:
         return "error", ""
     if code == 404:
@@ -485,37 +485,37 @@ def restore_result() -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-def docker_available() -> bool:
-    """Can Headscale be validated and restarted from here?"""
-    return bool((helper_status() or {}).get("docker"))
+def control_available() -> bool:
+    """Is the supervisor answering, so Headscale can be validated and restarted from here?"""
+    return control_status() is not None
 
 
 def headscale_configtest() -> tuple[bool, str]:
     """Run 'headscale configtest' (the supervisor does, on the config it rendered).
     Returns (ok, output)."""
-    if not os.path.exists(HELPER_SOCKET):
-        return False, "hs-helper is not running"
+    if not os.path.exists(CONTROL_SOCKET):
+        return False, "the supervisor is not running"
     try:
-        code, data = helper("POST", "/configtest", timeout=120)
+        code, data = control("POST", "/configtest", timeout=120)
     except OSError as exc:
-        return False, f"hs-helper: {exc}"
+        return False, f"supervisor: {exc}"
     if code != 200:
-        return False, f"hs-helper: HTTP {code} {data.get('error', '')}".strip()
+        return False, f"supervisor: HTTP {code} {data.get('error', '')}".strip()
     return bool(data.get("ok")), str(data.get("output", ""))
 
 
 def restart_headscale(wait: float = 120) -> bool:
     """Restart Headscale and wait for it to be healthy."""
-    if not os.path.exists(HELPER_SOCKET):
-        log.error("could not restart Headscale: hs-helper is not running")
+    if not os.path.exists(CONTROL_SOCKET):
+        log.error("could not restart Headscale: the supervisor is not running")
         return False
     try:
-        code, data = helper("POST", "/restart", timeout=wait + 60)
+        code, data = control("POST", "/restart", timeout=wait + 60)
     except OSError as exc:
-        log.error("could not restart Headscale: hs-helper: %s", exc)
+        log.error("could not restart Headscale: supervisor: %s", exc)
         return False
     if code != 200 or not data.get("ok"):
-        log.error("could not restart Headscale: hs-helper: HTTP %s %s", code, data.get("error", ""))
+        log.error("could not restart Headscale: supervisor: HTTP %s %s", code, data.get("error", ""))
         return False
     return True
 
@@ -523,9 +523,9 @@ def restart_headscale(wait: float = 120) -> bool:
 # -----------------------------------------------------------------------------
 # DNS: marked block in config.yaml
 # -----------------------------------------------------------------------------
-# install.sh writes the dns: section between these markers and keeps the
+# The image writes the dns: section between these markers and keeps the
 # existing block when it regenerates the config, so changes made in the UI
-# survive a re-install.
+# survive a restart.
 
 DNS_BEGIN = "# >>> dns: managed by Headscale Easy (do not edit between these markers)"
 DNS_END = "# <<< dns"
@@ -538,7 +538,7 @@ def dns_config() -> dict:
     """Read the dns: section of config.yaml.
 
     There is no YAML parser in the standard library and the section has a fixed
-    shape (install.sh and this module write it), so a reader for that subset is
+    shape (the renderer and this module write it), so a reader for that subset is
     enough: scalar keys, '- item' lists and inline '[a, b]' lists.
     """
     result = {"magic_dns": None, "base_domain": "", "override_local_dns": True,
@@ -642,8 +642,7 @@ def dns_block_present(text: str) -> bool:
 
 
 def replace_dns_block(text: str, block: str) -> str | None:
-    """Replace the marked block. None if the file has no markers (a config
-    older than this feature: run install.sh once)."""
+    """Replace the marked block. None if the file has no markers."""
     start, end = text.find(DNS_BEGIN), text.find(DNS_END)
     if start < 0 or end < start:
         return None
@@ -655,7 +654,7 @@ def apply_dns(cfg: dict) -> tuple[bool, str]:
     Headscale. On any failure the previous config is restored."""
     return _apply_config(
         lambda text: replace_dns_block(text, render_dns_block(cfg)),
-        _("config.yaml has no managed DNS block. Run ./install.sh once to enable it."),
+        _("config.yaml has no managed DNS block. Restart the container to regenerate it."),
         _("Headscale did not start with the new DNS settings; the previous ones were restored."))
 
 
@@ -699,7 +698,7 @@ def apply_key_expiry(days: int) -> tuple[bool, str]:
         return text[:start] + block + text[end + len(KEY_EXPIRY_END):]
 
     return _apply_config(change,
-                         _("config.yaml has no managed key expiry. Run ./install.sh once to enable it."),
+                         _("config.yaml has no managed key expiry. Restart the container to regenerate it."),
                          _("Headscale did not start with the new setting; the previous one was restored."))
 
 

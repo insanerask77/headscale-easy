@@ -32,7 +32,7 @@ container**.
 Optional pieces live **outside** the image: an OIDC provider (Authentik, Keycloak,
 Pocket ID, Google), an external PostgreSQL, a reverse proxy in front, and the
 `backup` sidecar that uploads archives to S3, SFTP or rsync. See the
-[advanced edition](advanced.md).
+[advanced configurations](advanced/index.md).
 
 ### Who does what
 
@@ -68,16 +68,16 @@ devices; the other components barely change with tailnet size.
 | | Measured | CI limit |
 |---|---:|---:|
 | Image size | **232 MB** | 250 MB |
-| RAM, idle for 60 s | **72 MB** | 100 MB |
-| RAM while a backup runs | **72 MB** | 100 MB |
+| RAM, idle for 60 s | **71 MB** | 100 MB |
+| RAM while a backup runs | **71 MB** | 100 MB |
 | Processes in the container | 46 | — |
 | Containers | **1** | — |
 
 The CI job fails the build above the limits, so these numbers cannot drift
 unnoticed. For comparison, Headscale alone idles at about 20 MB and its image is
 about 113 MB: the console, Caddy, the supervisor and the backups add roughly
-50 MB of RAM and 120 MB of disk, and replace the reverse proxy, the identity
-provider and the helper container you would otherwise run next to it.
+50 MB of RAM and 120 MB of disk, and replace the reverse proxy and the identity
+provider you would otherwise run next to it.
 
 - The console uses almost no CPU: in the background it only asks Headscale for the
   device list every 30 seconds (activity log) or 5 seconds (renaming "localhost"

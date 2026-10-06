@@ -1,7 +1,7 @@
 """The Backups page (all-in-one image): state, schedule, the list with Download / Restore, and Upload.
 
 Everything here is for administrators. The page is built from the supervisor's ``backup`` summary
-(helper GET /status); with no such key (1.x compose, or no helper) the menu entry is not shown.
+(control socket, GET /status); with no such key (the supervisor is not answering) the menu entry is not shown.
 """
 from __future__ import annotations
 

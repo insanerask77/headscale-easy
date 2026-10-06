@@ -274,7 +274,7 @@ class Supervisor:
         self._op_lock = threading.Lock()
         self._health = {"at": 0.0, "ok": False}
         self._version = {"at": 0.0, "value": None}
-        self.helper_socket = os.path.join(self.run_dir, "helper.sock")
+        self.control_socket = os.path.join(self.run_dir, "control.sock")
         # scheduled backups (see "Backups" below)
         self.clock = None  # test hook: callable returning the naive local time
         self.sched_tick = BACKUP_TICK
@@ -448,7 +448,7 @@ class Supervisor:
                 child.stop()
                 self.log("%s stopped" % name)
 
-    # -- helper protocol ---------------------------------------------------------
+    # -- control protocol --------------------------------------------------------
     def be_configtest(self):
         with self._op_lock:
             code, out = run_cmd(self.headscale_argv("configtest"), timeout=60, env=base_env())
@@ -489,9 +489,8 @@ class Supervisor:
     def be_status(self):
         rows = sorted((self._summary(c) for c in self.children.values()), key=lambda r: r["name"])
         version = self.headscale_version() if "headscale" in self.children else None
-        # docker: true so the console treats this backend as available
-        result = {"api": control.API_VERSION, "docker": True, "mode": self.mode,
-                  "headscale": {"container": "headscale", "version": version}, "containers": rows}
+        result = {"api": control.API_VERSION, "mode": self.mode,
+                  "headscale": {"process": "headscale", "version": version}, "processes": rows}
         summary = getattr(self, "backup_summary", None)  # the scheduler's view (Block 2)
         if self.mode == "run" and callable(summary):
             result["backup"] = summary()
@@ -509,7 +508,7 @@ class Supervisor:
     def be_backup_settings(self):
         """POST /backup-settings: the console asks to turn scheduled backups on/off or change them.
 
-        The helper protocol takes no body, so the console leaves the values in
+        The control protocol takes no body, so the console leaves the values in
         ``<run dir>/backup-settings.json`` (``enabled``, ``schedule``, ``keep_days``). They are checked here
         (this is where ``cron`` lives), written to settings.json and picked up by the scheduler at once.
         A value set by an environment variable wins over settings.json, so it cannot be changed from here."""
@@ -573,7 +572,7 @@ class Supervisor:
     def be_restore(self):
         """POST /restore: the console asks to restore one of the backups in /data/backups.
 
-        The helper protocol takes no body, so the console leaves ``{"name": ...}`` in
+        The control protocol takes no body, so the console leaves ``{"name": ...}`` in
         ``<run dir>/restore-ui.json``. The archive is validated here (the same checks as ``hse restore``);
         the restore itself is the online restore of SIGUSR1, started a moment later so the console can
         still answer its request (it is stopped, and started again, by the restore)."""
@@ -682,13 +681,13 @@ class Supervisor:
         return {"schedule": bool(str(self.env.get("BACKUP_SCHEDULE") or "").strip()),
                 "keep_days": bool(str(self.env.get("BACKUP_KEEP_DAYS") or "").strip())}
 
-    def serve_helper(self):
+    def serve_control(self):
         os.makedirs(self.run_dir, mode=0o755, exist_ok=True)
-        self.server = control.serve(self.helper_socket, {
+        self.server = control.serve(self.control_socket, {
             "configtest": self.be_configtest, "restart": self.be_restart, "status": self.be_status,
             "backup": self.be_backup, "backup_settings": self.be_backup_settings,
             "restore": self.be_restore, "backup_upload": self.be_backup_upload})
-        threading.Thread(target=self.server.serve_forever, name="helper-socket", daemon=True).start()
+        threading.Thread(target=self.server.serve_forever, name="control-socket", daemon=True).start()
         with open(os.path.join(self.run_dir, "supervisor.pid"), "w", encoding="utf-8") as fh:
             fh.write(str(os.getpid()))
 
@@ -966,7 +965,7 @@ class Supervisor:
         if self.server:
             self.server.shutdown()
             self.server.server_close()
-        for name in ("helper.sock", "supervisor.pid"):
+        for name in ("control.sock", "supervisor.pid"):
             try:
                 os.unlink(os.path.join(self.run_dir, name))
             except OSError:
@@ -978,7 +977,7 @@ class Supervisor:
         signal.signal(signal.SIGHUP, lambda *_: self.reload_requested.set())
         signal.signal(signal.SIGUSR1, lambda *_: self.restore_requested.set())
         try:
-            self.serve_helper()
+            self.serve_control()
             self.start_children()
             while not self.stopping.wait(0.5):
                 if self.reload_requested.is_set():

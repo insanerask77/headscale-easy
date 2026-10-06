@@ -1,7 +1,7 @@
 # Documentation site: https://insanerask77.github.io/headscale-easy/
 # Preview locally:  pip install -r docs/requirements.txt && mkdocs serve
 site_name: Headscale Easy
-site_description: Headscale, with everything around it — installer, HTTPS, accounts, a Tailscale-style web console and backups, in one command.
+site_description: Headscale, with everything around it — HTTPS, accounts, a Tailscale-style web console and backups, in one Docker Compose file.
 site_author: Rafa Madolell
 site_url: https://insanerask77.github.io/headscale-easy/
 repo_url: https://github.com/insanerask77/headscale-easy
@@ -68,8 +68,13 @@ plugins:
             Architecture and resources: Arquitectura y recursos
             AI usage: Uso de IA
             Getting started: Primeros pasos
-            All-in-one image (preview): Imagen todo en uno (preview)
-            Advanced edition: Edición avanzada
+            All-in-one image: Imagen todo en uno
+            Advanced configurations: Configuraciones avanzadas
+            Overview: Resumen
+            PostgreSQL: PostgreSQL
+            A proxy in front: Un proxy delante
+            Remote backups: Copias remotas
+            Your own sign-in provider: Tu propio proveedor de acceso
             Configuration: Configuración
             Operations: Operación
             Project: Proyecto
@@ -85,8 +90,13 @@ nav:
   - Home: index.md
   - Why Headscale Easy?: why.md
   - Getting started: getting-started.md
-  - All-in-one image (preview): all-in-one.md
-  - Advanced edition: advanced.md
+  - All-in-one image: all-in-one.md
+  - Advanced configurations:
+      - Overview: advanced/index.md
+      - PostgreSQL: advanced/postgres.md
+      - A proxy in front: advanced/proxy.md
+      - Remote backups: advanced/backup-remote.md
+      - Your own sign-in provider: advanced/oidc.md
   - Configuration: configuration.md
   - Operations: operations.md
   - Production and hardening: hardening.md

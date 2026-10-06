@@ -4,8 +4,8 @@
 -- The web UI reads the Hostinfo each device reports (OS, Tailscale version,
 -- DERP relay, endpoints) from Headscale's database. It gets its own role that
 -- can only SELECT those three columns of the "nodes" table: no keys, no other
--- tables, no writes. Idempotent: install.sh and restore.sh run it on every
--- run, connected to Headscale's database as its owner.
+-- tables, no writes. Idempotent: the image runs it on every
+-- start, connected to Headscale's database as its owner.
 --
 -- psql variables, from the environment (never on a command line):
 --   HSE_RO_USER  role name (e.g. headscale_ro)

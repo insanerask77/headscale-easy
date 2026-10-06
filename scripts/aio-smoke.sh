@@ -9,7 +9,7 @@
 #    - the rendered config does not use the embedded DERP by default, the
 #      container does not answer STUN on 3478/udp, sign-up is not off
 #      (/admin/signup must be 404) or the event stream does not require a session;
-#    - built-in backups (phase 3) break: `hse backup` does not write a private,
+#    - built-in backups break: `hse backup` does not write a private,
 #      verifiable archive, an offline or an online `hse restore` does not bring
 #      back what was deleted after the backup, a container started with
 #      BACKUP_SCHEDULE="* * * * *" writes no archive within SCHED_WAIT seconds,
@@ -117,7 +117,7 @@ key=$(docker exec "$NAME" headscale preauthkeys create --user 1 --expiration 1h 
 [ -n "$key" ] && ! grep -qiE 'error|fail' <<<"$key" || fail "could not create a pre-auth key: $key"
 echo "pre-auth key created"
 
-# --- defaults of phase 2.5 -------------------------------------------------------------
+# --- first-run defaults -------------------------------------------------------------
 cfg=/data/config/config.yaml
 docker exec "$NAME" grep -q '^  urls: \[\]' "$cfg" || fail "DERP is not embedded-only by default (derp.urls is not empty)"
 docker exec "$NAME" grep -q 'enabled: true' "$cfg" || fail "the embedded DERP server is not enabled"
@@ -147,7 +147,7 @@ echo "idle RAM: ${ram_mb} MB (limit ${MAX_RAM_MB})"
 summary "| Idle RAM (after ${IDLE_SECONDS} s) | ${ram_mb} MB | ${MAX_RAM_MB} MB |"
 [ "$ram_mb" -le "$MAX_RAM_MB" ] || fail "idle RAM is ${ram_mb} MB, above ${MAX_RAM_MB} MB"
 
-# --- built-in backups (phase 3) -----------------------------------------------------
+# --- built-in backups -----------------------------------------------------
 echo "== backups"
 # 1. `hse backup`, sampling RAM while it runs. The backup is a subprocess of the
 #    supervisor, so the container's total is what must stay under the limit.

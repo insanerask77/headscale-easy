@@ -56,6 +56,7 @@ import multipart  # noqa: E402
 BACKUP_UPLOAD_MAX = backup_pages.UPLOAD_MAX_MB * 1024 * 1024  # bytes of a backup file the console accepts
 import headscale as hs  # noqa: E402
 import live  # noqa: E402
+import mailer  # noqa: E402
 import apikey  # noqa: E402
 import expiry  # noqa: E402
 import audit  # noqa: E402
@@ -66,7 +67,7 @@ import policy  # noqa: E402
 import sessions  # noqa: E402
 import signup  # noqa: E402
 from i18n import LANGUAGES, _, pick_lang, set_lang  # noqa: E402
-from ui import BASE, DEMO, esc, message_page  # noqa: E402
+from ui import BASE, DEMO, message_page  # noqa: E402
 from version import VERSION  # noqa: E402
 
 # -----------------------------------------------------------------------------
@@ -254,8 +255,8 @@ def node_for(session: dict, node_id: str) -> dict | None:
 
 
 def dns_ctx() -> dict:
-    """Can DNS be edited from here? Needs the hs-helper service (or, on old
-    installations, the Docker socket) and the marked DNS block in config.yaml."""
+    """Can DNS be edited from here? Needs the supervisor's control socket and the marked
+    DNS block in config.yaml."""
     ctx = dict(CTX)
     try:
         with open(hs.HEADSCALE_CONFIG, encoding="utf-8") as fh:
@@ -264,13 +265,12 @@ def dns_ctx() -> dict:
     except OSError:
         marked = writable = False
     if not marked:
-        ctx["dns_reason"] = _("config.yaml has no managed DNS block: run ./install.sh once to enable it.")
+        ctx["dns_reason"] = _("config.yaml has no managed DNS block.")
     elif not writable:
         ctx["dns_reason"] = _("Headscale Easy cannot write config.yaml.")
-    elif not hs.docker_available():
-        ctx["dns_reason"] = _("The hs-helper service is not running or cannot reach Docker, so Headscale "
-                              "cannot be validated and restarted from here. Check it with: "
-                              "docker compose ps hs-helper")
+    elif not hs.control_available():
+        ctx["dns_reason"] = _("The supervisor is not answering, so Headscale cannot be validated and "
+                              "restarted from here. Check the container with: docker compose ps")
     ctx["dns_editable"] = "dns_reason" not in ctx
     return ctx
 
@@ -524,7 +524,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.fail(403, _("No permission"), _("This section is for admins only."))
                 if flash == "backup-restore-done":  # the page that waited for the restore sends us here
                     flash = "backup-restore-ok" if (hs.restore_result() or {}).get("ok") else "backup-restore-failed"
-                return self.send(200, backup_pages.backups_page(session, CTX, (hs.helper_status() or {}).get("backup"), flash))
+                return self.send(200, backup_pages.backups_page(session, CTX, (hs.control_status() or {}).get("backup"), flash))
             if path == f"{BASE}/logs":
                 return self.send(200, audit.page(session, CTX, params))
             if path == f"{BASE}/logs.csv":
@@ -537,7 +537,7 @@ class Handler(BaseHTTPRequestHandler):
                 # renewal window, or someone expired it by hand)
                 log.error("Headscale rejected the web UI's API key on GET %s", path)
                 return self.fail(503, _("The web UI cannot reach Headscale"),
-                                 _("Its API key has expired or was revoked. On the server, run ./install.sh: it creates a new one."))
+                                 _("Its API key has expired or was revoked. Delete /data/console/api-key and restart the container: it creates a new one."))
             log.exception("error on GET %s", path)
             self.fail(500, _("Something went wrong"), _("The operation could not be completed. Try again in a few seconds."))
         except Exception:  # noqa: BLE001 - never show tracebacks in the UI
@@ -721,6 +721,11 @@ class Handler(BaseHTTPRequestHandler):
             m = re.fullmatch(rf"{BASE}/users/(\d+)/password", path)
             if m:
                 return self.set_user_password(session, m.group(1), form)
+            m = re.fullmatch(rf"{BASE}/users/(\d+)/reset-link", path)
+            if m:
+                return self.create_reset_link(session, m.group(1))
+            if path == f"{BASE}/users/send-link":
+                return self.send_link_mail(session, form)
             if path == f"{BASE}/settings/notify-test":
                 return self.notify_test(session)
             if path == f"{BASE}/backups/run":
@@ -798,7 +803,7 @@ class Handler(BaseHTTPRequestHandler):
         """Status page > Back up now (admins only): asks the all-in-one supervisor for a manual backup."""
         if not session.get("admin"):
             return self.fail(403, _("No permission"), _("This action is for admins only."))
-        result = hs.helper_backup()
+        result = hs.control_backup()
         if result in ("started", "busy"):
             audit.request_event(self, session, "backup.run", _("Backup"), {"result": result})
         return self.redirect(f"{BASE}/backups?m=backup-{result}")
@@ -810,7 +815,7 @@ class Handler(BaseHTTPRequestHandler):
         enabled = form.get("backup_enabled", "on") != "off"
         schedule = (form.get("backup_schedule") or "").strip()
         keep = (form.get("backup_keep_days") or "").strip()
-        result, detail = hs.helper_backup_settings(enabled, schedule, keep)
+        result, detail = hs.control_backup_settings(enabled, schedule, keep)
         if result == "saved":
             log.info("%s set scheduled backups to %s", session["username"], f"{schedule!r}, {keep} days" if enabled else "off")
             audit.request_event(self, session, "backup.settings", _("Backup settings"),
@@ -889,7 +894,7 @@ class Handler(BaseHTTPRequestHandler):
             discard()
             return self.redirect(f"{BASE}/backups?m=backup-restore-confirm")
         original = re.sub(r"[^\x20-\x7e]", "?", os.path.basename(files["file"][0].replace("\\", "/")))[:120]
-        result, detail = hs.helper_backup_upload(tmp_name, original)
+        result, detail = hs.control_backup_upload(tmp_name, original)
         if result != "saved":
             discard()  # (the supervisor already deleted a file it refused)
             log.info("%s uploaded %r and it was refused: %s %s", session["username"], original, result, detail)
@@ -899,7 +904,7 @@ class Handler(BaseHTTPRequestHandler):
         log.warning("%s uploaded the backup %s (%s bytes)", session["username"], detail, files["file"][1])
         if not restore:
             return self.redirect(f"{BASE}/backups?m=backup-uploaded")
-        started, rid = hs.helper_restore(detail)
+        started, rid = hs.control_restore(detail)
         if started != "started":  # the file stays in the list: it can be restored from there
             return self.redirect(f"{BASE}/backups?m=backup-restore-{started}")
         audit.request_event(self, session, "backup.restore", detail, {"file": detail})
@@ -912,7 +917,7 @@ class Handler(BaseHTTPRequestHandler):
         if form.get("confirm") != "RESTORE":
             return self.redirect(f"{BASE}/backups?m=backup-restore-confirm")
         name = form.get("name", "")
-        result, detail = hs.helper_restore(name)
+        result, detail = hs.control_restore(name)
         if result != "started":
             log.info("%s could not restore %r: %s %s", session["username"], name, result, detail)
             return self.redirect(f"{BASE}/backups?m=backup-restore-{result}")
@@ -1809,7 +1814,9 @@ class Handler(BaseHTTPRequestHandler):
         extra = (signup.key_result_box(*new_key) if new_key else "") + \
             signup.keys_section(session, lac.list_signup_keys(), signup.mode())
         return self.send(status, admin_pages.users_page(session, CTX, users, hs.all_nodes(), flash, error=error,
-                                                        result=result, signins=signins, extra=extra))
+                                                        result=result, signins=signins, extra=extra,
+                                                        invites=lac.list_active_invitations(),
+                                                        can_mail=mailer.enabled()))
 
     def users_error(self, session: dict, msg: str):
         return self.users_view(session, 400, error=msg)
@@ -1876,6 +1883,48 @@ class Handler(BaseHTTPRequestHandler):
         audit.request_event(self, session, "user.password_set", account["username"],
                             {"must_change": form.get("must_change") == "1"}, f"user:{user_id}")
         return self.redirect(f"{BASE}/users?m=password-set")
+
+    def create_reset_link(self, session: dict, user_id: str):
+        """A single-use password reset link for a person with a local account (shown once)."""
+        user = next((u for u in hs.all_users() if str(u["id"]) == user_id), None)
+        account = lac.get_account_by_headscale_user(user["name"]) if user else None
+        if not account:
+            return self.redirect(f"{BASE}/users?m=not-found")
+        hours = 24
+        token = lac.create_reset_token(account["id"], expires_hours=hours)
+        expires = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
+        audit.request_event(self, session, "user.reset_link", account["username"], {}, f"user:{user_id}")
+        return self.users_view(session, result={
+            "kind": "reset", "link": f"{PUBLIC_URL}{BASE}/reset/{token}", "expires": expires,
+            "email": account.get("email") or "", "sent": False})
+
+    def send_link_mail(self, session: dict, form: dict):
+        """"Send by e-mail" on a link that was just shown: only when SMTP is set, only on a click,
+        and only for a link of ours (the link comes back in the form, so it is checked)."""
+        kind = str(form.get("kind", ""))
+        link = str(form.get("link", ""))
+        to = str(form.get("to", "")).strip()
+        expires = str(form.get("expires", ""))
+        prefix = {"invite": f"{PUBLIC_URL}{BASE}/accept/", "reset": f"{PUBLIC_URL}{BASE}/reset/"}.get(kind)
+        if not mailer.enabled() or not prefix or not link.startswith(prefix) \
+                or not re.fullmatch(r"[A-Za-z0-9_-]+", link[len(prefix):]):
+            return self.redirect(f"{BASE}/users?m=not-found")
+        result = {"kind": kind, "link": link, "expires": expires, "email": to, "sent": False}
+        if kind == "invite":
+            subject = _("You are invited to {name}", name=TAILNET_NAME)
+            body = _("You have been invited to join {name}. Open this link to choose your user name and password "
+                     "(it works once and expires on {when}):", name=TAILNET_NAME, when=expires[:16].replace("T", " ") + " UTC")
+        else:
+            subject = _("Reset your password on {name}", name=TAILNET_NAME)
+            body = _("Open this link to choose a new password (it works once and expires on {when}):",
+                     name=TAILNET_NAME, when=expires[:16].replace("T", " ") + " UTC")
+        try:
+            mailer.send(to, subject, f"{body}\n\n{link}\n")
+        except mailer.MailError as exc:
+            return self.users_view(session, 400, error=_("The e-mail was not sent: {why}", why=str(exc)), result=result)
+        audit.request_event(self, session, "link.email", to, {"kind": kind})
+        result["sent"] = True
+        return self.users_view(session, result=result)
 
     # --- self-registration ---
     def signup_open(self) -> str:
@@ -2385,7 +2434,7 @@ def bootstrap_admin() -> None:
     If no accounts exist:
     - If HSE_ADMIN_EMAIL and HSE_ADMIN_PASSWORD are set: create admin account
     - If HSE_ADMIN_EMAIL is set but not password: create invitation token and log it
-    - Otherwise: do nothing (admin will be created via wizard in Phase 2)
+    - Otherwise: do nothing (the admin is created by the setup wizard)
     """
     accounts = lac.list_accounts()
     if accounts:
@@ -2402,7 +2451,7 @@ def bootstrap_admin() -> None:
         # Create admin account with the given credentials
         username = admin_email.split("@")[0]  # Use email prefix as username
         try:
-            account_id = lac.create_account(
+            lac.create_account(
                 username=username,
                 email=admin_email,
                 password=admin_password,
