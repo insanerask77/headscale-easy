@@ -24,7 +24,8 @@ projects; tell us too if Headscale Easy's configuration makes them worse.
 
 ## Supported versions
 
-Only the latest release receives fixes.
+Only the latest release receives fixes. **1.x is discontinued** (1.5.0 was its last release) and gets no
+security fixes: see [1.x is discontinued](https://insanerask77.github.io/headscale-easy/1x-end-of-life/).
 
 ## Status of the code
 

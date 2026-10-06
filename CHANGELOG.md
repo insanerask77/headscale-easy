@@ -9,6 +9,11 @@ All notable changes to this project are documented here. The format follows
 Headscale Easy 2.0 is one container: Headscale, Caddy and the console, supervised together, installed
 with a Docker Compose file. The image is about 232 MB and uses about 72 MB of RAM at rest.
 
+### End of 1.x
+- Headscale Easy **1.x is discontinued** as of this release: 1.5.0 is the last 1.x version and it receives no
+  more fixes, security fixes included. There is no in-place upgrade and no conversion tool: install 2.0 as a
+  new deployment. See [1.x is discontinued](https://insanerask77.github.io/headscale-easy/1x-end-of-life/).
+
 ### Install
 - A single `compose.yaml` and an optional `.env`: `docker compose up -d`, then open the setup wizard.
   The image is pinned to the release (`HSE_VERSION`); no Docker socket, no added capability, no root.

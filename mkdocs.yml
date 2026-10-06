@@ -82,6 +82,7 @@ plugins:
             Roadmap: Hoja de ruta
             Security: Seguridad
             Changelog: Cambios
+            1.x is discontinued: 1.x está discontinuada
 
 exclude_docs: |
   requirements.txt
@@ -107,6 +108,7 @@ nav:
       - Security: security.md
       - AI usage: ai-usage.md
       - Changelog: changelog.md
+      - 1.x is discontinued: 1x-end-of-life.md
 
 markdown_extensions:
   - admonition
