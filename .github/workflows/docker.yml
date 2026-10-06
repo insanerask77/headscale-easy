@@ -1,7 +1,9 @@
 name: Docker image
 
-# Publishes ghcr.io/insanerask77/headscale-easy-aio (all-in-one) and
-# ghcr.io/insanerask77/headscale-easy-backup (remote copies of the backups):
+# Publishes what 2.0 ships:
+#   ghcr.io/insanerask77/headscale-easy         the all-in-one image
+#   ghcr.io/insanerask77/headscale-easy-aio     the same image under its old name (an alias for one release)
+#   ghcr.io/insanerask77/headscale-easy-backup  remote copies of the backups (the optional sidecar)
 #   main        -> :edge
 #   tag v1.2.3  -> :1.2.3, :1.2, :1, :latest
 on:
@@ -22,7 +24,8 @@ jobs:
         include:
           - image: headscale-easy-backup
             context: backup
-          - image: headscale-easy-aio
+          - image: headscale-easy
+            alias: headscale-easy-aio
             context: .
             file: aio/Dockerfile
     steps:
@@ -40,7 +43,9 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          images: |
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+            ${{ matrix.alias && format('ghcr.io/{0}/{1}', github.repository_owner, matrix.alias) || '' }}
           tags: |
             type=edge,branch=main
             type=semver,pattern={{version}}

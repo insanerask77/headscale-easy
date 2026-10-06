@@ -66,11 +66,14 @@ if command -v docker &>/dev/null && docker compose version &>/dev/null; then
         [[ -n "$made" ]] && rm -f "$dir/.env"
     done < <(find deploy -name 'docker-compose*.yml' | sort)
 fi
-# ...and none of them may mount the Docker socket
-if grep -rn --include='docker-compose*.yml' 'docker\.sock' deploy 2>/dev/null | grep -v '^[^:]*:[0-9]*:[[:space:]]*#' | grep -q .; then
-    fail "deploy/: no compose file may mount the Docker socket"
+# ...and nothing may mount the Docker socket: no compose file anywhere, nor the compose file the
+# installer embeds (2.0 has no helper container)
+sock=$( { grep -rn --include='docker-compose*.yml' --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.claude 'docker\.sock' . 2>/dev/null
+          sed -n "/<<'HSE_COMPOSE'/,/^HSE_COMPOSE\$/p" install.sh | grep 'docker\.sock' | sed 's/^/install.sh: /'; } | grep -v -E ':[0-9]*:[[:space:]]*#|install.sh: [[:space:]]*#' || true)
+if [[ -n "$sock" ]]; then
+    fail "no compose file (nor install.sh) may mount the Docker socket: $sock"
 else
-    ok "No compose file under deploy/ mounts the Docker socket"
+    ok "Nothing mounts the Docker socket (compose files, installer)"
 fi
 
 echo ""

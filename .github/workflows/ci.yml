@@ -55,6 +55,7 @@ jobs:
         run: docker build -f aio/Dockerfile -t hse-aio:ci .
 
       - name: Smoke tests, backups, image size and RAM, and PostgreSQL 16, 17 and 18
+        # The measured size and RAM go to the job summary (scripts/aio-smoke.sh), for the docs.
         # The PostgreSQL round starts a real server of each version (docker run): Headscale on it, the console
         # through the read-only role, a backup with its dump and a restore that loads it.
         env:
