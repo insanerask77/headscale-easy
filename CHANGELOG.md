@@ -6,7 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [2.0.0] - Unreleased
 
-Work in progress on the `next` branch: see `SIMPLIFICATION_PLAN.md`.
+2.0 is the all-in-one image: one container with Headscale, Caddy and the console. It is a fresh
+install: there is no 1.x upgrade path (nobody ran 1.x). Work happens on the `next` branch: see
+`SIMPLIFICATION_PLAN.md`.
+
+### Removed (phase 6)
+- The 1.x split stack: the root `docker-compose.yml`, the 1.x installer and uninstaller, the
+  `hs-helper` container and the console image (the supervisor serves the control socket itself, so
+  nothing mounts the Docker socket), and the 1.x backup and restore scripts. The backup sidecar
+  stays, in `sync` mode only.
+- The Authentik code in the console (`web/accounts.py`, `web/mfa.py`, `AUTHENTIK_URL`,
+  `AUTHENTIK_API_TOKEN`, `PORTAL_AUTHENTIK_TOKEN`) and the top-level `authentik/` directory. Authentik
+  is one more external OIDC provider (`deploy/examples/authentik/`); invitations, resets and two-factor
+  authentication are the local accounts' job.
+
+### Changed (phase 6)
+- The image is published as `ghcr.io/insanerask77/headscale-easy` (with `headscale-easy-aio` as an alias
+  for one release) and the container is called `headscale-easy` everywhere.
+- The console tuning variables (`EXPIRY_WARNING_DAYS`, `INACTIVE_DAYS`, `AUTO_RENAME_LOCALHOST`,
+  `RENAME_INTERVAL`, `AUDIT_RETENTION_DAYS`, `STATUS_UPDATE_CHECK`, `SIGNIN_RATE_LIMIT`,
+  `SIGNIN_RATE_WINDOW`, `PORTAL_API_KEY_LOGIN`, `BACKUP_UPLOAD_MAX_MB`) now reach the console from the
+  image.
+- Documentation rewritten for 2.0, with the environment variable reference checked against the code
+  (`scripts/gen_env_reference.py`) and the measured size and memory of the image.
 
 ### Fixed
 - Behind a proxy every sign-in was counted against the proxy's address (one person's wrong passwords
@@ -22,16 +44,15 @@ Work in progress on the `next` branch: see `SIMPLIFICATION_PLAN.md`.
   - `deploy/compose/`: the reference compose file (one service, named volumes, no capability,
     `no-new-privileges`) and `--profile backup-remote`, the sidecar that uploads each backup to S3, B2,
     SFTP or a server. `headscale-easy-backup` is published beside the other images.
-  - `deploy/examples/`: a proxy in front (nginx, Traefik, Caddy, Nginx Proxy Manager), Authentik (the
-    zero-change path for a 1.x install: same issuer URL, so nobody loses their identity), Pocket ID,
+  - `deploy/examples/`: a proxy in front (nginx, Traefik, Caddy, Nginx Proxy Manager), Authentik (as an
+    external OIDC provider), Pocket ID,
     Keycloak and Google. Each README says what was run and what was only read.
   - A new `install.sh` for the all-in-one image: a handful of questions at most, unattended with
-    `--yes`, never touches an existing `.env` or data, refuses a 1.x directory. The 1.x installer is
-    `legacy/install-1x.sh` (and `legacy/uninstall-1x.sh`).
+    `--yes`, never touches an existing `.env` or data.
   - Proxy in front: `HSE_TLS=off` with an `https://` URL forces `X-Forwarded-Proto https` and leaves HSTS to
     the proxy; `HSE_TRUSTED_PROXIES` (the proxy's own address, never a subnet) gives the console and
-    Headscale the real client address. `HSE_AUTHENTIK_UPSTREAM`, `AUTHENTIK_URL` and `AUTHENTIK_API_TOKEN`
-    keep an existing Authentik at `/authentik`. `HSE_OIDC_ALLOWED_DOMAINS/USERS/GROUPS` restrict who may
+    Headscale the real client address. `HSE_AUTHENTIK_UPSTREAM`
+    serves an existing Authentik at `/authentik` (so its issuer URL does not change). `HSE_OIDC_ALLOWED_DOMAINS/USERS/GROUPS` restrict who may
     sign in, `PORTAL_*_GROUPS` and `OIDC_SCOPE` reach the console.
   - External PostgreSQL, end to end (`deploy/examples/postgresql/`): a PostgreSQL 18 client in the image
     (+13 MB) for backups and restores, and `HEADSCALE_PG_RO_USER/PASS`: the image creates a read-only role

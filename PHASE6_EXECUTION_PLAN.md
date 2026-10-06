@@ -1,6 +1,6 @@
 # Phase 6 Execution Plan — Docs and Clean-up
 
-**Status:** 📋 Planned (not started).
+**Status:** ✅ Done except the final acceptance run on a clean host and the `v2.0.0` tag (see Block 5).
 
 Detailed implementation plan for SIMPLIFICATION_PLAN.md Phase 6.
 **Estimated effort:** M (4-5 days, ~30-36h)
@@ -248,11 +248,11 @@ Spanish page (as before); the headless variable table in `all-in-one.md` still r
 
 ## Block 5: 2.0 release prep and close-out (S, ~3-4h)
 
-- [ ] `CHANGELOG.md`: collapse the `[2.0.0] - Unreleased` entries into a readable release note
+- [x] `CHANGELOG.md`: collapse the `[2.0.0] - Unreleased` entries into a readable release note
       (what 2.0 is, what was removed, how to deploy); no "migration" section (nothing to
       migrate: say "2.0 is a fresh install; there is no 1.x upgrade path").
-- [ ] `ROADMAP.md`: P6 ticked, the 2.0 line closed; `docs/roadmap.md` in sync.
-- [ ] `SIMPLIFICATION_PLAN.md`: Phase 6 ticked with a status line like the earlier phases;
+- [x] `ROADMAP.md`: P6 ticked, the 2.0 line closed; `docs/roadmap.md` in sync.
+- [x] `SIMPLIFICATION_PLAN.md`: Phase 6 ticked with a status line like the earlier phases;
       record the final numbers (image, RSS, containers, line counts before/after).
 - [ ] Final acceptance run on a clean host: `curl … | bash` (or `docker run`) → wizard →
       tailnet → device registration with a Tailscale client → backup and restore → external

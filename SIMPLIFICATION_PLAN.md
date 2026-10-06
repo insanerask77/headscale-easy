@@ -399,16 +399,24 @@ deprecation notice, no 1.x support window. Two consequences:
 
 ### Phase 6 — Docs and clean-up · M
 
-- [ ] README / README.es: the quick start is one command; the advanced edition
+- [x] README / README.es: the quick start is one command; the advanced edition
       is a section with links.
-- [ ] `docs/architecture.md`: new diagram and resource table (measured in
+- [x] `docs/architecture.md`: new diagram and resource table (measured in
       CI); `docs/configuration*.md`: env var reference; `docs/getting-started*`,
       `docs/hardening.md`, `docs/why.md`.
-- [ ] Remove after 2.0: `authentik/` (moved to examples), the Authentik code in
+- [x] Remove after 2.0: `authentik/` (moved to examples), the Authentik code in
       `web/accounts.py` and `web/mfa.py`, `helper/`, the
       `headscale-postgresql` and `authentik-*` services, most of `install.sh`,
       and the CI jobs for the removed images.
-- [ ] CHANGELOG and ROADMAP entries.
+- [x] CHANGELOG and ROADMAP entries.
+
+**Status:** ✅ Done (`PHASE6_EXECUTION_PLAN.md`). The 1.x split stack (installer, root compose, `hs-helper`,
+console image, 1.x backup tools) and the Authentik code in the console are gone; Authentik is one more
+external OIDC provider. CI builds and publishes only the all-in-one image (as `headscale-easy`, with
+`headscale-easy-aio` as an alias for one release) and the backup sidecar. Docs rewritten for 2.0, with the
+variable reference checked against the code. Image 232 MB (limit 250), 72 MB RSS idle and during a backup
+(limit 100). Left over: a final acceptance run on a clean host (external OIDC sign-in, behind a proxy with a
+real client), tagging `v2.0.0`, and a screen that shows the invitation link a local account creates.
 
 ---
 
