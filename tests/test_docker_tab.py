@@ -29,7 +29,9 @@ class Snippets(unittest.TestCase):
         v, err = parsed(dns="1")
         self.assertEqual(err, "")
         run = docker_tab.docker_run(URL, v, "")
-        self.assertIn("tailscale/tailscale:latest", run)
+        self.assertIn("tailscale/tailscale:v1.102.5", run)
+        self.assertNotIn(":latest", run)
+        self.assertIn("image: tailscale/tailscale:v1.102.5", docker_tab.compose(URL, v, ""))
         self.assertIn("--login-server=https://vpn.example.com", run)
         self.assertIn("TS_AUTHKEY=<auth-key>", run)
         self.assertIn("--device /dev/net/tun", run)
@@ -43,6 +45,14 @@ class Snippets(unittest.TestCase):
         self.assertIn("restart: unless-stopped", yml)
         self.assertIn("/dev/net/tun", yml)
         self.assertIn("tailscale-state:/var/lib/tailscale", yml)
+
+    def test_version_can_be_chosen_and_unknown_ones_fall_back_to_the_tested_tag(self):
+        v, _e = parsed(version="latest")
+        self.assertTrue(docker_tab.docker_run(URL, v, "").endswith("tailscale/tailscale:latest"))
+        self.assertIn("image: tailscale/tailscale:latest", docker_tab.compose(URL, v, ""))
+        v, _e = parsed(version="evil; rm -rf /")
+        self.assertEqual(v["version"], docker_tab.TS_VERSIONS[0])
+        self.assertNotIn("evil", docker_tab.docker_run(URL, v, ""))
 
     def test_options_change_the_snippet(self):
         v, err = parsed(hostname="Edge-1", exit="1", routes="192.168.1.0/24, 10.0.0.0/8", dns="")
@@ -72,6 +82,14 @@ class Snippets(unittest.TestCase):
                          "--advertise-routes='' --advertise-exit-node=false --accept-dns=false")
         self.assertIn("docker exec tailscale-edge-1 tailscale set", docker_tab.panel({"csrf": "tok"}, URL, v))
 
+    def test_kernel_mode_sets_firewall_mode_auto_for_nftables_hosts(self):
+        v, _e = parsed(exit="1")
+        self.assertIn("TS_DEBUG_FIREWALL_MODE=auto", docker_tab.docker_run(URL, v, ""))
+        self.assertIn("TS_DEBUG_FIREWALL_MODE=auto", docker_tab.compose(URL, v, ""))
+        u, _e = parsed(userspace="1", exit="1")  # userspace mode has no firewall
+        self.assertNotIn("FIREWALL_MODE", docker_tab.docker_run(URL, u, ""))
+        self.assertNotIn("FIREWALL_MODE", docker_tab.compose(URL, u, ""))
+
     def test_userspace_needs_no_device_or_capabilities(self):
         v, _e = parsed(userspace="1", exit="1")
         run = docker_tab.docker_run(URL, v, "")
@@ -90,7 +108,11 @@ class Snippets(unittest.TestCase):
     def test_compose_is_valid_json_quoted_yaml(self):
         v, _e = parsed(hostname="edge-1")
         yml = docker_tab.compose(URL, v, 'k"ey: x')
-        self.assertIn(json.dumps('TS_AUTHKEY=k"ey: x'), yml)  # quoted, so the colon and quote cannot break the YAML
+        self.assertNotIn('k"ey', yml)  # the key never sits in the compose file
+        self.assertIn(json.dumps("TS_AUTHKEY=${TS_AUTHKEY}"), yml)  # it is read from .env
+        self.assertEqual(docker_tab.env_file("fake-authkey-one"), "TS_AUTHKEY=fake-authkey-one\n")
+        self.assertEqual(docker_tab.env_file(""), "TS_AUTHKEY=<auth-key>\n")
+        self.assertEqual(docker_tab.env_file("a b"), "TS_AUTHKEY='a b'\n")
 
     def test_validation(self):
         for form in ({"hostname": "bad name"}, {"hostname": "a;rm -rf /"}, {"hostname": "-x"}, {"hostname": "x" * 64},
@@ -159,7 +181,8 @@ class Page(Base):
     def test_member_key_is_single_use_short_and_theirs(self):
         status, _h, body = self.post(MEMBER, generate="1", days="7", user_id="9")  # a member cannot pick another owner
         self.assertEqual(status, 200)
-        self.assertIn("TS_AUTHKEY=fake-authkey-two", body)
+        self.assertIn("TS_AUTHKEY=fake-authkey-two", body)  # docker run and the .env block
+        self.assertIn("TS_AUTHKEY=${TS_AUTHKEY}", body)  # the compose file only references it
         method, path, payload = self.api.call_args.args[:3]
         self.assertEqual((method, path), ("POST", "/preauthkey"))
         self.assertEqual((payload["user"], payload["reusable"], payload["ephemeral"]), ("2", False, False))

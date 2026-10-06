@@ -81,6 +81,8 @@ class Machine:
         self.exit_node_approved = bool(self.approved & EXIT_ROUTES)
         self.subnets = sorted(available - EXIT_ROUTES)
         self.subnets_pending = any(r not in self.approved for r in self.subnets)
+        self.exit_pending = self.exit_node and not self.exit_node_approved
+        self.routes_pending = self.subnets_pending or self.exit_pending
         self.ephemeral = bool((node.get("preAuthKey") or {}).get("ephemeral"))
         self.register = {"REGISTER_METHOD_OIDC": _("Browser sign-in"),
                          "REGISTER_METHOD_AUTH_KEY": _("Auth key"),
@@ -102,11 +104,11 @@ class Machine:
         elif self.expiry_disabled:
             out.append(badge(_("Expiry disabled")))
         if self.subnets:
-            out.append(badge(_("Subnets"), "orange", _("This machine has unapproved routes."))
+            out.append(badge(_("Subnets - pending approval"), "orange", _("This machine has unapproved routes."))
                        if self.subnets_pending else badge(_("Subnets"), "blue"))
         if self.exit_node:
             out.append(badge(_("Exit Node"), "blue") if self.exit_node_approved
-                       else badge(_("Exit Node"), "orange", _("This machine is not yet approved as an exit node.")))
+                       else badge(_("Exit Node - pending approval"), "orange", _("This machine is not yet approved as an exit node.")))
         if self.ephemeral:
             out.append(badge(_("Ephemeral")))
         out += [badge(t, "tag") for t in self.tags]
@@ -116,6 +118,24 @@ class Machine:
 # -----------------------------------------------------------------------------
 # Machines
 # -----------------------------------------------------------------------------
+
+def approve_routes_form(m: Machine, session: dict, detail: bool = False, css: str = "") -> str:
+    """One-click approval of every route the machine advertises."""
+    back = "machines/" + m.id if detail else "machines"
+    cls = f' class="{css}"' if css else ""
+    return (f'''<form method="post" action="{BASE}/machines/{m.id}/approve-routes">{csrf_input(session)}
+        <input type="hidden" name="back" value="{back}">
+        <button type="submit"{cls}>{esc(_("Approve routes"))}</button></form>''')
+
+
+def pending_routes_banner(machines: list[Machine]) -> str:
+    n = sum(1 for m in machines if m.routes_pending)
+    if not n:
+        return ""
+    return f'<div data-pending-routes="{n}">' + notice(
+        "warn", ngettext("{n} machine has routes waiting for approval.",
+                         "{n} machines have routes waiting for approval.", n)) + "</div>"
+
 
 def machine_menu(m: Machine, session: dict, detail: bool = False) -> str:
     admin = session.get("admin")
@@ -127,6 +147,8 @@ def machine_menu(m: Machine, session: dict, detail: bool = False) -> str:
         items.append(f'<button type="button" data-open="rename-{m.id}">{esc(_("Edit machine name…"))}</button>')
         if admin:
             items.append(f'<button type="button" data-open="tags-{m.id}">{esc(_("Edit ACL tags…"))}</button>')
+            if m.routes_pending:
+                items.append(approve_routes_form(m, session, detail))
             if m.exit_node or m.subnets:
                 items.append(f'<a href="{BASE}/machines/{m.id}#routes">{esc(_("Edit route settings…"))}</a>')
         items.append(f'<button type="button" data-open="expire-{m.id}">{esc(_("Expire key…"))}</button>')
@@ -286,6 +308,7 @@ def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: b
                      add, (_("See how to manage devices"), docs_url("operations/#managing-machines")))
     head += register_dialog(session, users or []) if admin else ""
     head += notice("error", error) if error else ""
+    head += pending_routes_banner(machines) if admin else ""
     head += flash_html(flash) or expiry.flash_html(flash) or bulk_flash_html(flash)
 
     if not machines:
@@ -449,7 +472,8 @@ def routes_section(m: Machine, session: dict) -> str:
             f'<label class="check route"><input type="checkbox" name="route" value="{esc(v)}" {"checked" if ok else ""}>'
             f'<span><b>{esc(kind)}</b> <code>{esc(r)}</code></span></label>'
             for kind, r, ok, v in rows)
-        return f"""
+        approve = f"<div>{approve_routes_form(m, session, True, 'btn small')}</div>" if m.routes_pending else ""
+        return f"""{approve}
         <form method="post" action="{BASE}/machines/{m.id}/routes" class="stack">{csrf_input(session)}
           <input type="hidden" name="back" value="machines/{m.id}">
           <p class="muted small">{esc(_("Tick the routes this machine may offer to the tailnet."))}</p>
