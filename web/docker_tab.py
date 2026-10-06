@@ -23,6 +23,10 @@ EXIT_ROUTES = ["0.0.0.0/0", "::/0"]
 DEFAULTS = {"hostname": "tailscale-docker", "exit": False, "routes": "", "userspace": False, "dns": True,
             "generate": False, "days": "1", "user_id": ""}
 PLACEHOLDER = "<auth-key>"
+# Image tags the snippets can pin; the first is the tested one (the exit node and firewall behaviour was
+# verified on it) and the default. "latest" is offered last, on purpose: it changes under the person's feet.
+TS_VERSIONS = ("v1.102.5", "latest")
+DEFAULTS["version"] = TS_VERSIONS[0]
 
 
 def parse(form: dict) -> tuple[dict, str]:
@@ -35,6 +39,7 @@ def parse(form: dict) -> tuple[dict, str]:
     values["generate"] = form.get("generate") == "1"
     values["days"] = str(form.get("days", "1")) if str(form.get("days", "1")) in KEY_DAYS else "1"
     values["user_id"] = str(form.get("user_id", ""))
+    values["version"] = str(form.get("version", "")) if str(form.get("version", "")) in TS_VERSIONS else TS_VERSIONS[0]
     raw = str(form.get("routes", ""))
     values["routes"] = raw[:400]
     error = ""
@@ -95,14 +100,14 @@ def docker_run(url: str, v: dict, key: str) -> str:
         lines += ["  --sysctl net.ipv4.ip_forward=1", "  --sysctl net.ipv6.conf.all.forwarding=1"]
     lines += [f"  -v {q(name)}:/var/lib/tailscale"]
     lines += [f"  -e {q(e) if not e.endswith(PLACEHOLDER) else e}" for e in _env(url, v, key)]
-    lines += ["  tailscale/tailscale:latest"]
+    lines += [f"  tailscale/tailscale:{v['version']}"]
     return " \\\n".join(lines)
 
 
 def compose(url: str, v: dict, key: str) -> str:
     name = "tailscale-" + v["hostname"]
     j = json.dumps  # a JSON string is a valid, safely quoted YAML scalar
-    out = ["services:", "  tailscale:", "    image: tailscale/tailscale:latest",
+    out = ["services:", "  tailscale:", f"    image: tailscale/tailscale:{v['version']}",
            f"    container_name: {j(name)}", f"    hostname: {j(v['hostname'])}", "    restart: unless-stopped",
            "    environment:"]
     out += [f"      - {j(e)}" for e in _env(url, v, key)]
@@ -162,6 +167,8 @@ def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: 
         who = f'<label class="field">{esc(_("Owner of the device"))}<select name="user_id">{options}</select></label>'
     days = "".join(f'<option value="{d}"{" selected" if d == v["days"] else ""}>{esc(_("{n} days", n=d) if d != "1" else _("1 day"))}</option>'
                    for d in KEY_DAYS)
+    versions = "".join(f'<option value="{t}"{" selected" if t == v["version"] else ""}>'
+                       f'{esc(t if t != "latest" else _("latest (not pinned)"))}</option>' for t in TS_VERSIONS)
     form = f"""
     <form method="post" action="{BASE}/add/docker" class="stack">{csrf_input(session)}
       <label class="field">{esc(_("Host name"))}<input name="hostname" value="{esc(v['hostname'])}" maxlength="63"
@@ -175,6 +182,7 @@ def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: 
       <label class="check"><input type="checkbox" name="dns" value="1"{chk(v['dns'])}>
         <span>{esc(_("Use this tailnet's DNS settings"))}</span></label>
       {who}
+      <label class="field">{esc(_("Tailscale version"))}<select name="version">{versions}</select></label>
       <label class="check"><input type="checkbox" name="generate" value="1"{chk(v['generate'])}>
         <span>{esc(_("Generate a single-use auth key"))}</span></label>
       <label class="field">{esc(_("The key is valid for"))}<select name="days">{days}</select></label>
