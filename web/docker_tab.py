@@ -112,8 +112,28 @@ def compose(url: str, v: dict, key: str) -> str:
     return "\n".join(out) + "\n"
 
 
+# Tailscale's own "Use exit nodes" guide: IP forwarding on a Linux host that has a /etc/sysctl.d directory
+FORWARDING_CMDS = ("echo 'net.ipv4.ip_forward = 1' | sudo tee -a /etc/sysctl.d/99-tailscale.conf\n"
+                   "echo 'net.ipv6.conf.all.forwarding = 1' | sudo tee -a /etc/sysctl.d/99-tailscale.conf\n"
+                   "sudo sysctl -p /etc/sysctl.d/99-tailscale.conf")
+
+
 def _code(text: str) -> str:
     return f'<div class="code"><code class="pre">{esc(text)}</code>{copy_btn(text)}</div>'
+
+
+def _tips(v: dict) -> str:
+    """What to try when an exit node or a subnet router does not route (kernel networking only)."""
+    if not _forwarding(v):
+        return ""
+    return f"""
+    <details class="stack"><summary>{esc(_("If the exit node or the routes do not work"))}</summary>
+      <ol class="steps">
+        <li>{esc(_("Approve it: open the machine in Machines and enable the exit node or the routes, unless the policy approves them automatically."))}</li>
+        <li>{esc(_("Enable IP forwarding, IPv4 and IPv6, on the host too, then restart the container:"))}{_code(FORWARDING_CMDS)}</li>
+        <li>{esc(_("If the host cannot give the container /dev/net/tun, tick “Userspace networking” above: it works everywhere, with lower performance."))}</li>
+      </ol>
+    </details>"""
 
 
 def loopback(url: str) -> bool:
@@ -180,4 +200,5 @@ def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: 
       <li>{esc(_("Or save this as docker-compose.yml and run docker compose up -d:"))}{_code(compose(url, v, key))}</li>
       <li>{_("Without an auth key, leave TS_AUTHKEY out and run {cmd}: it prints a link to sign in.", cmd=f"<code>docker logs {esc(name)}</code>")}</li>
     </ol>
+    {_tips(v)}
     {key_note}"""
