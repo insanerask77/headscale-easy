@@ -173,8 +173,8 @@ through_exit() {
     done
     return 1
 }
-via_target() { docker exec "$CLIENT" wget -qO- -T 8 "http://$TARGET_IP/" 2>/dev/null | grep -qF "$TOKEN"; }
-client_has_route() { docker exec "$CLIENT" ip route show table 52 | grep -q "$1"; }
+via_target() { local out; out=$(docker exec "$CLIENT" wget -qO- -T 8 "http://$TARGET_IP/" 2>/dev/null); grep -qF "$TOKEN" <<<"$out"; }
+client_has_route() { local out; out=$(docker exec "$CLIENT" ip route show table 52); grep -q "$1" <<<"$out"; }
 client_reset() { cli set --exit-node= --accept-routes=false >/dev/null 2>&1; }
 
 # select_exit <hostname>: the client picks that machine as its exit node, retrying while the netmap catches up
