@@ -22,6 +22,11 @@
   <a href="README.md">English</a> · <b>Español</b>
 </p>
 
+> [!IMPORTANT]
+> **Headscale Easy 1.x está discontinuada** desde la 2.0.0 (6 de octubre de 2026): no recibe más correcciones,
+> tampoco de seguridad. No hay actualización en el sitio; instala la 2.0 como un despliegue nuevo. Consulta
+> [1.x está discontinuada](https://insanerask77.github.io/headscale-easy/es/1x-end-of-life/).
+
 > [!WARNING]
 > **Aviso de seguridad.** Es software de red sensible en seguridad y un
 > proyecto joven (septiembre de 2026) con un solo mantenedor. Se ha usado

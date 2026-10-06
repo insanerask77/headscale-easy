@@ -34,6 +34,9 @@ ALLOWED = [
      "PostgreSQL's legacy MD5 password method, refused"),
     (r"^(CONTRIBUTING\.md|mkdocs\.yml)$", r"(?i)preview locally", "mkdocs serve shows a local preview of the docs"),
     (r"^web/notify\.py$", r"disable_web_page_preview", "a parameter of Telegram's API"),
+    (r"^(README(\.es)?\.md|SECURITY\.md|CHANGELOG\.md|mkdocs\.yml|docs/1x-end-of-life(\.es)?\.md)$",
+     r"(?i)1\.x|install\.sh|installer|instalador|migrat",
+     "the end-of-life notice of 1.x, the only place that may name it"),
     (r"^docs/operations(\.es)?\.md$", r"(?i)uninstalling|desinstalar", "how to remove the app and its data"),
 ]
 
