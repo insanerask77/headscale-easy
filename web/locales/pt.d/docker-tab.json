@@ -5,6 +5,8 @@
   "At most {n} routes.": "No máximo {n} rotas.",
   "Auth key generated. It is in the snippets below and is not shown again: copy them now.": "Chave de autenticação gerada. Está nos excertos abaixo e não volta a ser mostrada: copie-os agora.",
   "Without an auth key, leave TS_AUTHKEY out and run {cmd}: it prints a link to sign in.": "Sem chave de autenticação, retire TS_AUTHKEY e execute {cmd}: mostra uma ligação para iniciar sessão.",
+  "The auth key is not in that file. Save it next to it as .env:": "A chave de autenticação não está nesse ficheiro. Guarde-a ao lado como .env:",
+  "After the first successful start, delete the TS_AUTHKEY line from .env: the container keeps its own identity. Revoke keys you did not use in Settings → Keys.": "Após o primeiro arranque bem-sucedido, apague a linha TS_AUTHKEY de .env: o contentor mantém a sua própria identidade. Revogue as chaves não usadas em Definições → Chaves.",
   "Host name": "Nome de anfitrião",
   "Offer to be an exit node": "Oferecer-se como nó de saída",
   "Subnet routes to advertise (optional)": "Rotas de sub-rede a anunciar (opcional)",
