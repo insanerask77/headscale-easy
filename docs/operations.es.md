@@ -1,10 +1,5 @@
 # Operación
 
-!!! note "Nombre del contenedor"
-    Los comandos usan el nombre de la guía rápida, `headscale-easy`. Si usaste el
-    instalador o `deploy/compose/`, el contenedor se llama `headscale-easy-aio`:
-    cámbialo, o ejecuta `docker compose exec headscale-easy …` desde el directorio del compose.
-
 ## Usuarios y admins { #users-and-admins }
 
 Headscale Easy tiene cuatro roles:

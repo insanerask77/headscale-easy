@@ -21,7 +21,7 @@
 set -euo pipefail
 
 YES=false; DIR="${HSE_DIR:-./headscale-easy}"; INSTALL_DOCKER=false; NO_PULL=false
-CONTAINER=headscale-easy-aio
+CONTAINER=headscale-easy
 # Where answers are read from: the terminal even when the script itself arrives on stdin (curl | bash)
 INPUT="${HSE_INSTALL_INPUT:-/dev/tty}"
 
@@ -115,12 +115,12 @@ write_compose() {
 # One container does everything: Headscale, Caddy (HTTPS) and the web console. What
 # you add around it (an identity provider, PostgreSQL, a proxy in front) is in
 # ../examples/. Reference for every variable: docs/all-in-one.md.
-name: headscale-easy-aio
+name: headscale-easy
 
 services:
   headscale-easy:
-    image: ghcr.io/insanerask77/headscale-easy-aio:${HSE_VERSION:-latest}
-    container_name: headscale-easy-aio
+    image: ghcr.io/insanerask77/headscale-easy:${HSE_VERSION:-latest}
+    container_name: headscale-easy
     restart: unless-stopped
     env_file: .env
     ports:

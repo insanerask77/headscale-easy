@@ -61,7 +61,7 @@ services:
       - no-new-privileges:true
 
   headscale-easy:
-    image: ghcr.io/insanerask77/headscale-easy-aio:${HSE_VERSION:-latest}
+    image: ghcr.io/insanerask77/headscale-easy:${HSE_VERSION:-latest}
     container_name: hse-pocketid-aio
     restart: unless-stopped
     environment:

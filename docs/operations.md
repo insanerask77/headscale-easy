@@ -1,10 +1,5 @@
 # Operations
 
-!!! note "Container name"
-    The commands use the name from the quick start, `headscale-easy`. If you used the
-    installer or `deploy/compose/`, the container is called `headscale-easy-aio`:
-    replace it, or run `docker compose exec headscale-easy …` from the compose directory.
-
 ## Users and admins
 
 Headscale Easy has four roles:

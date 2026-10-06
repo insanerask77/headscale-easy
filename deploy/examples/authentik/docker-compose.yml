@@ -45,7 +45,7 @@ x-authentik-env: &authentik-env
 
 services:
   headscale-easy:
-    image: ghcr.io/insanerask77/headscale-easy-aio:${HSE_VERSION:-latest}
+    image: ghcr.io/insanerask77/headscale-easy:${HSE_VERSION:-latest}
     container_name: hse-authentik-aio
     restart: unless-stopped
     environment:
