@@ -3,9 +3,9 @@
 #
 # The all-in-one image next to an Authentik of its own. Authentik is served under
 # /authentik/ of the same domain, through the image's Caddy (HSE_AUTHENTIK_UPSTREAM):
-# that keeps the issuer URL .../authentik/application/o/headscale/ identical to what the
-# 1.x stack used, and Headscale identifies every user by that URL. README.md has the steps,
-# including how to move an existing 1.x stack here without re-creating anybody.
+# that keeps one public address for the console, Headscale and the issuer URL
+# .../authentik/application/o/headscale/, which Headscale uses to identify every user.
+# Authentik only signs people in; README.md has the steps.
 #
 #   cp .env.example .env     # fill in the secrets (the file says how)
 #   docker compose up -d
@@ -30,18 +30,9 @@ x-authentik-env: &authentik-env
   HEADSCALE_PUBLIC_URL: ${HSE_PUBLIC_URL:-}
   OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-headscale}
   OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
-  # The blueprint also describes the 1.x console's own client; this image does not use it
-  PORTAL_OIDC_CLIENT_ID: headscale-easy
-  PORTAL_OIDC_CLIENT_SECRET: ${PORTAL_OIDC_CLIENT_SECRET:-}
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-  # Two-factor: admins (required for admins), everyone, optional. Only the initial value:
-  # administrators change it afterwards.
-  MFA_REQUIRED: ${MFA_REQUIRED:-admins}
-  # API token of the service account the console uses (invitations, resets, two-factor mode)
-  PORTAL_AUTHENTIK_TOKEN: ${AUTHENTIK_API_TOKEN:-}
-  # Outgoing email (optional; empty = off): "Forgot password?" on the sign-in page
-  SMTP_HOST: ${SMTP_HOST:-}
+  # Outgoing email (optional): Authentik's own messages (password reset, if you set that flow up)
   AUTHENTIK_EMAIL__HOST: ${SMTP_HOST:-localhost}
   AUTHENTIK_EMAIL__PORT: ${SMTP_PORT:-587}
   AUTHENTIK_EMAIL__USERNAME: ${SMTP_USERNAME:-}
@@ -69,11 +60,8 @@ services:
       OIDC_ISSUER: ${HSE_PUBLIC_URL:-}/authentik/application/o/headscale/
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-headscale}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
-      # Caddy routes /authentik/* to Authentik (and /add-user to its add-user form)
+      # Caddy routes /authentik/* to Authentik
       HSE_AUTHENTIK_UPSTREAM: authentik-server:9000
-      # The console's Authentik mode: invitations, password resets, two-factor mode
-      AUTHENTIK_URL: http://authentik-server:9000/authentik
-      AUTHENTIK_API_TOKEN: ${AUTHENTIK_API_TOKEN:-}
       PORTAL_ADMIN_EMAILS: ${PORTAL_ADMIN_EMAILS:-}
     # Headscale reads the issuer's configuration at start-up and Headscale and the console both ask
     # for it at the public address: that name has to lead back to the image's own Caddy.

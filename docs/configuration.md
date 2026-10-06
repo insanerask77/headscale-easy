@@ -53,9 +53,9 @@ Every variable the image reads. The ones marked *wizard* are also asked by the
 |---|---|---|
 | `HSE_ADMIN_EMAIL`, `HSE_ADMIN_PASSWORD` | | First administrator, created on first start if no account exists. *wizard* |
 | `HSE_SIGNUP` | `off` | Self-registration: `off`, `invite` (needs an invitation key) or `open`. *wizard* |
-| `MFA_REQUIRED` | `admins` | Who must set up two-factor: `admins`, `everyone` or `optional`. Admins change it later in **Settings → General** |
+| `MFA_REQUIRED` | `admins` | Who must set up two-factor: `admins`, `everyone` or `optional`. Set it here; it is not changed from the console |
 | `SESSION_SECRET` | *(generated)* | Signs console sessions. Generated and kept in `/data/config/session-secret` when empty |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `SMTP_USE_SSL`, `SMTP_FROM` | | Optional mail server, to e-mail invitations and password-reset links |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `SMTP_USE_SSL`, `SMTP_FROM` | | Reserved for e-mailing links: the console does not send e-mail yet, so copy the links and send them privately |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | | Sign in with an external OIDC provider: see [Sign-in](#sign-in) |
 | `OIDC_SCOPE` | `openid profile email` | Scopes asked by the console and Headscale |
 | `HSE_OIDC_ALLOWED_DOMAINS`, `HSE_OIDC_ALLOWED_USERS`, `HSE_OIDC_ALLOWED_GROUPS` | | Who may sign in through the provider (comma-separated; empty = everyone the provider lets in) |
@@ -154,8 +154,7 @@ There are three ways to sign in to the console, and they combine:
 - **Users → ⋯ → Password reset link…** makes a single-use link (1 hour, 24 hours
   or 7 days). **Set password** sets a temporary one that the person must
   change at the next sign-in, and signs their open sessions out.
-- With an SMTP server (`SMTP_*`) the console can e-mail invitations and reset
-  links. Without one, copy the link and send it privately.
+- The console does not send e-mail: copy the link and send it privately.
 - Passwords have at least 8 characters and are stored as salted hashes. Failed
   sign-ins are rate limited per address.
 - **Self-registration** from the sign-in page is `off`, `invite` or `open`
@@ -186,9 +185,8 @@ send a `groups` claim (the default `profile` scope usually includes it).
 ### Two-factor authentication
 
 Local accounts can ask for a second factor after the password: an authenticator
-app (TOTP), with recovery codes. Admins choose who must use it in
-**Settings → General → Two-factor authentication** (`MFA_REQUIRED` is the initial
-value):
+app (TOTP), with recovery codes. The administrator chooses who must use it with
+`MFA_REQUIRED`:
 
 | `MFA_REQUIRED` | Behaviour |
 |---|---|

@@ -53,9 +53,9 @@ Todas las variables que lee la imagen. Las marcadas *asistente* también las pre
 |---|---|---|
 | `HSE_ADMIN_EMAIL`, `HSE_ADMIN_PASSWORD` | | Primer administrador, creado en el primer arranque si no hay ninguna cuenta. *asistente* |
 | `HSE_SIGNUP` | `off` | Auto-registro: `off`, `invite` (pide una clave de invitación) u `open`. *asistente* |
-| `MFA_REQUIRED` | `admins` | Quién debe configurar la verificación en dos pasos: `admins`, `everyone` u `optional`. Los admins lo cambian después en **Ajustes → General** |
+| `MFA_REQUIRED` | `admins` | Quién debe configurar la verificación en dos pasos: `admins`, `everyone` u `optional`. Se define aquí; no se cambia desde la consola |
 | `SESSION_SECRET` | *(generado)* | Firma las sesiones de la consola. Si está vacío se genera y se guarda en `/data/config/session-secret` |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `SMTP_USE_SSL`, `SMTP_FROM` | | Servidor de correo opcional, para enviar invitaciones y enlaces de restablecimiento |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `SMTP_USE_SSL`, `SMTP_FROM` | | Reservado para enviar enlaces por correo: la consola aún no envía correo, así que copia los enlaces y envíalos en privado |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | | Iniciar sesión con un proveedor OIDC externo: ver [Inicio de sesión](#sign-in) |
 | `OIDC_SCOPE` | `openid profile email` | Scopes que piden la consola y Headscale |
 | `HSE_OIDC_ALLOWED_DOMAINS`, `HSE_OIDC_ALLOWED_USERS`, `HSE_OIDC_ALLOWED_GROUPS` | | Quién puede entrar con el proveedor (separado por comas; vacío = todos los que el proveedor deje pasar) |
@@ -154,8 +154,7 @@ Hay tres maneras de entrar en la consola, y se combinan:
 - **Usuarios → ⋯ → Enlace de restablecimiento…** crea un enlace de un solo uso (1 hora,
   24 horas o 7 días). **Establecer contraseña** pone una temporal que la persona debe
   cambiar en su próximo inicio de sesión, y cierra sus sesiones abiertas.
-- Con un servidor SMTP (`SMTP_*`) la consola puede enviar por correo las invitaciones y
-  los enlaces. Sin él, copia el enlace y envíalo en privado.
+- La consola no envía correo: copia el enlace y envíalo en privado.
 - Las contraseñas tienen al menos 8 caracteres y se guardan como hashes con sal. Los
   inicios de sesión fallidos tienen límite de intentos por dirección.
 - El **auto-registro** desde la página de inicio de sesión es `off`, `invite` u `open`
@@ -185,8 +184,8 @@ Admin tiene prioridad si alguien está en varios grupos. Tu proveedor debe envia
 ### Verificación en dos pasos { #two-factor-authentication }
 
 Las cuentas locales pueden pedir un segundo factor tras la contraseña: una app
-autenticadora (TOTP), con códigos de recuperación. Los admins eligen quién debe usarlo en
-**Ajustes → General → Verificación en dos pasos** (`MFA_REQUIRED` es el valor inicial):
+autenticadora (TOTP), con códigos de recuperación. El administrador elige quién debe usarlo con
+`MFA_REQUIRED`:
 
 | `MFA_REQUIRED` | Comportamiento |
 |---|---|
