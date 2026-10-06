@@ -22,5 +22,13 @@
   "If the exit node or the routes do not work": "Wenn der Exit-Node oder die Routen nicht funktionieren",
   "Approve it: open the machine in Machines and enable the exit node or the routes, unless the policy approves them automatically.": "Genehmigen Sie ihn: Öffnen Sie das Gerät unter Geräte und aktivieren Sie den Exit-Node oder die Routen, es sei denn, die Richtlinie genehmigt sie automatisch.",
   "Enable IP forwarding, IPv4 and IPv6, on the host too, then restart the container:": "Aktivieren Sie auch die IP-Weiterleitung, IPv4 und IPv6, auf dem Host und starten Sie den Container neu:",
-  "If the host cannot give the container /dev/net/tun, tick “Userspace networking” above: it works everywhere, with lower performance.": "Wenn der Host dem Container /dev/net/tun nicht geben kann, aktivieren Sie oben „Userspace-Netzwerk“: Es funktioniert überall, mit geringerer Leistung."
+  "If the host cannot give the container /dev/net/tun, tick “Userspace networking” above: it works everywhere, with lower performance.": "Wenn der Host dem Container /dev/net/tun nicht geben kann, aktivieren Sie oben „Userspace-Netzwerk“: Es funktioniert überall, mit geringerer Leistung.",
+  "Invalid exit node.": "Ungültiger Exit-Node.",
+  "A device cannot offer to be an exit node and use one at the same time.": "Ein Gerät kann nicht gleichzeitig Exit-Node anbieten und einen nutzen.",
+  "Accept subnet routes from other devices": "Subnetz-Routen anderer Geräte akzeptieren",
+  "Use exit node": "Exit-Node verwenden",
+  "None": "Keiner",
+  "Changing these options later": "Diese Optionen später ändern",
+  "The environment is only read on the first start. On a container that already runs, apply a change with:": "Die Umgebung wird nur beim ersten Start gelesen. Bei einem bereits laufenden Container wenden Sie eine Änderung so an:",
+  "With an exit node, all traffic goes through it, including the lookup of this server’s name: the tailnet’s DNS must be able to resolve it, or the container cannot reach the server again.": "Mit einem Exit-Node läuft der gesamte Verkehr darüber, auch die Namensauflösung dieses Servers: Das DNS des Tailnets muss ihn auflösen können, sonst erreicht der Container den Server nicht mehr."
 }

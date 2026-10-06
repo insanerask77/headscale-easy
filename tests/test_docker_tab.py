@@ -53,6 +53,24 @@ class Snippets(unittest.TestCase):
             self.assertIn(part, run)
         self.assertIn("sysctls:", docker_tab.compose(URL, v, ""))
 
+    def test_client_options_go_to_the_extra_args_and_the_set_command(self):
+        v, err = parsed(hostname="edge-1", accept_routes="1", use_exit="100.64.0.7", dns="1")
+        self.assertEqual(err, "")
+        run = docker_tab.docker_run(URL, v, "")
+        self.assertIn("--accept-routes", run)
+        self.assertIn("--exit-node=100.64.0.7 --exit-node-allow-lan-access", run)
+        self.assertNotIn("--advertise-exit-node", run)
+        self.assertIn("tailscale set --accept-routes=true --exit-node=100.64.0.7", docker_tab.set_cmd(v))
+        self.assertIn("tailscale-edge-1", docker_tab.set_cmd(v))
+        self.assertIn("resolve it", docker_tab._client_tips(v))
+        plain, _e = parsed(hostname="edge-1")
+        self.assertNotIn("--accept-routes", docker_tab.docker_run(URL, plain, ""))
+        self.assertEqual(docker_tab._client_tips(plain), "")
+
+    def test_client_option_validation(self):
+        self.assertEqual(parsed(use_exit="1.2.3.4; rm -rf /")[1], "Invalid exit node.")
+        self.assertIn("at the same time", parsed(exit="1", use_exit="100.64.0.7")[1])
+
     def test_kernel_exit_node_gets_the_troubleshooting_tips_from_the_docs(self):
         v, _e = parsed(exit="1")
         html = docker_tab.panel({"csrf": "tok"}, URL, v)
@@ -139,6 +157,16 @@ class Page(Base):
         self.assertEqual(status, 200)
         self.assertIn("--advertise-exit-node", body)
         self.assertEqual(self.api.call_count, 0)  # no key unless asked
+
+    def test_exit_node_must_be_one_the_person_may_see(self):
+        node = {"givenName": "gw", "ipAddresses": ["100.64.0.7", "fd7a::7"], "approvedRoutes": ["0.0.0.0/0", "::/0"],
+                "user": {"id": "9"}}
+        with mock.patch.object(hs, "all_nodes", lambda: [node]):
+            status, _h, body = self.post(ADMIN, use_exit="100.64.0.7", accept_routes="1")
+            self.assertEqual(status, 200)
+            self.assertIn("--exit-node=100.64.0.7", body)
+            self.assertEqual(self.post(ADMIN, use_exit="100.64.0.8")[0], 400)
+            self.assertEqual(self.post(MEMBER, use_exit="100.64.0.7")[0], 400)  # not their device
 
     def test_invalid_input_is_rejected_and_makes_no_key(self):
         status, _h, body = self.post(MEMBER, hostname="a b", generate="1")

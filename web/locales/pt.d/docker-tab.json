@@ -22,5 +22,13 @@
   "If the exit node or the routes do not work": "Se o exit node ou as rotas não funcionarem",
   "Approve it: open the machine in Machines and enable the exit node or the routes, unless the policy approves them automatically.": "Aprove-o: abra a máquina em Máquinas e ative o exit node ou as rotas, a menos que a política os aprove automaticamente.",
   "Enable IP forwarding, IPv4 and IPv6, on the host too, then restart the container:": "Ative também o encaminhamento de IP, IPv4 e IPv6, no anfitrião e reinicie o contentor:",
-  "If the host cannot give the container /dev/net/tun, tick “Userspace networking” above: it works everywhere, with lower performance.": "Se o anfitrião não puder dar /dev/net/tun ao contentor, marque «Rede em espaço de utilizador» acima: funciona em qualquer lado, com menos desempenho."
+  "If the host cannot give the container /dev/net/tun, tick “Userspace networking” above: it works everywhere, with lower performance.": "Se o anfitrião não puder dar /dev/net/tun ao contentor, marque «Rede em espaço de utilizador» acima: funciona em qualquer lado, com menos desempenho.",
+  "Invalid exit node.": "Nó de saída inválido.",
+  "A device cannot offer to be an exit node and use one at the same time.": "Um dispositivo não pode oferecer-se como nó de saída e usar um ao mesmo tempo.",
+  "Accept subnet routes from other devices": "Aceitar rotas de sub-rede de outros dispositivos",
+  "Use exit node": "Usar nó de saída",
+  "None": "Nenhum",
+  "Changing these options later": "Alterar estas opções mais tarde",
+  "The environment is only read on the first start. On a container that already runs, apply a change with:": "O ambiente só é lido no primeiro arranque. Num contentor que já está a correr, aplique uma alteração com:",
+  "With an exit node, all traffic goes through it, including the lookup of this server’s name: the tailnet’s DNS must be able to resolve it, or the container cannot reach the server again.": "Com um nó de saída, todo o tráfego passa por ele, incluindo a resolução do nome deste servidor: o DNS da tailnet tem de o conseguir resolver, ou o contentor deixa de alcançar o servidor."
 }

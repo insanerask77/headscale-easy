@@ -20,7 +20,7 @@ HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 MAX_ROUTES = 20
 KEY_DAYS = ("1", "7")  # short on purpose: the container keeps its own state after the first start
 DEFAULTS = {"hostname": "tailscale-docker", "exit": False, "routes": "", "userspace": False, "dns": True,
-            "generate": False, "days": "1", "user_id": ""}
+            "generate": False, "days": "1", "user_id": "", "accept_routes": False, "use_exit": ""}
 PLACEHOLDER = "<auth-key>"
 
 
@@ -32,6 +32,8 @@ def parse(form: dict) -> tuple[dict, str]:
     values["userspace"] = form.get("userspace") == "1"
     values["dns"] = form.get("dns") == "1"
     values["generate"] = form.get("generate") == "1"
+    values["accept_routes"] = form.get("accept_routes") == "1"
+    values["use_exit"] = str(form.get("use_exit", "")).strip()[:45]
     values["days"] = str(form.get("days", "1")) if str(form.get("days", "1")) in KEY_DAYS else "1"
     values["user_id"] = str(form.get("user_id", ""))
     raw = str(form.get("routes", ""))
@@ -39,6 +41,14 @@ def parse(form: dict) -> tuple[dict, str]:
     error = ""
     if not HOSTNAME_RE.fullmatch(values["hostname"]):
         error = _("Invalid host name: lowercase letters, digits and dashes only (max. 63).")
+    if not error and values["use_exit"]:
+        try:
+            values["use_exit"] = str(ipaddress.ip_address(values["use_exit"]))
+        except ValueError:
+            error = _("Invalid exit node.")
+        else:
+            if values["exit"]:
+                error = _("A device cannot offer to be an exit node and use one at the same time.")
     routes, bad = [], ""
     for part in re.split(r"[\s,]+", raw.strip()):
         if not part:
@@ -62,6 +72,10 @@ def _ts_args(url: str, v: dict) -> str:
     args = [f"--login-server={url}"]
     if v["exit"]:
         args.append("--advertise-exit-node")
+    if v["accept_routes"]:
+        args.append("--accept-routes")
+    if v["use_exit"]:
+        args += [f"--exit-node={v['use_exit']}", "--exit-node-allow-lan-access"]
     return " ".join(args)
 
 
@@ -122,6 +136,29 @@ def _code(text: str) -> str:
     return f'<div class="code"><code class="pre">{esc(text)}</code>{copy_btn(text)}</div>'
 
 
+def set_cmd(v: dict) -> str:
+    """`tailscale set` for the client options. TS_EXTRA_ARGS only counts on the first start (the saved
+    identity is kept afterwards), so this is what changes them on a container that already runs."""
+    args = ["--accept-routes=" + ("true" if v["accept_routes"] else "false"),
+            f"--exit-node={v['use_exit']}" if v["use_exit"] else "--exit-node=",
+            "--exit-node-allow-lan-access=" + ("true" if v["use_exit"] else "false")]
+    return f"docker exec tailscale-{v['hostname']} tailscale set " + " ".join(args)
+
+
+def _client_tips(v: dict) -> str:
+    if not (v["accept_routes"] or v["use_exit"]):
+        return ""
+    dns = (f"<li>{esc(_('With an exit node, all traffic goes through it, including the lookup of this server’s name: the tailnet’s DNS must be able to resolve it, or the container cannot reach the server again.'))}</li>"
+           if v["use_exit"] else "")
+    return f"""
+    <details class="stack"><summary>{esc(_("Changing these options later"))}</summary>
+      <ol class="steps">
+        <li>{esc(_("The environment is only read on the first start. On a container that already runs, apply a change with:"))}{_code(set_cmd(v))}</li>
+        {dns}
+      </ol>
+    </details>"""
+
+
 def _tips(v: dict) -> str:
     """What to try when an exit node or a subnet router does not route (kernel networking only)."""
     if not _forwarding(v):
@@ -149,7 +186,7 @@ def loopback(url: str) -> bool:
 
 
 def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: str = "",
-          users: list[dict] | None = None) -> str:
+          users: list[dict] | None = None, exit_nodes: list[dict] | None = None) -> str:
     v = v or dict(DEFAULTS, route_list=[])
     chk = lambda on: " checked" if on else ""  # noqa: E731
     who = ""
@@ -159,6 +196,8 @@ def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: 
         who = f'<label class="field">{esc(_("Owner of the device"))}<select name="user_id">{options}</select></label>'
     days = "".join(f'<option value="{d}"{" selected" if d == v["days"] else ""}>{esc(_("{n} days", n=d) if d != "1" else _("1 day"))}</option>'
                    for d in KEY_DAYS)
+    nodes = "".join(f'<option value="{esc(n["ip"])}"{" selected" if n["ip"] == v["use_exit"] else ""}>'
+                    f'{esc(n["name"])} ({esc(n["ip"])})</option>' for n in exit_nodes or [])
     form = f"""
     <form method="post" action="{BASE}/add/docker" class="stack">{csrf_input(session)}
       <label class="field">{esc(_("Host name"))}<input name="hostname" value="{esc(v['hostname'])}" maxlength="63"
@@ -167,6 +206,9 @@ def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: 
         <span>{esc(_("Offer to be an exit node"))}</span></label>
       <label class="field">{esc(_("Subnet routes to advertise (optional)"))}<input name="routes" value="{esc(v['routes'])}"
         placeholder="192.168.1.0/24, 10.0.0.0/8" autocomplete="off" spellcheck="false"></label>
+      <label class="check"><input type="checkbox" name="accept_routes" value="1"{chk(v['accept_routes'])}>
+        <span>{esc(_("Accept subnet routes from other devices"))}</span></label>
+      <label class="field">{esc(_("Use exit node"))}<select name="use_exit"><option value="">{esc(_("None"))}</option>{nodes}</select></label>
       <label class="check"><input type="checkbox" name="userspace" value="1"{chk(v['userspace'])}>
         <span>{esc(_("Userspace networking (no /dev/net/tun, no extra permissions)"))}</span></label>
       <label class="check"><input type="checkbox" name="dns" value="1"{chk(v['dns'])}>
@@ -200,5 +242,5 @@ def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: 
       <li>{esc(_("Or save this as docker-compose.yml and run docker compose up -d:"))}{_code(compose(url, v, key))}</li>
       <li>{_("Without an auth key, leave TS_AUTHKEY out and run {cmd}: it prints a link to sign in.", cmd=f"<code>docker logs {esc(name)}</code>")}</li>
     </ol>
-    {_tips(v)}
+    {_tips(v)}{_client_tips(v)}
     {key_note}"""
