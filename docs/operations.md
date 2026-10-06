@@ -136,7 +136,7 @@ docker exec headscale-easy headscale -c /data/config/config.yaml --help
 ## Upgrading { #updating }
 
 Every release is a version of one image, and `compose.yaml` pins it
-(`HSE_VERSION`, `2.0.0` by default). An upgrade is three steps, and the data stays in
+(`HSE_VERSION`, `2.0.1` by default). An upgrade is three steps, and the data stays in
 the volumes:
 
 ```bash

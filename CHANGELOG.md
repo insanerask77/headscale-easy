@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [2.0.1] - 2026-10-06
+
+### Fixed
+- Docker tab of Add device: an administrator can generate the single-use auth key the first time. The owner
+  picker used to appear only after an error, so the first attempt failed with "There is no Headscale user to
+  own the key".
+
+### Added
+- Docker tab: with an exit node or routes in kernel networking, a note lists what to try when they do not
+  route, from Tailscale's exit node guide: approve the node, enable IPv4 and IPv6 forwarding on the host, or use
+  userspace networking.
+
 ## [2.0.0] - 2026-10-06
 
 Headscale Easy 2.0 is one container: Headscale, Caddy and the console, supervised together, installed
