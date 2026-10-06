@@ -112,15 +112,8 @@ includes its own console. See the [detailed comparison](https://insanerask77.git
 
 ## 🚀 Quick start
 
-You need a Linux host with Docker (the installer can install it for you) and,
-for real HTTPS, a domain pointing at it.
-
-1. **Clone** the repository.
-2. **Run the installer**: `./install.sh`.
-3. **Configure the domain** and who handles HTTPS.
-4. **Configure sign-in**: built-in Authentik, your own OIDC provider, or none.
-5. **Log in** at `https://your-domain/admin`.
-6. **Connect your first device** with the official Tailscale app.
+You need a Linux host with Docker (the installer can install it) and, for real
+HTTPS, a domain pointing at it.
 
 ```bash
 git clone https://github.com/insanerask77/headscale-easy.git
@@ -128,13 +121,20 @@ cd headscale-easy
 ./install.sh
 ```
 
-The installer asks a handful of questions (language, domain, who handles HTTPS,
-how users sign in), writes the configuration, starts everything and prints your
-URLs and first credentials. Run it again at any time to change settings — your
-data is kept.
+The installer asks the public address, who handles HTTPS (and the Let's Encrypt
+e-mail) and, if you want one, an administrator e-mail; it writes a small `.env` and a
+compose file in `./headscale-easy` (`--dir` changes it) and starts one container.
+Then:
 
-Then open `https://your-domain/admin`, and connect devices with the official
-Tailscale app:
+1. **Open the setup wizard** at the address it prints and enter the one-time
+   token (`docker compose logs`). Create the administrator, name the tailnet,
+   choose the relay (DERP), sign-up mode and backups.
+2. **Sign in** at `https://your-domain/admin`.
+3. **Connect your first device** with the official Tailscale app.
+
+No questions at all: `HSE_PUBLIC_URL=https://vpn.example.com HSE_TLS=auto
+ACME_EMAIL=me@example.com ./install.sh --yes`. Run it again any time to update:
+it only pulls the new image, your settings and data are never touched.
 
 ```bash
 tailscale up --login-server=https://your-domain
@@ -144,9 +144,13 @@ On phones and desktop apps, choose **"Use an alternate server"** / **"Change
 server"** and enter the same URL. The console's **Add device** page shows the
 exact steps for each OS.
 
+> **Running 1.x?** The 1.x stack (Authentik, one container per piece) keeps its own
+> installer, `legacy/install-1x.sh`, until 2.0. The new `install.sh` refuses a
+> directory that holds a 1.x install, on purpose.
+
 **Before production**, go through the [production and hardening guide](https://insanerask77.github.io/headscale-easy/hardening/):
-firewall, HTTPS, sign-in and two-factor, restricting the console, the Docker
-socket, secrets, off-site backups and updates.
+firewall, HTTPS, sign-in and two-factor, restricting the console, secrets,
+off-site backups and updates.
 
 ### Ports
 
@@ -155,11 +159,11 @@ socket, secrets, off-site backups and updates.
 | 80 / 443 | TCP | Web console, control plane, Let's Encrypt |
 | 3478 | UDP | STUN for the embedded DERP relay (must be reachable) |
 
-## 🧪 Try the all-in-one image (preview)
+## 🧪 Without the installer, and the advanced edition
 
 Headscale 2.0 ships as one container: Headscale + Caddy + the console, set up
-from your browser, no Docker socket and no installer. It is a preview; the
-installer above is still the supported way to run it.
+from your browser, no Docker socket. It is a preview. The installer above writes
+exactly this; to run it by hand:
 
 ```bash
 docker run -d --name headscale-easy -p 80:80 -p 443:443 -p 3478:3478/udp \
@@ -169,6 +173,11 @@ docker logs headscale-easy      # the one-time setup token
 
 Then open `http://<your-server>/admin/setup`. Details, env vars for a headless
 start and limits: [all-in-one image](https://insanerask77.github.io/headscale-easy/all-in-one/).
+
+For a proxy in front, your own identity provider (Authentik, Pocket ID, Keycloak,
+Google), remote backups or the compose file with its profiles, see the
+[advanced edition](https://insanerask77.github.io/headscale-easy/advanced/) and
+[`deploy/`](deploy/).
 
 ## 🧩 How it works
 

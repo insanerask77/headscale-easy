@@ -2,7 +2,7 @@
 # Run `make` to list the targets.
 
 .DEFAULT_GOAL := help
-.PHONY: help install uninstall purge validate lint test i18n status logs restart health \
+.PHONY: help install uninstall purge install-1x uninstall-1x purge-1x validate lint test i18n status logs restart health \
         up down ps users nodes routes user key apikey backup restore update config
 
 help: ## Show this help
@@ -12,14 +12,23 @@ help: ## Show this help
 
 # --- Setup --------------------------------------------------------------------
 
-install: ## Run the interactive installer (also to reconfigure)
+install: ## Install the all-in-one image (asks a few questions; run again to update)
 	@./install.sh
 
-uninstall: ## Remove the containers (keeps data)
+uninstall: ## Remove the all-in-one container (keeps data)
 	@./uninstall.sh
 
-purge: ## Remove the containers AND all data
+purge: ## Remove the all-in-one container AND all data
 	@./uninstall.sh --purge
+
+install-1x: ## 1.x: run the old interactive installer (split compose file, also to reconfigure)
+	@./legacy/install-1x.sh
+
+uninstall-1x: ## 1.x: remove the containers (keeps data)
+	@./legacy/uninstall-1x.sh
+
+purge-1x: ## 1.x: remove the containers AND all data
+	@./legacy/uninstall-1x.sh --purge
 
 # --- Development ------------------------------------------------------------------
 
@@ -27,7 +36,7 @@ validate: ## Check the project structure and configuration
 	@./scripts/validate.sh
 
 lint: ## shellcheck + Python syntax + i18n coverage
-	@shellcheck -S warning install.sh uninstall.sh scripts/*.sh backup/*.sh
+	@shellcheck -S warning install.sh uninstall.sh legacy/*.sh scripts/*.sh backup/*.sh
 	@python3 -m py_compile web/*.py helper/*.py
 	@python3 scripts/check_i18n.py
 

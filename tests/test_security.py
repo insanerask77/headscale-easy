@@ -1475,5 +1475,14 @@ class SetupTakeoverTest(unittest.TestCase):
         self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
 
 
+class OidcScope(unittest.TestCase):
+    def test_openid_is_always_asked_first_and_once(self):
+        self.assertEqual(app.oidc_scope(None), "openid profile email")
+        self.assertEqual(app.oidc_scope(""), "openid profile email")
+        self.assertEqual(app.oidc_scope("openid profile email groups"), "openid profile email groups")
+        self.assertEqual(app.oidc_scope("groups email"), "openid groups email")
+        self.assertEqual(app.oidc_scope("email email  groups\n"), "openid email groups")
+
+
 if __name__ == "__main__":
     unittest.main()

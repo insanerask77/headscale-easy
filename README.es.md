@@ -101,26 +101,26 @@ consola. Mira la [comparativa detallada](https://insanerask77.github.io/headscal
 Necesitas un Linux con Docker (el instalador puede instalarlo) y, para HTTPS
 real, un dominio que apunte a él.
 
-1. **Clona** el repositorio.
-2. **Ejecuta el instalador**: `./install.sh`.
-3. **Configura el dominio** y quién pone el HTTPS.
-4. **Configura el inicio de sesión**: Authentik integrado, tu proveedor OIDC o ninguno.
-5. **Entra** en `https://tu-dominio/admin`.
-6. **Conecta tu primer dispositivo** con la app oficial de Tailscale.
-
 ```bash
 git clone https://github.com/insanerask77/headscale-easy.git
 cd headscale-easy
 ./install.sh
 ```
 
-El instalador pregunta unas pocas cosas (idioma, dominio, quién pone el HTTPS,
-cómo inician sesión los usuarios), escribe la configuración, arranca todo y te
-muestra las URLs y las primeras credenciales. Vuelve a ejecutarlo cuando quieras
-cambiar algo: los datos se conservan.
+El instalador pregunta la dirección pública, quién pone el HTTPS (y el correo de
+Let's Encrypt) y, si quieres, un correo de administrador; escribe un `.env` pequeño
+y un compose en `./headscale-easy` (`--dir` lo cambia) y arranca un contenedor.
+Después:
 
-Después abre `https://tu-dominio/admin` y conecta dispositivos con la app
-oficial de Tailscale:
+1. **Abre el asistente** en la dirección que imprime y escribe el token de un solo
+   uso (`docker compose logs`). Crea el administrador, pon nombre a la tailnet y
+   elige el relay (DERP), el modo de registro y las copias.
+2. **Entra** en `https://tu-dominio/admin`.
+3. **Conecta tu primer dispositivo** con la app oficial de Tailscale.
+
+Sin preguntas: `HSE_PUBLIC_URL=https://vpn.example.com HSE_TLS=auto
+ACME_EMAIL=yo@example.com ./install.sh --yes`. Vuelve a ejecutarlo para
+actualizar: solo descarga la imagen nueva, tus ajustes y datos no se tocan.
 
 ```bash
 tailscale up --login-server=https://tu-dominio
@@ -130,9 +130,13 @@ En móviles y apps de escritorio elige **"Use an alternate server"** /
 **"Change server"** e introduce la misma URL. La página **Añadir dispositivo** de
 la consola muestra los pasos para cada sistema.
 
+> **¿Usas 1.x?** El stack 1.x (Authentik, un contenedor por pieza) conserva su
+> propio instalador, `legacy/install-1x.sh`, hasta 2.0. El nuevo `install.sh`
+> rechaza, a propósito, un directorio con una instalación 1.x.
+
 **Antes de producción**, repasa la [guía de producción y bastionado](https://insanerask77.github.io/headscale-easy/es/hardening/):
-cortafuegos, HTTPS, inicio de sesión y doble factor, restringir la consola, el
-socket de Docker, secretos, copias fuera del servidor y actualizaciones.
+cortafuegos, HTTPS, inicio de sesión y doble factor, restringir la consola,
+secretos, copias fuera del servidor y actualizaciones.
 
 ### Puertos
 
@@ -141,11 +145,11 @@ socket de Docker, secretos, copias fuera del servidor y actualizaciones.
 | 80 / 443 | TCP | Consola web, plano de control, Let's Encrypt |
 | 3478 | UDP | STUN del relay DERP integrado (debe ser accesible) |
 
-## 🧪 Prueba la imagen todo en uno (preview)
+## 🧪 Sin el instalador, y la edición avanzada
 
-Headscale 2.0 llega como un solo contenedor: Headscale + Caddy + la consola,
-configurado desde el navegador, sin socket de Docker ni instalador. Es una
-preview; el instalador de arriba sigue siendo la forma soportada de usarlo.
+Headscale 2.0 se entrega como un solo contenedor: Headscale + Caddy + la consola,
+configurado desde el navegador, sin socket de Docker. Es una preview. El instalador
+de arriba escribe justo esto; para ejecutarlo a mano:
 
 ```bash
 docker run -d --name headscale-easy -p 80:80 -p 443:443 -p 3478:3478/udp \
@@ -153,8 +157,13 @@ docker run -d --name headscale-easy -p 80:80 -p 443:443 -p 3478:3478/udp \
 docker logs headscale-easy      # el token de configuración de un solo uso
 ```
 
-Luego abre `http://<tu-servidor>/admin/setup`. Detalles, variables para el
+Luego abre `http://<tu-servidor>/admin/setup`. Detalles, variables para un
 arranque sin asistente y límites: [imagen todo en uno](https://insanerask77.github.io/headscale-easy/es/all-in-one/).
+
+Para un proxy delante, tu propio proveedor de identidad (Authentik, Pocket ID,
+Keycloak, Google), copias remotas o el compose con sus perfiles, mira la
+[edición avanzada](https://insanerask77.github.io/headscale-easy/es/advanced/) y
+[`deploy/`](deploy/).
 
 ## 🧩 Cómo funciona
 

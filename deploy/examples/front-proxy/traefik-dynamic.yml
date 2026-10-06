@@ -1,0 +1,77 @@
+# =============================================================================
+# vpn.example.com — Headscale Easy
+# =============================================================================
+# This is Traefik DYNAMIC configuration: copy it to
+# the directory your file provider watches (e.g. /etc/traefik/dynamic/) and
+# Traefik reloads it without a restart.
+#
+# No file provider yet? In the static configuration:
+#
+#   providers:
+#     file:
+#       directory: /etc/traefik/dynamic
+#       watch: true
+#
+# Behind it the Headscale Easy image already routes by path (/ -> Headscale,
+# /admin -> web UI), so there is ONE service: the whole domain is forwarded.
+#
+# Replace: vpn.example.com, AIO_HOST:8080 (the host and the HSE_HTTP_PORT you
+# published). In the image's .env:
+#   HSE_PUBLIC_URL=https://vpn.example.com
+#   HSE_TLS=off
+#   HSE_TRUSTED_PROXIES=<Traefik's address>/32     <- Traefik ONLY, not its network
+#
+# Adjust 'entryPoints' and 'certResolver' to your own names.
+#
+# DERP: the image listens for STUN on UDP 3478 and that does NOT go through an HTTP
+# router. Publish it straight to AIO_HOST, or use the public relays
+# (HSE_DERP_MODE=public).
+
+http:
+  routers:
+    headscale:
+      rule: "Host(`vpn.example.com`)"
+      entryPoints:
+        - websecure
+      service: headscale
+      middlewares:
+        - headscale-headers
+      tls:
+        certResolver: letsencrypt
+
+    # HTTP -> HTTPS
+    headscale-http:
+      rule: "Host(`vpn.example.com`)"
+      entryPoints:
+        - web
+      service: headscale
+      middlewares:
+        - headscale-redirect
+
+  middlewares:
+    headscale-redirect:
+      redirectScheme:
+        scheme: https
+        permanent: true
+
+    headscale-headers:
+      headers:
+        # Traefik already sends X-Forwarded-* and handles the /ts2021 Upgrade
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        contentTypeNosniff: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+
+  services:
+    headscale:
+      loadBalancer:
+        servers:
+          - url: "http://AIO_HOST:8080"
+        # /machine/map is a long-poll: no response buffering
+        responseForwarding:
+          flushInterval: "-1"
+        passHostHeader: true
+
+# The default serversTransport sets no response timeout, so the long-poll is
+# not cut. If you use one with a low responseHeaderTimeout or idleConnTimeout,
+# raise it or do not apply it to this service.

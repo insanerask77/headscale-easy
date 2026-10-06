@@ -28,11 +28,13 @@ SCHED_WAIT="${SCHED_WAIT:-150}"
 PORT="${HOST_PORT:-18080}"
 NAME="hse-aio-smoke"
 SCHED_NAME="$NAME-sched"
+PG_NAME="$NAME-pg"; PG_APP="$NAME-pgapp"; PG_NET="$NAME-pgnet"
 
 fail() { echo "FAIL: $1"; docker logs "$NAME" 2>&1 | tail -40; exit 1; }
 cleanup() {
-    docker rm -f "$NAME" "$SCHED_NAME" >/dev/null 2>&1
-    docker volume rm -f "$NAME-data" "$SCHED_NAME-data" >/dev/null 2>&1
+    docker rm -f "$NAME" "$SCHED_NAME" "$PG_APP" "$PG_NAME" >/dev/null 2>&1
+    docker volume rm -f "$NAME-data" "$SCHED_NAME-data" "$PG_APP-data" >/dev/null 2>&1
+    docker network rm "$PG_NET" >/dev/null 2>&1
 }
 trap cleanup EXIT
 cleanup
@@ -232,6 +234,68 @@ wait_for "$SCHED_WAIT" "no scheduled backup was written within ${SCHED_WAIT}s" \
 echo "scheduled backup: ok ($(basename "$(latest_archive "$NAME")"))"
 NAME="hse-aio-smoke"
 cleanup
+
+# --- external PostgreSQL (HSE_SMOKE_PG=1; versions in HSE_SMOKE_PG_VERSIONS, default "17") -----------------
+# A real PostgreSQL of each version: Headscale on it, the console reading through the read-only role the
+# image creates (and that role only able to read three columns), a backup with its dump, a restore that
+# loads it. The client in the image is 18: servers 16, 17 and 18 are the ones that matter.
+pg_round() {
+    local ver="$1" owner_pw ro_pw
+    owner_pw="$(head -c 18 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"; ro_pw="$(head -c 18 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"
+    echo "== PostgreSQL $ver"
+    docker network create "$PG_NET" >/dev/null || fail "could not create the network"
+    docker run -d --name "$PG_NAME" --network "$PG_NET" -e POSTGRES_USER=headscale -e POSTGRES_DB=headscale \
+        -e POSTGRES_PASSWORD="$owner_pw" "postgres:$ver-alpine" -c log_connections=on >/dev/null \
+        || fail "could not start PostgreSQL $ver"
+    wait_for 60 "PostgreSQL $ver did not start" docker exec "$PG_NAME" pg_isready -U headscale -d headscale -q
+    NAME="$PG_APP"
+    docker run -d --name "$NAME" --network "$PG_NET" -p "$PORT:80" -v "$NAME-data:/data" \
+        -e HSE_PUBLIC_URL="http://localhost:$PORT" -e HSE_TLS=off \
+        -e HSE_ADMIN_EMAIL=admin@example.com -e HSE_ADMIN_PASSWORD="$admin_pw" \
+        -e HEADSCALE_DB_TYPE=postgres -e HEADSCALE_PG_HOST="$PG_NAME" -e HEADSCALE_PG_USER=headscale \
+        -e HEADSCALE_PG_PASS="$owner_pw" -e HEADSCALE_PG_RO_USER=headscale_ro -e HEADSCALE_PG_RO_PASS="$ro_pw" \
+        "$IMAGE" >/dev/null || fail "could not start the container on PostgreSQL $ver"
+    wait_for 120 "the container did not become healthy on PostgreSQL $ver" is_healthy "$NAME"
+    local logs env
+    logs=$(docker logs "$NAME" 2>&1); grep -q "read-only role headscale_ro" <<<"$logs" || fail "the read-only role was not created"
+    # the console's own process runs with the read-only role, not the owner
+    env=$(docker exec "$NAME" sh -c 'tr "\0" "\n" < /proc/$(pgrep -f web/app.py | head -1)/environ' 2>/dev/null)
+    grep -qx 'HEADSCALE_PG_USER=headscale_ro' <<<"$env" || fail "the console is not using the read-only role"
+    # what that role can and cannot do
+    ro() { docker exec -e PGPASSWORD="$ro_pw" "$PG_NAME" psql -h localhost -U headscale_ro -d headscale -Atc "$1" 2>&1; }
+    # (the output is captured first: grep -q closing a pipe would make docker exec fail under pipefail)
+    local out
+    out=$(ro "select id, host_info, endpoints from nodes limit 1")
+    ! grep -qi 'error' <<<"$out" || fail "the read-only role cannot read what the console needs: $out"
+    out=$(ro "select node_key from nodes limit 1");   grep -qi 'permission denied' <<<"$out" || fail "the read-only role can read node keys: $out"
+    out=$(ro "select * from users limit 1");          grep -qi 'permission denied' <<<"$out" || fail "the read-only role can read users: $out"
+    out=$(ro "select * from api_keys limit 1");       grep -qi 'permission denied' <<<"$out" || fail "the read-only role can read API keys: $out"
+    out=$(ro "update nodes set endpoints = null");    grep -qi 'read-only' <<<"$out" || fail "the read-only role can write: $out"
+    # backup holds the dump; restore loads it
+    docker exec "$NAME" headscale users create smoke-pg -c /data/config/config.yaml >/dev/null 2>&1 \
+        || fail "could not create the marker user"
+    docker exec "$NAME" hse backup >/dev/null 2>&1 || fail "hse backup failed on PostgreSQL $ver"
+    local arch; arch=$(latest_archive "$NAME")
+    local members
+    members=$(docker exec "$NAME" tar -tzf "$arch")
+    grep -q 'headscale/headscale.sql' <<<"$members" || fail "the backup has no headscale.sql"
+    docker exec "$NAME" headscale users destroy --identifier "$(hs_user_id smoke-pg)" --force -c /data/config/config.yaml >/dev/null 2>&1 \
+        || docker exec "$NAME" headscale users destroy --name smoke-pg --force -c /data/config/config.yaml >/dev/null 2>&1 \
+        || fail "could not delete the marker user"
+    [ -z "$(hs_user_id smoke-pg)" ] || fail "the marker user is still there"
+    docker exec "$NAME" hse restore "$arch" --yes --with-postgres || fail "hse restore --with-postgres failed on PostgreSQL $ver"
+    healthz_ok() { [ "$(http_code /admin/healthz)" = 200 ]; }
+    wait_for 90 "the console did not come back after the restore on PostgreSQL $ver" healthz_ok
+    wait_for 60 "the marker user did not come back (PostgreSQL $ver)" bash -c "[ -n \"\$(docker exec $NAME headscale users list -o json -c /data/config/config.yaml | grep -o smoke-pg)\" ]"
+    echo "PostgreSQL $ver: ok"
+    NAME="hse-aio-smoke"
+    cleanup
+}
+if [ "${HSE_SMOKE_PG:-0}" = 1 ]; then
+    for v in ${HSE_SMOKE_PG_VERSIONS:-17}; do pg_round "$v"; done
+else
+    echo "== PostgreSQL: skipped (HSE_SMOKE_PG=1 runs it; HSE_SMOKE_PG_VERSIONS="16 17 18" picks the servers)"
+fi
 
 # --- setup mode ---------------------------------------------------------------------
 echo "== setup mode"

@@ -1,0 +1,17 @@
+# The Caddy in front of Headscale Easy and Pocket ID. Both names get a Let's Encrypt certificate
+# (DNS for both must point at this host, ports 80 and 443 reachable from the Internet).
+{
+    email {$ACME_EMAIL}
+}
+
+{$HSE_DOMAIN} {
+    reverse_proxy headscale-easy:80 {
+        header_up X-Real-IP {remote_host}
+        # /machine/map is a long-poll that stays open: stream it right away
+        flush_interval -1
+    }
+}
+
+{$ID_DOMAIN} {
+    reverse_proxy pocket-id:1411
+}

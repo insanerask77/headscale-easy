@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Regenerates tests/fixtures/render/<case>/{headscale-config.yaml,Caddyfile} by
-# running install.sh's own generators (install.sh cannot be sourced: it ends
+# running legacy/install-1x.sh's own generators (it cannot be sourced: it ends
 # with an unguarded main). Each case dir may hold env.sh (install.sh variables)
 # and existing-config.yaml (the config already on disk). Output is what
 # tests/test_render.py compares the Python port against.
@@ -10,9 +10,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIX="$ROOT/tests/fixtures/render"
 FUNCS="$(mktemp)"
 trap 'rm -f "$FUNCS"' EXIT
-start=$(grep -n '^dns_block() {' "$ROOT/install.sh" | cut -d: -f1)
-end=$(grep -n '^# Headscale and the UI validate the OIDC issuer' "$ROOT/install.sh" | cut -d: -f1)
-sed -n "${start},$((end - 1))p" "$ROOT/install.sh" > "$FUNCS"
+start=$(grep -n '^dns_block() {' "$ROOT/legacy/install-1x.sh" | cut -d: -f1)
+end=$(grep -n '^# Headscale and the UI validate the OIDC issuer' "$ROOT/legacy/install-1x.sh" | cut -d: -f1)
+sed -n "${start},$((end - 1))p" "$ROOT/legacy/install-1x.sh" > "$FUNCS"
 
 for dir in "$FIX"/*/; do
     [[ -f "$dir/env.sh" ]] || continue

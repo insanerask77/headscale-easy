@@ -10,6 +10,10 @@ ARG CADDY_VERSION=2.11.4
 
 FROM headscale/headscale:${HEADSCALE_VERSION} AS headscale
 FROM caddy:${CADDY_VERSION}-alpine AS caddy
+# The official image gives the binary the file capability cap_net_bind_service. This image binds 80/443
+# through net.ipv4.ip_unprivileged_port_start instead, and a binary that carries a capability the
+# container does not have cannot be executed at all (docker run --cap-drop ALL: "Operation not permitted").
+RUN apk add --no-cache libcap-utils && setcap -r /usr/bin/caddy && ! getcap /usr/bin/caddy | grep -q .
 
 FROM python:3.13-alpine
 
@@ -20,7 +24,9 @@ LABEL org.opencontainers.image.title="Headscale Easy (all-in-one)" \
       org.opencontainers.image.authors="Rafa Madolell <https://github.com/insanerask77>" \
       org.opencontainers.image.licenses="MIT"
 
-RUN apk add --no-cache tini ca-certificates
+# postgresql18-client (pg_dump, psql): backups and restores with an external PostgreSQL, and the read-only role
+# for the console. +13 MB. A pg_dump dumps servers up to its own major version (13 to 18 here).
+RUN apk add --no-cache tini ca-certificates postgresql18-client
 
 # Both are static binaries: no libc or shared libraries come along.
 COPY --from=headscale /ko-app/headscale /usr/local/bin/headscale
@@ -44,9 +50,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # /data holds everything (see the layout in the docs); the supervisor creates
 # its subdirectories (700) on start. /run/hse holds the helper socket.
-RUN mkdir -p /data /run/hse \
- && chown 1000:1000 /data /run/hse \
- && chmod 700 /data
+# /data/backups exists in the image, owned by the unprivileged user, so a named volume mounted there
+# starts with that owner (an empty volume would be root's and the container could not use it).
+RUN mkdir -p /data/backups /run/hse \
+ && chown 1000:1000 /data /data/backups /run/hse \
+ && chmod 700 /data /data/backups
 
 # Unprivileged. Ports 80/443 bind without capabilities on Docker >= 20.10
 # (net.ipv4.ip_unprivileged_port_start=0); on other runtimes pass

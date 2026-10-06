@@ -1,8 +1,22 @@
 # Primeros pasos
 
+## En cinco minutos
+
+1. **Clona:** `git clone https://github.com/insanerask77/headscale-easy.git && cd headscale-easy`
+2. **Ejecuta el instalador:** `./install.sh`. Pregunta la dirección pública y quién pone el
+   HTTPS (Let's Encrypt por defecto), y arranca un contenedor.
+3. **Configúralo:** abre la dirección que imprime y escribe el token de un solo uso (de
+   `docker compose logs`): administrador, nombre de la tailnet, relay (DERP), registro y copias.
+4. **Entra:** abre `https://<tu-dominio>/admin`.
+5. **Conecta tu primer dispositivo:** `tailscale up --login-server=https://<tu-dominio>`.
+
+Esto te da un servidor que funciona. Antes de fiarte de él, o de exponerlo a otras personas,
+repasa [Producción y bastionado](hardening.md).
+
 ## Requisitos
 
-- Un Linux (basta un VPS pequeño: 1 vCPU, 1 GB de RAM sin Authentik, 2 GB con él).
+- Un Linux (basta un VPS pequeño: 1 vCPU y 1 GB de RAM; el contenedor en reposo usa menos de
+  100 MB).
 - Docker con el plugin de Compose; el instalador se ofrece a instalarlo.
 - Para HTTPS real: un dominio que apunte a la máquina y los puertos 80/443 abiertos.
 - El **UDP 3478** accesible desde internet (STUN del relay DERP integrado).
@@ -15,24 +29,33 @@ cd headscale-easy
 ./install.sh
 ```
 
-El instalador hace unas pocas preguntas (idioma, dominio, quién pone el HTTPS,
-cómo inician sesión los usuarios), escribe la configuración, arranca todo y
-muestra las URLs y las primeras credenciales:
+El instalador pregunta la dirección pública, quién pone el HTTPS (`auto`: Let's Encrypt, y pide un
+correo; `internal`: un certificado de su propia CA; `off`: HTTP sin cifrar, o lo termina un proxy
+que ya tienes) y, opcionalmente, un correo (y contraseña) de administrador para saltarse el asistente.
+Escribe un compose y un `.env` pequeño (modo 600) en `./headscale-easy` (`--dir` lo cambia), ejecuta `docker compose up -d`, espera a que el contenedor esté sano e imprime la
+dirección del asistente.
 
-```text
-  Panel web:        https://vpn.example.com/admin/
-  Plano de control: https://vpn.example.com
+Sin preguntas:
 
-  Inicio de sesión:
-    Usuario: akadmin   Contraseña: ••••••••••••
-    Da de alta usuarios en https://vpn.example.com/add-user o desde Usuarios en el panel.
+```bash
+HSE_PUBLIC_URL=https://vpn.example.com HSE_TLS=auto ACME_EMAIL=yo@example.com \
+HSE_ADMIN_EMAIL=yo@example.com HSE_ADMIN_PASSWORD='una contraseña larga' \
+  ./install.sh --yes
 ```
 
-!!! tip "Cambiar la configuración más adelante"
-    Vuelve a ejecutar `./install.sh` cuando quieras. Tus respuestas anteriores
-    son los valores por defecto y no se pierde ningún dato.
+Con `HSE_ADMIN_EMAIL` no hay asistente: el servidor arranca con esa cuenta.
 
-Todas las opciones están en [Configuración](configuration.md).
+!!! tip "Actualizar"
+    Vuelve a ejecutar `./install.sh` en el mismo directorio: solo descarga la imagen nueva y
+    recrea el contenedor. El `.env` y los datos no se tocan.
+
+!!! note "¿Usas 1.x?"
+    El stack 1.x (Authentik integrado, un contenedor por pieza) conserva su propio instalador,
+    `legacy/install-1x.sh`, hasta 2.0. El nuevo `install.sh` rechaza un directorio con una
+    instalación 1.x, así que no se pueden mezclar.
+
+Todo lo demás (un proveedor de identidad, un proxy delante, PostgreSQL, copias remotas) está en la
+[edición avanzada](advanced.md). Mira [Imagen todo en uno](all-in-one.md) para todos los ajustes.
 
 ## Puertos
 

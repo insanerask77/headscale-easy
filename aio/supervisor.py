@@ -229,8 +229,16 @@ def base_env(extra: dict | None = None) -> dict:
 def ensure_layout(data_dir: str):
     for sub in ("headscale", "caddy", "caddy/logs", "console", "config", "backups"):
         path = os.path.join(data_dir, sub)
-        os.makedirs(path, mode=0o700, exist_ok=True)
-        os.chmod(path, 0o700)
+        try:
+            os.makedirs(path, mode=0o700, exist_ok=True)
+            os.chmod(path, 0o700)
+        except PermissionError:
+            if sub != "backups":
+                raise
+            # A bind mount (a NAS folder) that Docker created for root: everything else works, backups
+            # cannot be written. Say how to fix it instead of crash-looping the whole server.
+            emit("[supervisor] warning: %s is not writable by uid %d, so backups will fail. "
+                 "Fix it on the host: chown %d:%d <the folder>" % (path, os.getuid(), os.getuid(), os.getgid()))
 
 
 def ensure_secret(path: str) -> str:
@@ -344,6 +352,10 @@ class Supervisor:
             raise RuntimeError("Headscale is not healthy yet")
         self.ensure_api_key()
         settings = self.load()
+        if settings.get("db_type") == "postgres" and settings.get("pg_ro_user"):
+            if not self.apply_pg_readonly(settings):
+                # Keep the console working with what it used before the role existed (the owner), loudly
+                settings = {k: v for k, v in settings.items() if k not in ("pg_ro_user", "pg_ro_pass")}
         settings["session_secret"] = settings.get("session_secret") or ensure_secret(
             os.path.join(self.data_dir, "config", "session-secret"))
         env = base_env(render.console_env(settings, self.data_dir))
@@ -352,6 +364,24 @@ class Supervisor:
         if self.env.get("HSE_ADMIN_PASSWORD"):
             env["HSE_ADMIN_PASSWORD"] = self.env["HSE_ADMIN_PASSWORD"]
         return CONSOLE_CMD, env
+
+    def apply_pg_readonly(self, settings) -> bool:
+        """Create or refresh the console's read-only PostgreSQL role (templates/headscale-pg-readonly.sql).
+
+        Run as Headscale's owner, once Headscale is healthy (its tables exist then), before every console start:
+        the SQL is idempotent. The credentials travel in the environment of that one process, never in argv."""
+        sql = os.path.join(ROOT, "templates", "headscale-pg-readonly.sql")
+        env = base_env({"PGHOST": settings.get("pg_host", ""), "PGPORT": str(settings.get("pg_port") or "5432"),
+                        "PGUSER": settings.get("pg_user") or "headscale", "PGDATABASE": settings.get("pg_name") or "headscale",
+                        "PGPASSWORD": settings.get("pg_pass", ""), "PGSSLMODE": settings.get("pg_sslmode") or "disable",
+                        "HSE_RO_USER": settings["pg_ro_user"], "HSE_RO_PASS": settings["pg_ro_pass"]})
+        code, out = run_cmd(["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-f", sql], timeout=30, env=env)
+        if code == 0:
+            self.log("PostgreSQL: the console reads with the read-only role %s" % settings["pg_ro_user"])
+            return True
+        self.log("ERROR: could not create the read-only PostgreSQL role (%s): the console falls back to the "
+                 "owner's credentials. %s" % (settings["pg_ro_user"], (out or "").splitlines()[-1][:200] if out else ""))
+        return False
 
     def caddy_prepare(self):
         caddy_home = os.path.join(self.data_dir, "caddy")
@@ -377,6 +407,8 @@ class Supervisor:
         if self.mode == "run":
             self.settings = self.load()
             render.render_all(self.settings, self.data_dir)
+            for warning in render.config_warnings(self.settings):
+                self.log("warning: " + warning)
             self._child("headscale", prepare=self.headscale_prepare).start()
             self._child("caddy", prepare=self.caddy_prepare).start()
             self._child("console", prepare=self.console_prepare).start()
@@ -566,10 +598,12 @@ class Supervisor:
         if os.path.exists(req_path):
             return 200, {"ok": False, "error": "another restore is in progress", "field": "busy"}
         try:
-            restore_mod.inspect(archive)
+            meta = restore_mod.inspect(archive)
         except restore_mod.RestoreError as exc:
             self.log("restore from the console refused: %s" % exc)
             return 200, {"ok": False, "error": str(exc), "field": "invalid"}
+        # A PostgreSQL install restoring a PostgreSQL backup must load the dump, or "restored" would be a lie
+        with_postgres = meta.get("db_type") == "postgres" and self.load().get("db_type") == "postgres"
         requested = time.time()
         try:
             os.unlink(os.path.join(self.run_dir, restore_mod.RESTORE_RESULT))
@@ -577,7 +611,7 @@ class Supervisor:
             pass
         fd = os.open(req_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump({"archive": archive, "requested": requested, "with_postgres": False}, fh)
+            json.dump({"archive": archive, "requested": requested, "with_postgres": with_postgres}, fh)
         self.log("restore of %s requested from the console" % name)
         timer = threading.Timer(self.restore_delay, self.restore_requested.set)
         timer.daemon = True

@@ -1,0 +1,175 @@
+# Headscale Easy + Authentik (identity provider), advanced edition example
+# https://github.com/insanerask77/headscale-easy
+#
+# The all-in-one image next to an Authentik of its own. Authentik is served under
+# /authentik/ of the same domain, through the image's Caddy (HSE_AUTHENTIK_UPSTREAM):
+# that keeps the issuer URL .../authentik/application/o/headscale/ identical to what the
+# 1.x stack used, and Headscale identifies every user by that URL. README.md has the steps,
+# including how to move an existing 1.x stack here without re-creating anybody.
+#
+#   cp .env.example .env     # fill in the secrets (the file says how)
+#   docker compose up -d
+name: hse-authentik
+
+# Shared by Authentik's server and worker. Empty defaults (not ':?') on purpose: Compose
+# interpolates the whole file, and a ':?' would stop `docker compose config` for everybody.
+x-authentik-env: &authentik-env
+  AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:-}
+  AUTHENTIK_POSTGRESQL__HOST: authentik-postgresql
+  AUTHENTIK_POSTGRESQL__NAME: authentik
+  AUTHENTIK_POSTGRESQL__USER: authentik
+  AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_PG_PASS:-}
+  # Under /authentik/ of the same domain: the root belongs to Headscale
+  AUTHENTIK_WEB__PATH: /authentik/
+  AUTHENTIK_WEB__BASE_URL: ${HSE_PUBLIC_URL:-}
+  AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+  # The 'akadmin' user: only read on the first start
+  AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_ADMIN_EMAIL:-}
+  AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD:-}
+  # Read by blueprints/headscale.yaml
+  HEADSCALE_PUBLIC_URL: ${HSE_PUBLIC_URL:-}
+  OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-headscale}
+  OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+  # The blueprint also describes the 1.x console's own client; this image does not use it
+  PORTAL_OIDC_CLIENT_ID: headscale-easy
+  PORTAL_OIDC_CLIENT_SECRET: ${PORTAL_OIDC_CLIENT_SECRET:-}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  # Two-factor: admins (required for admins), everyone, optional. Only the initial value:
+  # administrators change it afterwards.
+  MFA_REQUIRED: ${MFA_REQUIRED:-admins}
+  # API token of the service account the console uses (invitations, resets, two-factor mode)
+  PORTAL_AUTHENTIK_TOKEN: ${AUTHENTIK_API_TOKEN:-}
+  # Outgoing email (optional; empty = off): "Forgot password?" on the sign-in page
+  SMTP_HOST: ${SMTP_HOST:-}
+  AUTHENTIK_EMAIL__HOST: ${SMTP_HOST:-localhost}
+  AUTHENTIK_EMAIL__PORT: ${SMTP_PORT:-587}
+  AUTHENTIK_EMAIL__USERNAME: ${SMTP_USERNAME:-}
+  AUTHENTIK_EMAIL__PASSWORD: ${SMTP_PASSWORD:-}
+  AUTHENTIK_EMAIL__USE_TLS: ${SMTP_USE_TLS:-false}
+  AUTHENTIK_EMAIL__USE_SSL: ${SMTP_USE_SSL:-false}
+  AUTHENTIK_EMAIL__FROM: ${SMTP_FROM:-authentik@localhost}
+  AUTHENTIK_EMAIL__TIMEOUT: "15"
+  TZ: ${TZ:-UTC}
+
+services:
+  headscale-easy:
+    image: ghcr.io/insanerask77/headscale-easy-aio:${HSE_VERSION:-latest}
+    container_name: hse-authentik-aio
+    restart: unless-stopped
+    environment:
+      HSE_PUBLIC_URL: ${HSE_PUBLIC_URL:-}
+      HSE_TLS: ${HSE_TLS:-auto}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      HSE_ADMIN_EMAIL: ${HSE_ADMIN_EMAIL:-}
+      HSE_ADMIN_PASSWORD: ${HSE_ADMIN_PASSWORD:-}
+      HSE_TRUSTED_PROXIES: ${HSE_TRUSTED_PROXIES:-}
+      TZ: ${TZ:-UTC}
+      # Sign-in through Authentik: the same client for Headscale and for the console
+      OIDC_ISSUER: ${HSE_PUBLIC_URL:-}/authentik/application/o/headscale/
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-headscale}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      # Caddy routes /authentik/* to Authentik (and /add-user to its add-user form)
+      HSE_AUTHENTIK_UPSTREAM: authentik-server:9000
+      # The console's Authentik mode: invitations, password resets, two-factor mode
+      AUTHENTIK_URL: http://authentik-server:9000/authentik
+      AUTHENTIK_API_TOKEN: ${AUTHENTIK_API_TOKEN:-}
+      PORTAL_ADMIN_EMAILS: ${PORTAL_ADMIN_EMAILS:-}
+    # Headscale reads the issuer's configuration at start-up and Headscale and the console both ask
+    # for it at the public address: that name has to lead back to the image's own Caddy.
+    # 127.0.0.1 works with HSE_TLS=auto. Behind a proxy put the proxy's address in HSE_SELF_IP.
+    extra_hosts:
+      - "${HSE_DOMAIN:-localhost}:${HSE_SELF_IP:-127.0.0.1}"
+    ports:
+      - "${HSE_HTTP_PORT:-80}:80"
+      - "${HSE_HTTPS_PORT:-443}:443"
+      - "${HSE_HTTPS_PORT:-443}:443/udp"
+      - "3478:3478/udp"
+    volumes:
+      - hse-data:/data
+      - hse-backups:/data/backups
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Only waits for Authentik to have started. Its first start applies the database migrations and
+    # the blueprint and can take several minutes; the image retries Headscale until the issuer answers.
+    depends_on:
+      authentik-server:
+        condition: service_started
+
+  authentik-postgresql:
+    image: docker.io/library/postgres:${AUTHENTIK_PG_IMAGE_TAG:-16-alpine}
+    container_name: hse-authentik-postgresql
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: authentik
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: ${AUTHENTIK_PG_PASS:-}
+    volumes:
+      - authentik-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d authentik -U authentik"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+
+  authentik-server:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_IMAGE_TAG:-2026.8.3}
+    container_name: hse-authentik-server
+    restart: unless-stopped
+    command: server
+    depends_on:
+      authentik-postgresql:
+        condition: service_healthy
+    environment: *authentik-env
+    # The first start runs the migrations: give the health check room before it counts failures
+    healthcheck:
+      test: ["CMD", "ak", "healthcheck"]
+      interval: 30s
+      timeout: 30s
+      retries: 5
+      start_period: 10m
+    volumes:
+      - authentik-data:/data
+      - authentik-media:/media
+      - ./blueprints:/blueprints/custom:ro
+      # Logo, favicon and background: the brand refers to them as "branding/<file>", which
+      # Authentik serves from media/public/
+      - ./branding:/media/public/branding:ro
+    shm_size: 512mb
+    security_opt:
+      - no-new-privileges:true
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_IMAGE_TAG:-2026.8.3}
+    container_name: hse-authentik-worker
+    restart: unless-stopped
+    command: worker
+    depends_on:
+      authentik-postgresql:
+        condition: service_healthy
+    environment: *authentik-env
+    # No Docker socket and no 'user: root': those are only for Authentik's own outposts,
+    # which are not used here.
+    volumes:
+      - authentik-data:/data
+      - authentik-media:/media
+      - ./blueprints:/blueprints/custom:ro
+      # The blueprint reads the theme CSS from here (!File /branding/custom.css)
+      - ./branding:/branding:ro
+    shm_size: 512mb
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  hse-data:
+  hse-backups:
+  authentik-db:
+  authentik-data:
+  authentik-media:

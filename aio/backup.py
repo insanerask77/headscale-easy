@@ -198,7 +198,7 @@ def _pg_dump(settings: dict, dst: str):
     exe = shutil.which("pg_dump")
     if not exe:
         raise BackupError("pg_dump is not installed in this image: back up PostgreSQL "
-                          "with its own tools or the backup sidecar")
+                          "with its own tools or the backup sidecar (BACKUP_MODE=create)")
     env = dict(os.environ)
     env.update(PGHOST=settings.get("pg_host", ""), PGPORT=str(settings.get("pg_port") or "5432"),
                PGUSER=settings.get("pg_user") or "headscale", PGDATABASE=settings.get("pg_name") or "headscale",
@@ -210,13 +210,38 @@ def _pg_dump(settings: dict, dst: str):
     if proc.returncode != 0:
         err = proc.stderr.decode("utf-8", "replace")
         if "version mismatch" in err.lower():
+            found = re.search(r"server version: *([0-9]+)[0-9.]*; *pg_dump version: *([0-9]+)", err)
+            if found:
+                raise BackupError("PostgreSQL is %s and this image can dump up to %s: back it up with the "
+                                  "sidecar (BACKUP_MODE=create) or a newer image" % found.groups())
             raise BackupError("pg_dump is older than the PostgreSQL server: use a client of the "
                               "same or a newer major version")
         raise BackupError("pg_dump failed: %s" % (err.strip().splitlines() or ["unknown error"])[-1][:300])
-    with open(dst, "rb") as fh:
-        if b"CREATE TABLE public.nodes" not in fh.read():
-            raise BackupError("the Headscale dump has no nodes table")
+    _make_portable(dst)
     os.chmod(dst, 0o600)
+
+
+# pg_dump 17 and later write this line whatever the server is; a PostgreSQL 16 does not know the setting and
+# refuses the whole restore. It only switches off a time limit that is off by default, so the dump goes without.
+_NOT_PORTABLE = (b"SET transaction_timeout = 0;",)
+
+
+def _make_portable(path: str):
+    """Rewrite the dump without the lines an older server rejects, and check it holds the nodes table.
+    Streams it: a dump can be large."""
+    tmp = path + ".portable"
+    found = False
+    with open(path, "rb") as src, open(tmp, "wb") as out:
+        for line in src:
+            if line.rstrip(b"\r\n") in _NOT_PORTABLE:
+                continue
+            if b"CREATE TABLE public.nodes" in line:
+                found = True
+            out.write(line)
+    if not found:
+        os.unlink(tmp)
+        raise BackupError("the Headscale dump has no nodes table")
+    os.replace(tmp, path)
 
 
 def _headscale_version() -> str | None:

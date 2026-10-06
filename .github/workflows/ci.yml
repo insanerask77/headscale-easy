@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: ShellCheck
-        run: shellcheck -S warning install.sh uninstall.sh scripts/*.sh backup/*.sh
+        run: shellcheck -S warning install.sh uninstall.sh legacy/*.sh scripts/*.sh backup/*.sh
 
       - uses: actions/setup-python@v5
         with:
@@ -99,12 +99,23 @@ jobs:
     # run) and fail above the size / RAM targets, also during a backup
     # (scripts/aio-smoke.sh).
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
       - name: Build the all-in-one image
         run: docker build -f aio/Dockerfile -t hse-aio:ci .
 
-      - name: Smoke tests, backups, image size and RAM
+      - name: Smoke tests, backups, image size and RAM, and PostgreSQL 16, 17 and 18
+        # The PostgreSQL round starts a real server of each version (docker run): Headscale on it, the console
+        # through the read-only role, a backup with its dump and a restore that loads it.
+        env:
+          HSE_SMOKE_PG: "1"
+          HSE_SMOKE_PG_VERSIONS: "16 17 18"
         run: ./scripts/aio-smoke.sh hse-aio:ci
+
+      - name: Build the backup sidecar
+        run: docker build -t hse-backup:ci backup
+
+      - name: The advanced edition's compose file (hardened, named volumes, backup-remote sidecar)
+        run: ./scripts/compose-smoke.sh hse-aio:ci hse-backup:ci

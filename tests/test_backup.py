@@ -301,8 +301,10 @@ echo "$*" > "$FAKE_DIR/argv"
 echo "PGPASSWORD=$PGPASSWORD PGHOST=$PGHOST PGUSER=$PGUSER" > "$FAKE_DIR/env"
 case "$FAKE_MODE" in
   ok) echo 'CREATE TABLE public.nodes (id int);' ;;
+  modern) printf 'SET statement_timeout = 0;\nSET transaction_timeout = 0;\nSET lock_timeout = 0;\nCREATE TABLE public.nodes (id int);\n' ;;
   nonodes) echo 'CREATE TABLE public.users (id int);' ;;
   mismatch) echo 'pg_dump: error: aborting because of server version mismatch' >&2; exit 1 ;;
+  newer) printf 'pg_dump: error: aborting because of server version mismatch\npg_dump: detail: server version: 19.0; pg_dump version: 18.6\n' >&2; exit 1 ;;
   fail) echo 'pg_dump: error: connection refused' >&2; exit 1 ;;
 esac
 """
@@ -340,6 +342,26 @@ class PostgresTest(Base):
         self.assertIn("--clean", argv)
         with open(os.path.join(self._tmp.name, "env")) as fh:
             self.assertIn("PGPASSWORD=hunter2", fh.read())
+
+    def test_the_dump_is_portable_to_older_servers(self):
+        res = self.run_pg("modern")
+        self.assertTrue(res.ok, res.error)
+        import tarfile
+        with tarfile.open(res.path) as tar:
+            member = next(m for m in tar.getmembers() if m.name.endswith("headscale/headscale.sql"))
+            sql = tar.extractfile(member).read().decode()
+        self.assertNotIn("transaction_timeout", sql)  # PostgreSQL 16 does not know it
+        self.assertIn("SET statement_timeout = 0;", sql)  # everything else is kept
+        self.assertIn("SET lock_timeout = 0;", sql)
+        self.assertIn("CREATE TABLE public.nodes", sql)
+        left = [n for n in os.listdir(os.path.join(self._tmp.name)) if n.endswith(".portable")]
+        self.assertEqual(left, [])
+
+    def test_a_server_newer_than_the_client_says_what_to_do(self):
+        res = self.run_pg("newer")
+        self.assertFalse(res.ok)
+        self.assertIn("PostgreSQL is 19 and this image can dump up to 18", res.error)
+        self.assertIn("BACKUP_MODE=create", res.error)
 
     def test_failures(self):
         for mode, text in (("nonodes", "nodes table"), ("mismatch", "same or a newer major"),

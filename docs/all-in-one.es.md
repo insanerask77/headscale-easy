@@ -82,8 +82,8 @@ docker run -d --name headscale-easy \
 
 La precedencia es **entorno > `/data/config/settings.json` > valores por
 defecto**. Las variables (`HSE_TLS`, `TAILNET_NAME`, `HSE_BASE_DOMAIN` (dominio base de MagicDNS, por defecto `hse.net`), `HSE_SIGNUP` (`off` por defecto; `invite` exige clave de invitación; `open` permite a cualquiera; se cambia después en Ajustes → General), `HSE_DERP_MODE` (`embedded` por defecto: DERP y STUN propios del contenedor, publica `3478/udp`; `public` añade los relés públicos de Tailscale; `custom` usa tu mapa con `HSE_DERP_URL`), `NETWORK_ISOLATION`,
-`NODE_KEY_EXPIRY`, `UI_LANG`, `TZ`, `BACKUP_SCHEDULE` (cron, por defecto `0 3 * * *`; `off` la desactiva) y `BACKUP_KEEP_DAYS` (por defecto `14`), `OIDC_*`, `HEADSCALE_DB_TYPE` y
-`HEADSCALE_PG_*`, entre otras) están en la
+`NODE_KEY_EXPIRY`, `UI_LANG`, `TZ`, `BACKUP_SCHEDULE` (cron, por defecto `0 3 * * *`; `off` la desactiva) y `BACKUP_KEEP_DAYS` (por defecto `14`), `OIDC_*`, `HSE_OIDC_ALLOWED_*`, `PORTAL_*_GROUPS`, `HSE_TRUSTED_PROXIES`, `HSE_AUTHENTIK_UPSTREAM`, `HEADSCALE_DB_TYPE`, `HEADSCALE_PG_RO_*` y
+`HEADSCALE_PG_*`, entre otras; los de la [edición avanzada](advanced.md) están descritos allí) están en la
 [versión en inglés](all-in-one.md#headless-start-no-wizard).
 
 ## Qué hay en `/data`

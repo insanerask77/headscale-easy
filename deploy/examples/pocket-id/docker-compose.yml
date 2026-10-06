@@ -1,0 +1,106 @@
+# Headscale Easy + Pocket ID (a small identity provider, ~100 MB), advanced edition example
+# https://github.com/insanerask77/headscale-easy
+#
+# Pocket ID signs people in with passkeys, which browsers only allow over HTTPS, and it needs a domain
+# of its own. Two domains cannot both own port 443, so a small Caddy in front serves both:
+#   vpn.example.com  -> the Headscale Easy image (plain HTTP behind the Caddy)
+#   id.example.com   -> Pocket ID
+# README.md has the steps, including the order: Pocket ID first, then the OIDC client, then the image.
+#
+#   cp .env.example .env
+#   docker compose up -d proxy pocket-id      # then create the OIDC client (README, step 2)
+#   docker compose up -d
+name: hse-pocketid
+
+services:
+  proxy:
+    image: caddy:${CADDY_IMAGE_TAG:-2-alpine}
+    container_name: hse-pocketid-proxy
+    restart: unless-stopped
+    environment:
+      HSE_DOMAIN: ${HSE_DOMAIN:-}
+      ID_DOMAIN: ${ID_DOMAIN:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - proxy-data:/data
+      - proxy-config:/config
+    networks:
+      default:
+        ipv4_address: 172.30.0.10
+        # Inside the project both names lead to this proxy: Headscale and the console reach Pocket ID's
+        # public address (their OIDC issuer) without leaving the host, with the real certificate.
+        aliases:
+          - ${HSE_DOMAIN:-vpn.example.com}
+          - ${ID_DOMAIN:-id.example.com}
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+
+  pocket-id:
+    image: ghcr.io/pocket-id/pocket-id:${POCKET_ID_IMAGE_TAG:-v1}
+    container_name: hse-pocketid-pocket-id
+    restart: unless-stopped
+    environment:
+      APP_URL: https://${ID_DOMAIN:-id.example.com}
+      TRUST_PROXY: "true"
+      ENCRYPTION_KEY: ${POCKET_ID_ENCRYPTION_KEY:-}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - pocket-id-data:/app/data
+    networks:
+      - default
+    security_opt:
+      - no-new-privileges:true
+
+  headscale-easy:
+    image: ghcr.io/insanerask77/headscale-easy-aio:${HSE_VERSION:-latest}
+    container_name: hse-pocketid-aio
+    restart: unless-stopped
+    environment:
+      HSE_PUBLIC_URL: https://${HSE_DOMAIN:-vpn.example.com}
+      HSE_TLS: "off"                      # the Caddy in front does the HTTPS
+      HSE_TRUSTED_PROXIES: 172.30.0.10/32 # that Caddy, and nothing else
+      HSE_ADMIN_EMAIL: ${HSE_ADMIN_EMAIL:-}
+      HSE_ADMIN_PASSWORD: ${HSE_ADMIN_PASSWORD:-}
+      PORTAL_ADMIN_EMAILS: ${PORTAL_ADMIN_EMAILS:-}
+      TZ: ${TZ:-UTC}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+    ports:
+      - "3478:3478/udp"   # DERP/STUN: not HTTP, the proxy cannot carry it
+    volumes:
+      - hse-data:/data
+      - hse-backups:/data/backups
+    networks:
+      - default
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - proxy
+      - pocket-id
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  proxy-data:
+  proxy-config:
+  pocket-id-data:
+  hse-data:
+  hse-backups:

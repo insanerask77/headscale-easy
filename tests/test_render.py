@@ -367,5 +367,200 @@ class RenderAllTest(unittest.TestCase):
             self.assertIn("127.0.0.1:8000", read(p["caddyfile"]))
 
 
+class AdvancedEditionTest(unittest.TestCase):
+    """Block 1 of PHASE4_EXECUTION_PLAN.md: a proxy in front, an external Authentik, a read-only PostgreSQL role."""
+
+    BASE = {"public_url": "https://vpn.example.com", "tls": "off"}
+
+    def caddy(self, **extra):
+        s = dict(self.BASE, **extra)
+        return render.render_caddyfile(render.to_vars(s, "aio"), "aio", data_dir="/data")
+
+    def config(self, **extra):
+        s = dict(self.BASE, **extra)
+        return render.render_headscale_config(render.to_vars(s, "aio"), "aio")
+
+    def test_https_url_with_tls_off_is_front_mode(self):
+        self.assertEqual(render.to_vars(self.BASE, "aio")["SSL_MODE"], "front")
+        self.assertEqual(render.to_vars({"public_url": "http://vpn.example.com", "tls": "off"}, "aio")["SSL_MODE"], "none")
+        self.assertEqual(render.to_vars({"public_url": "https://vpn.example.com", "tls": "internal"}, "aio")["SSL_MODE"],
+                         "selfsigned")
+        text = self.caddy()
+        self.assertIn(":80 {", text)
+        self.assertIn("# HSTS: sent by the front proxy", text)
+        self.assertEqual(text.count("header_up X-Forwarded-Proto https"), 2)  # console and Headscale
+        self.assertNotIn("redir https://", text)
+
+    def test_plain_http_keeps_todays_output(self):
+        plain = render.render_caddyfile(render.to_vars({"public_url": "http://localhost", "tls": "off"}, "aio"), "aio", "/data")
+        self.assertNotIn("X-Forwarded-Proto https", plain)
+        self.assertNotIn("trusted_proxies", plain)
+        self.assertIn("X-Real-IP {remote_host}", plain)
+
+    def test_trusted_proxies_reach_caddy_and_headscale(self):
+        text = self.caddy(trusted_proxies="172.18.0.0/16, 10.0.0.5 ,fd00::/8")
+        self.assertTrue(text.startswith("{\n    servers {\n        trusted_proxies static 172.18.0.0/16 10.0.0.5/32 fd00::/8\n        trusted_proxies_strict\n"))
+        self.assertNotIn("{remote_host}", text)
+        self.assertEqual(text.count("header_up X-Real-IP {client_ip}"), 2)
+        cfg = self.config(trusted_proxies="172.18.0.0/16")
+        self.assertIn("trusted_proxies:\n  - 127.0.0.1/32\n  - 172.18.0.0/16", cfg)
+        self.assertIn("trusted_proxies:\n  - 127.0.0.1/32\n", self.config())  # nothing extra by default
+
+    def test_trusted_proxies_validation(self):
+        check = render.check_trusted_proxies
+        self.assertEqual(check(""), [])
+        self.assertEqual(check("10.0.0.1 10.0.0.1,10.0.0.1/32"), ["10.0.0.1/32"])
+        for bad in ("nonsense", "10.0.0.0/33", "10.0.0.1;rm -rf", "1.2.3", "*"):
+            with self.assertRaises(ValueError, msg=bad):
+                check(bad)
+        for open_to_all in ("0.0.0.0/0", "::/0", "10.0.0.1, 0.0.0.0/0"):
+            with self.assertRaises(ValueError, msg=open_to_all):
+                check(open_to_all)
+            self.assertIn(next(x for x in check(open_to_all, allow_any=True) if x.endswith("/0")), ("0.0.0.0/0", "::/0"))
+        with self.assertRaises(ValueError):
+            check(",".join("10.0.0.%d" % i for i in range(17)))
+
+    def test_trusted_proxies_cannot_inject_caddyfile_or_yaml(self):
+        for evil in ("10.0.0.1}\nevil", "10.0.0.1\n}", '10.0.0.1"'):
+            with self.assertRaises(ValueError):  # refused as a setting, and would be refused as a CIDR anyway
+                render.load_settings({"HSE_PUBLIC_URL": "https://x.example.com", "HSE_TRUSTED_PROXIES": evil}, "/nonexistent")
+
+    def test_external_authentik_route_and_provider(self):
+        issuer = "https://vpn.example.com/authentik/application/o/headscale/"
+        oidc = dict(oidc_issuer=issuer, oidc_client_id="id", oidc_client_secret="secret")
+        without = self.caddy(**oidc)  # the issuer hints Authentik, but there is no upstream to route to
+        self.assertNotIn("handle /authentik/*", without)
+        self.assertEqual(render.to_vars(dict(self.BASE, **oidc), "aio")["AUTH_PROVIDER"], "authentik")
+        text = self.caddy(authentik_upstream="authentik-server:9000", **oidc)
+        self.assertIn("handle /authentik/* {\n        reverse_proxy authentik-server:9000 {", text)
+        self.assertIn("redir /add-user /authentik/if/flow/headscale-easy-add-user/ 302", text)
+        self.assertIn("redir /authentik /authentik/ 308", text)
+        self.assertIn("email_verified_required: false", self.config(authentik_upstream="a:1", **oidc))
+        other = self.caddy(authentik_upstream="my-auth:9443", **oidc)
+        self.assertIn("reverse_proxy my-auth:9443 {", other)
+        keycloak = dict(oidc_issuer="https://sso.example.com/realms/x", oidc_client_id="id", oidc_client_secret="s")
+        self.assertEqual(render.to_vars(dict(self.BASE, **keycloak), "aio")["AUTH_PROVIDER"], "external")
+        self.assertNotIn("handle /authentik/*", self.caddy(**keycloak))
+
+    def test_authentik_upstream_validation(self):
+        check = render.check_authentik_upstream
+        self.assertEqual(check(""), "")
+        self.assertEqual(check("authentik-server:9000"), "authentik-server:9000")
+        for bad in ("authentik-server", "http://a:9000", "a:99999", "a b:9000", "a:9000}\nevil", ":9000", "a:0", "a:"):
+            with self.assertRaises(ValueError, msg=bad):
+                check(bad)
+
+    def test_the_compose_target_is_untouched(self):
+        v = render.to_vars({"public_url": "https://x.example.com", "ssl_mode": "front", "auth_provider": "authentik",
+                            "oidc_issuer": "https://x.example.com/authentik/application/o/h/", "oidc_client_id": "i",
+                            "oidc_client_secret": "s", "trusted_proxies": "10.0.0.1", "authentik_upstream": "x:1"}, "compose")
+        self.assertEqual(v["TRUSTED_PROXIES"], [])
+        text = render.render_caddyfile(v, "compose", "/data")
+        self.assertIn("reverse_proxy authentik-server:9000 {", text)
+        self.assertNotIn("trusted_proxies", text)
+        self.assertNotIn("{client_ip}", text)
+
+    def test_console_reads_postgresql_with_the_read_only_role(self):
+        owner_pw, ro_pw = "o" * 10, "r" * 10  # built, not literals: a scanner takes a literal next to "pass" for a leak
+        pg = {"public_url": "https://vpn.example.com", "tls": "off", "db_type": "postgres", "pg_host": "db", "pg_user": "headscale",
+              "pg_pass": owner_pw, "pg_name": "headscale"}
+        env = render.console_env(pg, "/data")
+        self.assertEqual(env["HEADSCALE_PG_USER"], "headscale")
+        self.assertEqual(env["HEADSCALE_PG_PASSWORD"], owner_pw)
+        ro = render.console_env(dict(pg, pg_ro_user="headscale_ro", pg_ro_pass=ro_pw), "/data")
+        self.assertEqual(ro["HEADSCALE_PG_USER"], "headscale_ro")
+        self.assertEqual(ro["HEADSCALE_PG_PASSWORD"], ro_pw)
+        self.assertNotIn(owner_pw, repr(ro))
+        cfg = render.render_headscale_config(render.to_vars(dict(pg, pg_ro_user="headscale_ro", pg_ro_pass=ro_pw), "aio"), "aio")
+        self.assertIn(owner_pw, cfg)  # Headscale itself keeps the owner
+        self.assertNotIn(ro_pw, cfg)
+        for half in ({"pg_ro_user": "headscale_ro"}, {"pg_ro_pass": "x"}):
+            with self.assertRaises(ValueError):
+                render.to_vars(dict(pg, **half), "aio")
+
+    def test_console_gets_the_authentik_api_settings_only_for_authentik(self):
+        base = {"public_url": "https://vpn.example.com", "tls": "off", "oidc_client_id": "i", "oidc_client_secret": "s",
+                "authentik_url": "http://authentik-server:9000/authentik", "authentik_api_token": "tok"}
+        auth = render.console_env(dict(base, oidc_issuer="https://vpn.example.com/authentik/application/o/h/"), "/data")
+        self.assertEqual((auth["AUTHENTIK_URL"], auth["AUTHENTIK_API_TOKEN"]), ("http://authentik-server:9000/authentik", "tok"))
+        other = render.console_env(dict(base, oidc_issuer="https://sso.example.com/realms/x"), "/data")
+        self.assertNotIn("AUTHENTIK_API_TOKEN", other)
+
+    def test_new_settings_are_read_from_the_environment(self):
+        s = render.load_settings({"HSE_PUBLIC_URL": "https://x.example.com", "HSE_TRUSTED_PROXIES": "10.0.0.1",
+                                  "HSE_AUTHENTIK_UPSTREAM": "a:9000", "HEADSCALE_PG_RO_USER": "ro"}, "/nonexistent")
+        self.assertEqual((s["trusted_proxies"], s["authentik_upstream"], s["pg_ro_user"]), ("10.0.0.1", "a:9000", "ro"))
+
+    def test_a_proxy_in_front_is_told_about_udp_and_the_trusted_proxies(self):
+        notes = render.config_warnings(self.BASE)  # https with TLS off
+        self.assertTrue(any("UDP 3478" in w for w in notes))
+        self.assertTrue(any("HSE_TRUSTED_PROXIES" in w and "/32" in w for w in notes))
+        configured = render.config_warnings(dict(self.BASE, trusted_proxies="10.0.0.5/32"))
+        self.assertTrue(any("UDP 3478" in w for w in configured))
+        self.assertFalse(any("without HSE_TRUSTED_PROXIES" in w for w in configured))
+        self.assertEqual(render.config_warnings({"public_url": "http://localhost", "tls": "off"}), [])  # plain http
+
+    def test_warnings(self):
+        self.assertEqual(render.config_warnings({"public_url": "http://localhost", "tls": "off"}), [])
+        self.assertTrue(any("read-only role" in w for w in render.config_warnings({"db_type": "postgres"})))
+        self.assertEqual(render.config_warnings({"db_type": "postgres", "pg_ro_user": "ro"}), [])
+        self.assertTrue(any("AUTHENTIK_API_TOKEN" in w for w in render.config_warnings({"authentik_upstream": "a:1"})))
+        self.assertTrue(any("terminates TLS" in w for w in render.config_warnings({"trusted_proxies": "1.1.1.1", "tls": "auto"})))
+
+
+class OidcAccessTest(unittest.TestCase):
+    """Who may sign in through the provider, and who is admin in the console (found while running the examples)."""
+    BASE = {"public_url": "https://vpn.example.com", "tls": "off", "oidc_issuer": "https://sso.example.com/realms/x",
+            "oidc_client_id": "id", "oidc_client_secret": "s"}
+
+    def config(self, **extra):
+        return render.render_headscale_config(render.to_vars(dict(self.BASE, **extra), "aio"), "aio")
+
+    def test_allowed_lists_reach_headscale(self):
+        cfg = self.config(oidc_allowed_domains="example.com, corp.example.org", oidc_allowed_users="boss@example.com",
+                          oidc_allowed_groups="vpn-users,authentik Admins")
+        self.assertIn('  allowed_domains:\n    - "example.com"\n    - "corp.example.org"\n', cfg)
+        self.assertIn('  allowed_users:\n    - "boss@example.com"\n', cfg)
+        self.assertIn('  allowed_groups:\n    - "vpn-users"\n    - "authentik Admins"\n', cfg)
+        self.assertLess(cfg.index("email_verified_required"), cfg.index("allowed_domains"))
+        self.assertLess(cfg.index("allowed_groups"), cfg.index("pkce:"))
+
+    def test_nothing_is_added_without_them(self):
+        self.assertNotIn("allowed_", self.config())
+
+    def test_validation_and_injection(self):
+        for kind, bad in (("domains", "exa mple.com"), ("domains", 'x.com"\n  evil: 1'), ("domains", "-x.com"),
+                          ("users", "no-at-sign"), ("users", "a@b.com, c"), ("users", "a b@c.com"),
+                          ("groups", "g;rm"), ("groups", "g\nx"), ("groups", "-leading"), ("groups", "a" * 101)):
+            with self.assertRaises(ValueError, msg=(kind, bad)):
+                render.check_allowed(kind, bad)
+        self.assertEqual(render.check_allowed("domains", ""), [])
+        self.assertEqual(render.check_allowed("groups", "a, ,a,b"), ["a", "b"])
+        with self.assertRaises(ValueError):  # quotes are refused already when the setting is read
+            render.load_settings({"HSE_PUBLIC_URL": "https://x.example.com", "HSE_OIDC_ALLOWED_DOMAINS": 'x.com", evil: "'}, "/nonexistent")
+
+    def test_the_compose_target_is_untouched(self):
+        v = render.to_vars({"public_url": "https://x.example.com", "ssl_mode": "front", "auth_provider": "external",
+                            "oidc_issuer": "https://sso.example.com", "oidc_client_id": "i", "oidc_client_secret": "s",
+                            "oidc_allowed_domains": "example.com"}, "compose")
+        self.assertNotIn("allowed_", render.render_headscale_config(v, "compose"))
+
+    def test_console_gets_groups_and_scope(self):
+        env = render.console_env(dict(self.BASE, oidc_scope="openid profile email groups", portal_admin_groups="vpn-admins",
+                                      portal_network_admin_groups="net", portal_auditor_groups="aud"), "/data")
+        self.assertEqual((env["PORTAL_ADMIN_GROUPS"], env["PORTAL_NETWORK_ADMIN_GROUPS"], env["PORTAL_AUDITOR_GROUPS"]),
+                         ("vpn-admins", "net", "aud"))
+        self.assertEqual(env["OIDC_SCOPE"], "openid profile email groups")
+        plain = render.console_env(self.BASE, "/data")
+        self.assertNotIn("PORTAL_ADMIN_GROUPS", plain)  # the console's own default stays
+        self.assertEqual(plain["OIDC_SCOPE"], "openid profile email")
+        self.assertNotIn("OIDC_SCOPE", render.console_env({"public_url": "https://x.example.com", "tls": "off"}, "/data"))
+
+    def test_the_new_settings_come_from_the_environment(self):
+        s = render.load_settings({"HSE_PUBLIC_URL": "https://x.example.com", "HSE_OIDC_ALLOWED_DOMAINS": "example.com",
+                                  "PORTAL_ADMIN_GROUPS": "g1,g2"}, "/nonexistent")
+        self.assertEqual((s["oidc_allowed_domains"], s["portal_admin_groups"]), ("example.com", "g1,g2"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -8,7 +8,39 @@ All notable changes to this project are documented here. The format follows
 
 Work in progress on the `next` branch: see `SIMPLIFICATION_PLAN.md`.
 
+### Fixed
+- Behind a proxy every sign-in was counted against the proxy's address (one person's wrong passwords
+  locked everybody out): with `HSE_TRUSTED_PROXIES` the console and Headscale see the real client address
+  (Caddy runs with `trusted_proxies_strict`, so a client cannot write its own in `X-Forwarded-For`).
+- The image crash-looped with a root-owned backups volume and with `cap_drop: ALL` (Caddy's file
+  capability): `/data/backups` is created for the unprivileged user, a read-only folder only warns, and the
+  capability is removed from the binary.
+
 ### Added
+- Advanced edition (plan phase 4), all under `deploy/`: the same all-in-one image plus what you
+  already run.
+  - `deploy/compose/`: the reference compose file (one service, named volumes, no capability,
+    `no-new-privileges`) and `--profile backup-remote`, the sidecar that uploads each backup to S3, B2,
+    SFTP or a server. `headscale-easy-backup` is published beside the other images.
+  - `deploy/examples/`: a proxy in front (nginx, Traefik, Caddy, Nginx Proxy Manager), Authentik (the
+    zero-change path for a 1.x install: same issuer URL, so nobody loses their identity), Pocket ID,
+    Keycloak and Google. Each README says what was run and what was only read.
+  - A new `install.sh` for the all-in-one image: a handful of questions at most, unattended with
+    `--yes`, never touches an existing `.env` or data, refuses a 1.x directory. The 1.x installer is
+    `legacy/install-1x.sh` (and `legacy/uninstall-1x.sh`).
+  - Proxy in front: `HSE_TLS=off` with an `https://` URL forces `X-Forwarded-Proto https` and leaves HSTS to
+    the proxy; `HSE_TRUSTED_PROXIES` (the proxy's own address, never a subnet) gives the console and
+    Headscale the real client address. `HSE_AUTHENTIK_UPSTREAM`, `AUTHENTIK_URL` and `AUTHENTIK_API_TOKEN`
+    keep an existing Authentik at `/authentik`. `HSE_OIDC_ALLOWED_DOMAINS/USERS/GROUPS` restrict who may
+    sign in, `PORTAL_*_GROUPS` and `OIDC_SCOPE` reach the console.
+  - External PostgreSQL, end to end (`deploy/examples/postgresql/`): a PostgreSQL 18 client in the image
+    (+13 MB) for backups and restores, and `HEADSCALE_PG_RO_USER/PASS`: the image creates a read-only role
+    for the console (three columns of one table) and the console no longer holds the owner's credentials.
+    A restore from the console loads the dump on PostgreSQL installs. The smoke test runs against real
+    servers 16, 17 and 18. The dump goes without `SET transaction_timeout` (pg_dump 17+ writes it, a 16
+    server refuses it), so a backup restores on any server from 13 to 18.
+  - `scripts/compose-smoke.sh` and the CI job that runs it; `scripts/validate.sh` checks every compose
+    file under `deploy/` and that none mounts the Docker socket.
 - Built-in backups for the all-in-one image (plan phase 3). The container backs
   itself up every night at 03:00 (`BACKUP_SCHEDULE`, `off` disables it) and keeps
   14 days (`BACKUP_KEEP_DAYS`) in `/data/backups`, with no extra container. One
