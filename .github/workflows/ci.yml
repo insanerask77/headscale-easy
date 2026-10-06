@@ -97,6 +97,24 @@ jobs:
           HSE_SMOKE_PERF: ${{ startsWith(github.ref, 'refs/tags/v') && '1' || '0' }}
         run: ./scripts/aio-smoke.sh hse-aio:ci
 
+  # The Docker tab snippets, run as printed against the all-in-one image (exit node, subnet route, userspace
+  # exit node, spent key, missing NET_ADMIN / sysctls): scripts/docker-tab-smoke.sh. It needs /dev/net/tun,
+  # NET_ADMIN and Internet access, which the hosted runner has.
+  docker-tab-e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: images
+          path: ${{ runner.temp }}
+      - name: Load the images
+        run: for f in "$RUNNER_TEMP"/*.tar; do docker load -i "$f"; done
+      - name: Docker tab end-to-end smoke test
+        run: ./scripts/docker-tab-smoke.sh hse-aio:ci
+
   # One job per PostgreSQL server version: it starts a real server (docker run) with Headscale on it, the
   # console through the read-only role, a backup with its dump and a restore that loads it; then the same
   # version through the advanced overlay (bundled server).
