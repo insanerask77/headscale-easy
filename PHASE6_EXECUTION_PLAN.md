@@ -142,44 +142,46 @@ Files that only the split compose, the helper container and the 1.x installer us
 ## Block 2: remove the Authentik code from the console (M/L, ~8-10h)
 
 ### 2.1 Inventory
-- [ ] List every Authentik touch point: `web/accounts.py` (523 lines, almost all of it),
+- [x] List every Authentik touch point: `web/accounts.py` (523 lines, almost all of it),
       `web/mfa.py` (162), `web/app.py` (33 refs), `web/pages.py`, `web/admin_pages.py`,
       `web/local_accounts.py` (1), the `PORTAL_AUTHENTIK_TOKEN` env var, `AUTHENTIK` /
       `CTX["authentik"]`, sign-out redirect for `/authentik/application/o/`, the Users page's
       Authentik invitations section, and the MFA mode page for Authentik.
 
 ### 2.2 Replace with the local-accounts path
-- [ ] `web/accounts.py`: keep only what the local backend needs (SMTP helpers like
+- [x] `web/accounts.py`: keep only what the local backend needs (SMTP helpers like — *deleted whole: the local-accounts path never used it (no e-mail, no Authentik data), so nothing was worth moving.*
       `send_mail`, `email_invitation`, `email_reset`, `hours_label`, role badge and the
       invite/reset dialogs) or move it to `web/local_accounts_ui.py`; delete the Authentik API
       client (`_api`, `accounts()`, `recovery_link`, `invitations`, `match`, caching).
-- [ ] `web/mfa.py`: drop the Authentik backend; MFA modes (admins / everyone / optional) stay
+- [x] `web/mfa.py`: drop the Authentik backend; MFA modes (admins / everyone / optional) stay
       on the local backend.
-- [ ] Sign-in with an external provider keeps working as plain OIDC: role mapping from
+- [x] Sign-in with an external provider keeps working as plain OIDC: role mapping from
       `PORTAL_*_GROUPS` / `PORTAL_ADMIN_EMAILS` / `HSE_OIDC_ALLOWED_*` (phase 4) stays. Remove
       the "built-in Authentik" special cases (sign-out flow, "manage account" link, the
       "Accounts are created in Authentik" text).
-- [ ] Remove `PORTAL_AUTHENTIK_TOKEN` and the `AUTH_PROVIDER` leftovers from `aio/render.py`
+- [x] Remove `PORTAL_AUTHENTIK_TOKEN` and the `AUTH_PROVIDER` leftovers from `aio/render.py`
       `console_env`, docs and examples.
-- [ ] Delete the Authentik strings from the four locales and rerun `check_i18n.py`.
+- [x] Delete the Authentik strings from the four locales and rerun `check_i18n.py`.
 
 ### 2.3 Authentik as an external OIDC example only
-- [ ] `deploy/examples/authentik/`: compose + blueprint stay, rewritten as "a provider for
+- [x] `deploy/examples/authentik/`: compose + blueprint stay, rewritten as "a provider for
       sign-in". Remove the parts that gave the console an API token and its invitation flow.
       Keep the blueprint only for the OIDC application, groups and branding it still needs;
       delete the invitation/recovery flows.
-- [ ] Delete the top-level `authentik/` directory (blueprint and branding copies); its
+- [x] Delete the top-level `authentik/` directory (blueprint and branding copies); its
       content that is still useful already lives in `deploy/examples/authentik/`.
-- [ ] Keep the `HSE_AUTHENTIK_UPSTREAM` Caddy route (an external Authentik at `/authentik/`);
+- [x] Keep the `HSE_AUTHENTIK_UPSTREAM` Caddy route (an external Authentik at `/authentik/`);
       it is renderer config, not console code. Re-check `tests/test_examples.py`.
 
+**Status:** ✅ Done except the by-hand OIDC sign-in (see below). Left over: the `docker` key of `/status`, `HELPER_SOCKET` and the "hs-helper" wording were not renamed (API names shared with Block 1's control socket, tests and 4 locales); `SMTP_*` and the *Users → Invite* UI have no consumer (see report); the trimmed blueprint was not applied to a live Authentik.
+
 ### 2.4 Tests
-- [ ] `tests/test_accounts.py` becomes the local invite/reset UI test; delete Authentik
+- [x] `tests/test_accounts.py` becomes the local invite/reset UI test; delete Authentik — *deleted with accounts.py; the local invite/reset routes are covered by test_local_accounts*
       fakes. `tests/test_security.py`: the sign-in, MFA, role and rate-limit cases stay,
       Authentik-specific ones go.
-- [ ] A grep test: no `authentik` outside `deploy/examples/authentik/`, docs and the
+- [x] A grep test: no `authentik` outside `deploy/examples/authentik/`, docs and the
       `HSE_AUTHENTIK_UPSTREAM` renderer route.
-- [ ] Run the sign-in flows by hand in the AIO: local, API key, and external OIDC with the
+- [ ] Run the sign-in flows by hand in the AIO: local, API key, and external OIDC with the — *NOT DONE: local sign-in is covered by the unit tests and the AIO smoke only; an external OIDC sign-in needs real domains, HTTPS and a passkey (Pocket ID) or a real Authentik, and was not run.*
       Pocket ID example (the lightest provider).
 
 ---
