@@ -75,6 +75,8 @@ def _env(url: str, v: dict, key: str) -> list[str]:
     routes = (EXIT_ROUTES if v["exit"] else []) + v["route_list"]
     if routes:
         env.append("TS_ROUTES=" + ",".join(routes))
+    if not v["userspace"]:
+        env.append("TS_DEBUG_FIREWALL_MODE=auto")  # nftables-only hosts (no iptables tables): tailscaled picks the backend that works
     env.append("TS_EXTRA_ARGS=" + _ts_args(url, v))
     return env
 

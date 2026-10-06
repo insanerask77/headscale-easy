@@ -68,6 +68,14 @@ class Snippets(unittest.TestCase):
         for plain in (parsed(), parsed(userspace="1", exit="1")):  # nothing to forward: no tips
             self.assertNotIn("ip_forward", docker_tab.panel({"csrf": "tok"}, URL, plain[0]))
 
+    def test_kernel_mode_sets_firewall_mode_auto_for_nftables_hosts(self):
+        v, _e = parsed(exit="1")
+        self.assertIn("TS_DEBUG_FIREWALL_MODE=auto", docker_tab.docker_run(URL, v, ""))
+        self.assertIn("TS_DEBUG_FIREWALL_MODE=auto", docker_tab.compose(URL, v, ""))
+        u, _e = parsed(userspace="1", exit="1")  # userspace mode has no firewall
+        self.assertNotIn("FIREWALL_MODE", docker_tab.docker_run(URL, u, ""))
+        self.assertNotIn("FIREWALL_MODE", docker_tab.compose(URL, u, ""))
+
     def test_userspace_needs_no_device_or_capabilities(self):
         v, _e = parsed(userspace="1", exit="1")
         run = docker_tab.docker_run(URL, v, "")
