@@ -13,11 +13,13 @@
 #      verifiable archive, an offline or an online `hse restore` does not bring
 #      back what was deleted after the backup, a container started with
 #      BACKUP_SCHEDULE="* * * * *" writes no archive within SCHED_WAIT seconds,
-#      or RAM goes above MAX_RAM_MB while a backup runs;
+#      or (HSE_SMOKE_PERF=1 only) RAM goes above MAX_RAM_MB while a backup runs;
 #    - setup mode (no env) does not print a token or serve /admin/setup;
-#    - the image is above MAX_IMAGE_MB (250) or idle RAM above MAX_RAM_MB (100).
-#  Env: MAX_IMAGE_MB, MAX_RAM_MB, IDLE_SECONDS (60), SCHED_WAIT (150), HOST_PORT (18080)
-#  In GitHub Actions the measured size and RAM are also written to $GITHUB_STEP_SUMMARY.
+#    - the image is above MAX_IMAGE_MB (250);
+#    - with HSE_SMOKE_PERF=1 (CI sets it on release tags only: it adds IDLE_SECONDS of waiting), idle RAM is
+#      above MAX_RAM_MB (100).
+#  Env: HSE_SMOKE_PG_ONLY (0; with HSE_SMOKE_PG=1 runs just the PostgreSQL round), HSE_SMOKE_PERF (0), MAX_IMAGE_MB, MAX_RAM_MB, IDLE_SECONDS (60), SCHED_WAIT (150), HOST_PORT (18080)
+#  In GitHub Actions the measured size (and RAM, in the performance round) are also written to $GITHUB_STEP_SUMMARY.
 # =============================================================================
 set -uo pipefail
 
@@ -100,6 +102,8 @@ summary "### All-in-one image" "" "| | Measured | Limit |" "|---|---:|---:|"
 summary "| Image size | ${size_mb} MB | ${MAX_IMAGE_MB} MB |"
 [ "$size_mb" -le "$MAX_IMAGE_MB" ] || fail "image is ${size_mb} MB, above ${MAX_IMAGE_MB} MB"
 
+# HSE_SMOKE_PG_ONLY=1 (with HSE_SMOKE_PG=1): only the PostgreSQL round, so CI can run one job per version
+if [ "${HSE_SMOKE_PG_ONLY:-0}" != 1 ]; then
 # --- headless mode ----------------------------------------------------------------
 echo "== headless mode"
 admin_pw="$(head -c 18 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"
@@ -140,30 +144,36 @@ echo "embedded DERP, STUN and base domain: ok"
 [ "$(http_code /admin/events)" = 401 ] || fail "/admin/events answered without a session"
 echo "sign-up off, event stream needs a session: ok"
 
-echo "idle for ${IDLE_SECONDS}s, then RAM"
-sleep "$IDLE_SECONDS"
-ram_mb=$(mem_mb "$NAME")
-echo "idle RAM: ${ram_mb} MB (limit ${MAX_RAM_MB})"
-summary "| Idle RAM (after ${IDLE_SECONDS} s) | ${ram_mb} MB | ${MAX_RAM_MB} MB |"
-[ "$ram_mb" -le "$MAX_RAM_MB" ] || fail "idle RAM is ${ram_mb} MB, above ${MAX_RAM_MB} MB"
+if [ "${HSE_SMOKE_PERF:-0}" = 1 ]; then
+    echo "idle for ${IDLE_SECONDS}s, then RAM"
+    sleep "$IDLE_SECONDS"
+    ram_mb=$(mem_mb "$NAME")
+    echo "idle RAM: ${ram_mb} MB (limit ${MAX_RAM_MB})"
+    summary "| Idle RAM (after ${IDLE_SECONDS} s) | ${ram_mb} MB | ${MAX_RAM_MB} MB |"
+    [ "$ram_mb" -le "$MAX_RAM_MB" ] || fail "idle RAM is ${ram_mb} MB, above ${MAX_RAM_MB} MB"
+fi
 
 # --- built-in backups -----------------------------------------------------
 echo "== backups"
 # 1. `hse backup`, sampling RAM while it runs. The backup is a subprocess of the
 #    supervisor, so the container's total is what must stay under the limit.
 backup_log=$(mktemp)
-docker exec "$NAME" hse backup >"$backup_log" 2>&1 &
-backup_pid=$!
-peak_mb=0
-while kill -0 "$backup_pid" 2>/dev/null; do
+if [ "${HSE_SMOKE_PERF:-0}" = 1 ]; then
+    docker exec "$NAME" hse backup >"$backup_log" 2>&1 &
+    backup_pid=$!
+    peak_mb=0
+    while kill -0 "$backup_pid" 2>/dev/null; do
+        sample=$(mem_mb "$NAME"); [ "$sample" -gt "$peak_mb" ] && peak_mb=$sample
+    done
+    wait "$backup_pid" || { cat "$backup_log"; fail "hse backup failed"; }
     sample=$(mem_mb "$NAME"); [ "$sample" -gt "$peak_mb" ] && peak_mb=$sample
-done
-wait "$backup_pid" || { cat "$backup_log"; fail "hse backup failed"; }
+    echo "RAM during backup: ${peak_mb} MB (limit ${MAX_RAM_MB})"
+    summary "| RAM during a backup | ${peak_mb} MB | ${MAX_RAM_MB} MB |"
+    [ "$peak_mb" -le "$MAX_RAM_MB" ] || fail "RAM during a backup is ${peak_mb} MB, above ${MAX_RAM_MB} MB"
+else
+    docker exec "$NAME" hse backup >"$backup_log" 2>&1 || { cat "$backup_log"; fail "hse backup failed"; }
+fi
 rm -f "$backup_log"
-sample=$(mem_mb "$NAME"); [ "$sample" -gt "$peak_mb" ] && peak_mb=$sample
-echo "RAM during backup: ${peak_mb} MB (limit ${MAX_RAM_MB})"
-summary "| RAM during a backup | ${peak_mb} MB | ${MAX_RAM_MB} MB |"
-[ "$peak_mb" -le "$MAX_RAM_MB" ] || fail "RAM during a backup is ${peak_mb} MB, above ${MAX_RAM_MB} MB"
 
 # 2. the archive: private, readable, AIO format, with the console's accounts and
 #    without sessions (a restored session would revive revoked logins)
@@ -243,10 +253,13 @@ echo "scheduled backup: ok ($(basename "$(latest_archive "$NAME")"))"
 NAME="hse-aio-smoke"
 cleanup
 
+fi
+
 # --- external PostgreSQL (HSE_SMOKE_PG=1; versions in HSE_SMOKE_PG_VERSIONS, default "17") -----------------
 # A real PostgreSQL of each version: Headscale on it, the console reading through the read-only role the
 # image creates (and that role only able to read three columns), a backup with its dump, a restore that
 # loads it. The client in the image is 18: servers 16, 17 and 18 are the ones that matter.
+admin_pw="${admin_pw:-$(head -c 18 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')}"
 pg_round() {
     local ver="$1" owner_pw ro_pw
     owner_pw="$(head -c 18 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"; ro_pw="$(head -c 18 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"
@@ -304,6 +317,8 @@ if [ "${HSE_SMOKE_PG:-0}" = 1 ]; then
 else
     echo "== PostgreSQL: skipped (HSE_SMOKE_PG=1 runs it; HSE_SMOKE_PG_VERSIONS="16 17 18" picks the servers)"
 fi
+
+if [ "${HSE_SMOKE_PG_ONLY:-0}" = 1 ]; then echo "OK (PostgreSQL only)"; exit 0; fi
 
 # --- setup mode ---------------------------------------------------------------------
 echo "== setup mode"

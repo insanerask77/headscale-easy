@@ -3,10 +3,16 @@ name: CI
 on:
   push:
     branches: [main, next]
+    tags: ["v*.*.*"]
   pull_request:
 
 permissions:
   contents: read
+
+# A newer push to the same branch or PR replaces the run in progress; a release tag is never cancelled
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   lint:
@@ -33,45 +39,122 @@ jobs:
       - name: Project checks
         run: ./scripts/validate.sh
 
-  image:
+  # Builds the all-in-one image and the backup sidecar once (layers cached between runs) and hands them to the
+  # test jobs below, which run in parallel.
+  build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build the backup image
-        run: docker build -t headscale-easy-backup:ci backup
-
-  aio:
-    # The all-in-one image: build, then headless and setup-mode smoke tests,
-    # the built-in backups (archive, offline and online restore, a scheduled
-    # run) and fail above the size / RAM targets, also during a backup
-    # (scripts/aio-smoke.sh).
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
 
       - name: Build the all-in-one image
-        run: docker build -f aio/Dockerfile -t hse-aio:ci .
-
-      - name: Smoke tests, backups, image size and RAM, and PostgreSQL 16, 17 and 18
-        # The measured size and RAM go to the job summary (scripts/aio-smoke.sh), for the docs.
-        # The PostgreSQL round starts a real server of each version (docker run): Headscale on it, the console
-        # through the read-only role, a backup with its dump and a restore that loads it.
-        env:
-          HSE_SMOKE_PG: "1"
-          HSE_SMOKE_PG_VERSIONS: "16 17 18"
-        run: ./scripts/aio-smoke.sh hse-aio:ci
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: aio/Dockerfile
+          tags: hse-aio:ci
+          outputs: type=docker,dest=${{ runner.temp }}/hse-aio.tar
+          cache-from: type=gha,scope=ci-aio
+          cache-to: type=gha,mode=max,scope=ci-aio
 
       - name: Build the backup sidecar
-        run: docker build -t hse-backup:ci backup
+        uses: docker/build-push-action@v6
+        with:
+          context: backup
+          tags: hse-backup:ci
+          outputs: type=docker,dest=${{ runner.temp }}/hse-backup.tar
+          cache-from: type=gha,scope=ci-backup
+          cache-to: type=gha,mode=max,scope=ci-backup
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: images
+          path: ${{ runner.temp }}/*.tar
+          retention-days: 1
+          compression-level: 1
+
+  # The all-in-one image: headless and setup-mode smoke tests, the built-in backups (archive, offline and
+  # online restore, a scheduled run) and the size target (scripts/aio-smoke.sh). On a release tag it also
+  # measures RAM, idle and during a backup.
+  aio:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: images
+          path: ${{ runner.temp }}
+      - name: Load the images
+        run: for f in "$RUNNER_TEMP"/*.tar; do docker load -i "$f"; done
+
+      - name: Smoke tests, backups and image size (plus RAM on a release tag)
+        # The measured size goes to the job summary (scripts/aio-smoke.sh), for the docs.
+        env:
+          HSE_SMOKE_PERF: ${{ startsWith(github.ref, 'refs/tags/v') && '1' || '0' }}
+        run: ./scripts/aio-smoke.sh hse-aio:ci
+
+  # One job per PostgreSQL server version: it starts a real server (docker run) with Headscale on it, the
+  # console through the read-only role, a backup with its dump and a restore that loads it; then the same
+  # version through the advanced overlay (bundled server).
+  postgres:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["16", "17", "18"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: images
+          path: ${{ runner.temp }}
+      - name: Load the images
+        run: for f in "$RUNNER_TEMP"/*.tar; do docker load -i "$f"; done
+
+      - name: External PostgreSQL ${{ matrix.version }}
+        env:
+          HSE_SMOKE_PG: "1"
+          HSE_SMOKE_PG_ONLY: "1"
+          HSE_SMOKE_PG_VERSIONS: ${{ matrix.version }}
+        run: ./scripts/aio-smoke.sh hse-aio:ci
+
+      - name: Advanced overlay, PostgreSQL ${{ matrix.version }} (bundled server, read-only role, backup and restore)
+        run: ./scripts/advanced-smoke.sh postgres "${{ matrix.version }}" hse-aio:ci
+
+  compose:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: images
+          path: ${{ runner.temp }}
+      - name: Load the images
+        run: for f in "$RUNNER_TEMP"/*.tar; do docker load -i "$f"; done
 
       - name: The Compose app (hardened, named volumes) and the backup-remote overlay
         run: ./scripts/compose-smoke.sh hse-aio:ci hse-backup:ci
 
-      - name: Advanced overlay, PostgreSQL 16, 17 and 18 (bundled server, read-only role, backup and restore)
-        run: |
-          for v in 16 17 18; do ./scripts/advanced-smoke.sh postgres "$v" hse-aio:ci || exit 1; done
+  proxy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: images
+          path: ${{ runner.temp }}
+      - name: Load the images
+        run: for f in "$RUNNER_TEMP"/*.tar; do docker load -i "$f"; done
 
       - name: Advanced overlay, a proxy in front (real nginx, real client address)
         run: ./scripts/advanced-smoke.sh proxy hse-aio:ci
