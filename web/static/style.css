@@ -703,6 +703,24 @@ body.bare { background: var(--side); }
 /* ---- expiry ---- */
 .notice.warn { color: var(--ink); background: color-mix(in srgb, var(--b-orange) 14%, transparent);
     border: 1px solid color-mix(in srgb, var(--b-orange) 55%, transparent); }
+/* ---- troubleshooting tips (Add device → Docker): a yellow dropdown with nested questions ---- */
+:root { --tip-yellow: #e6b400; }
+details.tips { border: 1px solid color-mix(in srgb, var(--tip-yellow) 65%, transparent); border-radius: 0.6rem;
+    background: color-mix(in srgb, var(--tip-yellow) 14%, transparent); color: var(--ink); margin-top: 1rem; }
+details.tips > summary { cursor: pointer; font-weight: 600; padding: 0.7rem 0.9rem; list-style: none; }
+details.tips > summary::-webkit-details-marker { display: none; }
+details.tips > summary::before { content: "\26A0\FE0F"; margin-right: 0.5rem; }
+details.tips > summary::after { content: "\25BE"; float: right; transition: transform 0.15s; }
+details.tips[open] > summary::after { transform: rotate(180deg); }
+.tips-body { padding: 0 0.9rem 0.9rem; display: grid; gap: 0.5rem; }
+.tips-body p { margin: 0.4rem 0; }
+details.tip { border: 1px solid color-mix(in srgb, var(--tip-yellow) 40%, transparent); border-radius: 0.45rem;
+    background: color-mix(in srgb, var(--tip-yellow) 7%, transparent); }
+details.tip > summary { cursor: pointer; padding: 0.5rem 0.75rem; font-weight: 500; }
+details.tip[open] > summary { border-bottom: 1px solid color-mix(in srgb, var(--tip-yellow) 30%, transparent); }
+.tip-body { padding: 0.25rem 0.75rem 0.75rem; display: grid; gap: 0.35rem; }
+.tip-body .steps { margin-top: 0.5rem; }
+.tip-body .code { margin-top: 0.25rem; }
 .expiry-notice p { margin: 0; }
 .expiry-notice p + p { margin-top: 0.35rem; }
 .expiry-notice .link { padding: 0; border: 0; background: none; font: inherit; color: var(--link);

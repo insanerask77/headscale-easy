@@ -77,6 +77,7 @@ plugins:
             Your own sign-in provider: Tu propio proveedor de acceso
             Configuration: Configuración
             Operations: Operación
+            Docker devices: Dispositivos Docker
             Project: Proyecto
             Contributing: Contribuir
             Roadmap: Hoja de ruta
@@ -100,6 +101,7 @@ nav:
       - Your own sign-in provider: advanced/oidc.md
   - Configuration: configuration.md
   - Operations: operations.md
+  - Docker devices: docker-troubleshooting.md
   - Production and hardening: hardening.md
   - Architecture and resources: architecture.md
   - Project:

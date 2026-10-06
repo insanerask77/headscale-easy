@@ -90,14 +90,23 @@ class Snippets(unittest.TestCase):
         self.assertEqual(parsed(use_exit="1.2.3.4; rm -rf /")[1], "Invalid exit node.")
         self.assertIn("at the same time", parsed(exit="1", use_exit="100.64.0.7")[1])
 
-    def test_kernel_exit_node_gets_the_troubleshooting_tips_from_the_docs(self):
-        v, _e = parsed(exit="1")
+    def test_troubleshooting_is_a_yellow_dropdown_with_commands_for_this_container(self):
+        v, _e = parsed(hostname="edge-1", exit="1")
         html = docker_tab.panel({"csrf": "tok"}, URL, v)
-        self.assertIn("net.ipv4.ip_forward = 1", html)
-        self.assertIn("net.ipv6.conf.all.forwarding = 1", html)
-        self.assertIn("sysctl -p /etc/sysctl.d/99-tailscale.conf", html)
-        for plain in (parsed(), parsed(userspace="1", exit="1")):  # nothing to forward: no tips
-            self.assertNotIn("ip_forward", docker_tab.panel({"csrf": "tok"}, URL, plain[0]))
+        self.assertIn('<details class="tips">', html)
+        self.assertGreaterEqual(html.count('<details class="tip">'), 10)
+        for part in ("net.ipv4.ip_forward = 1", "net.ipv6.conf.all.forwarding = 1",
+                     "sysctl -p /etc/sysctl.d/99-tailscale.conf", "docker logs tailscale-edge-1",
+                     "tailscale set --advertise-routes= --advertise-exit-node=false", "tailscale set --accept-routes",
+                     "tailscale debug prefs | grep -A3 AdvertiseRoutes", "docker compose down -v"):
+            self.assertIn(part, html)
+        # also for a container that does not forward: no-Internet and sign-in problems are not about routes
+        self.assertIn('<details class="tips">', docker_tab.panel({"csrf": "tok"}, URL, parsed()[0]))
+
+    def test_tips_commands_cannot_carry_form_text(self):
+        v, err = parsed(hostname="x; rm -rf /")
+        self.assertNotEqual(err, "")
+        self.assertNotIn("<details", docker_tab.panel({"csrf": "tok"}, URL, v, error=err))
 
     def test_kernel_mode_sets_firewall_mode_auto_for_nftables_hosts(self):
         v, _e = parsed(exit="1")
