@@ -300,7 +300,7 @@ class OneDotX(Base):
             r = self.install("--yes", "--dir", "old", HSE_PUBLIC_URL="https://vpn.example.com", HSE_TLS="internal")
             self.assertNotEqual(r.returncode, 0, name)
             self.assertIn("1.x installation", r.stderr)
-            self.assertIn("legacy/install-1x.sh", r.stderr)
+            self.assertIn("another directory", r.stderr)
             self.assertEqual(sorted(p.name for p in d.iterdir()), before)  # nothing written there
             self.assertEqual(self.compose_calls(), [])
 
@@ -423,26 +423,8 @@ class Uninstall(Base):
         (d / ".env").write_text("SSL_MODE=letsencrypt\n")
         r = self.run_script(UNINSTALL, "--purge", "--yes")
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("legacy/uninstall-1x.sh", r.stderr)
+        self.assertIn("1.x installation", r.stderr)
         self.assertEqual(self.compose_calls(), [])
-
-
-class Legacy(unittest.TestCase):
-    def test_the_old_scripts_moved_and_still_parse(self):
-        for name in ("install-1x.sh", "uninstall-1x.sh"):
-            path = ROOT / "legacy" / name
-            self.assertTrue(path.is_file(), name)
-            self.assertEqual(subprocess.run(["bash", "-n", str(path)]).returncode, 0)
-            self.assertIn('/.." && pwd)', path.read_text())  # the repository root is one level up
-        self.assertIn("1.x installer", (ROOT / "legacy" / "install-1x.sh").read_text())
-
-    def test_the_golden_generator_reads_the_moved_generators(self):
-        text = (ROOT / "scripts" / "gen_render_goldens.sh").read_text()
-        self.assertIn("legacy/install-1x.sh", text)
-        self.assertNotIn('"$ROOT/install.sh"', text)
-        legacy = (ROOT / "legacy" / "install-1x.sh").read_text()
-        self.assertIn("\ndns_block() {", legacy)
-        self.assertIn("# Headscale and the UI validate the OIDC issuer", legacy)
 
 
 if __name__ == "__main__":

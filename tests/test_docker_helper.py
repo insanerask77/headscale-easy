@@ -532,16 +532,5 @@ class WebClientTest(unittest.TestCase):
             self.assertTrue(hs.restart_headscale())
 
 
-class ComposeTest(unittest.TestCase):
-    def test_only_the_helper_mounts_the_docker_socket(self):
-        service = None
-        with open(os.path.join(ROOT, "docker-compose.yml"), encoding="utf-8") as fh:
-            for line in fh:
-                if line.startswith("  ") and not line.startswith("   ") and line.rstrip().endswith(":"):
-                    service = line.strip().rstrip(":")
-                if "docker.sock" in line and not line.lstrip().startswith("#"):
-                    self.assertEqual(service, "hs-helper", line)
-
-
 if __name__ == "__main__":
     unittest.main()

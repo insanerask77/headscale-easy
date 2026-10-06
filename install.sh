@@ -16,7 +16,7 @@
 #  It writes a compose file and a small .env in the install directory and runs
 #  `docker compose up -d`. Everything else (DERP, DNS, identity provider, backups) is the setup
 #  wizard's job, or the console's afterwards. Running it again on the same directory only updates
-#  the images: the .env and the data are never touched. The 1.x installer is legacy/install-1x.sh.
+#  the images: the .env and the data are never touched.
 # =============================================================================
 set -euo pipefail
 
@@ -80,11 +80,11 @@ ensure_docker() {
 }
 
 # --- an existing directory -----------------------------------------------------------------------
-# A 1.x install keeps its settings in the repository root: converting it is phase 5's migration,
-# not something to do half-way here.
+# A 1.x install keeps its settings in the repository root. 2.0 does not convert it: never write
+# into that directory.
 refuse_1x() {
     if [[ -f "$DIR/headscale-config.yaml" ]] || grep -qE '^(SSL_MODE|AUTH_PROVIDER)=' "$DIR/.env" 2>/dev/null; then
-        die "$DIR holds a 1.x installation (split compose file). Keep using ./legacy/install-1x.sh there, or install in another directory (--dir)."
+        die "$DIR holds a 1.x installation (split compose file). 2.0 is a fresh install: use another directory (--dir)."
     fi
 }
 

@@ -106,7 +106,7 @@ def _unpack(archive: str, dest: str) -> dict[str, str]:
     hashes: dict[str, str] = {}
     top = None
     total = count = 0
-    unexpected = None  # first member with a name outside the layout; reported after the 1.x check
+    unexpected = None  # first member with a name outside the layout; reported after the meta.json check
     try:
         with tarfile.open(archive, "r:gz") as tar:
             for m in tar:
@@ -153,8 +153,7 @@ def _unpack(archive: str, dest: str) -> dict[str, str]:
         raise RestoreError("the archive is empty")
     if "meta.json" not in hashes:
         raise RestoreError(
-            "this is not an all-in-one backup (no meta.json). A Headscale Easy 1.x backup is restored with "
-            "scripts/restore.sh on the 1.x stack, or moved to 2.0 with the migration (Phase 5).")
+            "this is not a Headscale Easy 2 backup (no meta.json)")
     if unexpected:
         raise RestoreError("unexpected member in the archive: %r" % unexpected)
     return hashes
