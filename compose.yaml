@@ -14,7 +14,7 @@ name: headscale-easy
 
 services:
   headscale-easy:
-    image: ghcr.io/insanerask77/headscale-easy:${HSE_VERSION:-2.0.1}
+    image: ghcr.io/insanerask77/headscale-easy:${HSE_VERSION:-2.0.2}
     container_name: headscale-easy
     restart: unless-stopped
     env_file:

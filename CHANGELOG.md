@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-10-06
+
 ### Fixed
 - Docker tab: the exit node of a container survives the first deploy (#83). It is generated as
   `TS_ROUTES=0.0.0.0/0,::/0` (plus any subnet routes) instead of `--advertise-exit-node` in `TS_EXTRA_ARGS`.
@@ -27,6 +29,10 @@ All notable changes to this project are documented here. The format follows
 - Docker tab: options for a container that uses another device as exit node or accepts subnet routes (#86).
 - Machines: an exit node or subnet routes waiting for approval say so in the badge, can be approved in one
   click, and administrators see a banner counting them (#85).
+
+### Changed
+- CI runs the Docker tab end-to-end smoke test (#90): the snippets the tab generates are deployed and checked.
+  A `pipefail` SIGPIPE made its `nocap` case flaky; the container logs are now read fully before grepping.
 
 ## [2.0.1] - 2026-10-06
 
