@@ -294,6 +294,12 @@ docker logs --tail 100 headscale-easy
 docker exec headscale-easy hse health
 ```
 
+**I changed the Docker tab options and the machine did not change.** The generated
+container keeps `TS_AUTH_ONCE=true`, so it does not run `tailscale up` again and
+`TS_EXTRA_ARGS` is not re-applied. The exit node and subnet routes travel in
+`TS_ROUTES`, which is applied on every start: regenerate the snippet, update the
+container's variables and recreate it (`docker compose up -d --force-recreate`).
+
 **The container is unhealthy or restarts.** `hse health` says which of the three
 processes is down; the log lines are prefixed `[supervisor]`, `[headscale]`,
 `[caddy]` and `[console]`. A crashed process is restarted with backoff (1 s up to
