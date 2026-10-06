@@ -1,230 +1,202 @@
 # Configuración
 
-Todo lo configura `./install.sh`. Guarda tus respuestas en `.env` y genera el
-resto a partir de `templates/`. Vuelve a ejecutarlo para cambiar lo que sea: tus
-respuestas anteriores son los valores por defecto y no se pierde ningún dato.
+Headscale Easy es un solo contenedor, configurado de tres maneras que se
+apilan en este orden (gana la primera):
 
-## El instalador { #the-installer }
+1. **Variables de entorno** (`-e`, o el `.env` junto al fichero compose).
+2. **`/data/config/settings.json`**, que escriben el asistente de primer arranque y las
+   páginas de Ajustes de la consola.
+3. **Valores por defecto.**
 
-Las preguntas, por orden:
+Sin ninguna (sin `settings.json` y sin `HSE_PUBLIC_URL`) el contenedor arranca en
+el [modo de configuración](all-in-one.md#the-first-run-wizard). La imagen renderiza
+`config.yaml` de Headscale, el `Caddyfile` y el mapa DERP a partir de esos ajustes en
+cada arranque (`/data/config/`); nunca editas a mano los ficheros generados, salvo el
+bloque DNS, que gestiona la consola. `docker exec headscale-easy hse reload` vuelve a
+renderizar y reinicia tras un cambio.
 
-1. **Idioma**: English o Español (del instalador y de la consola por defecto).
-2. **Dominio o IP**: el único nombre con el que se accede al stack. Caddy lo
-   enruta: `/` → Headscale, `/admin` → consola web, `/authentik` → Authentik.
-3. **Quién pone el HTTPS**: ver [Modos de HTTPS](#https-modes).
-4. **Puertos**: Enter acepta los valores por defecto.
-5. **Tailnet**: nombre de la organización, usuario inicial de Headscale, rangos de direcciones.
-6. **Inicio de sesión**: Authentik, tu propio proveedor OIDC o sólo API key. Con
-   Authentik, opcionalmente un servidor SMTP para el email ("¿Olvidaste la contraseña?").
-7. **Aislamiento de red**: si cada usuario sólo alcanza sus dispositivos.
-8. **Copias de seguridad**: si se hace una copia diaria (desactivada por
-   defecto, recomendada) y, en ese caso, a qué hora, en qué carpeta y cuántos
-   días se conserva. Ver [Copias de seguridad](operations.md#backups).
+## Referencia de variables de entorno { #reference }
 
-Después despliega: primero Authentik (Headscale no arranca hasta que el issuer
-OIDC responde), luego Headscale, crea el usuario inicial y la API key que usa la
-consola, aplica la política de aislamiento y arranca el resto.
+Todas las variables que lee la imagen. Las marcadas *asistente* también las pregunta el
+[asistente de primer arranque](all-in-one.md#the-first-run-wizard).
+
+### Servidor y HTTPS
+
+| Variable | Por defecto | Significado |
+|---|---|---|
+| `HSE_PUBLIC_URL` | *(ninguna: asistente)* | `http(s)://host[:puerto]` público del servidor. Definirla se salta el asistente |
+| `HSE_TLS` | `auto` con https, `off` con http | Quién termina TLS: ver [Modos de HTTPS](#https-modes). *asistente* |
+| `ACME_EMAIL` | | Obligatoria con `HSE_TLS=auto` |
+| `HSE_DERP_PORT` | `3478` | Puerto STUN del relé DERP integrado (publícalo como UDP) |
+| `HSE_DERP_MODE` | `embedded` | `embedded`, `public` (también los relés de Tailscale) o `custom`: ver [Relés](#relays-derp). *asistente* |
+| `HSE_DERP_URL` | | URL del mapa DERP, con `HSE_DERP_MODE=custom` |
+| `DERP_USE_PUBLIC` | | Alias antiguo: `true` = `public`, `false` = `embedded`; gana `HSE_DERP_MODE` |
+| `HEADSCALE_HTTP_PORT`, `HEADSCALE_METRICS_PORT`, `HEADSCALE_GRPC_PORT` | `8080`, `9090`, `50443` | Puertos internos de Headscale (dentro del contenedor; no se publican) |
+| `IP_PREFIXES_V4`, `IP_PREFIXES_V6` | `100.64.0.0/10`, `fd7a:115c:a1e0::/48` | Rangos de direcciones que reciben los dispositivos. Cambiarlos renumera todos los dispositivos |
+| `LOG_LEVEL` | `info` | Nivel de log de Headscale |
+| `HSE_TRUSTED_PROXIES`, `HSE_TRUSTED_PROXIES_ANY` | | El proxy delante: IP reales de los clientes. Ver [Edición avanzada](advanced.md#a-proxy-in-front) |
+| `UI_LANG` | `en` | Idioma por defecto de la consola (`en`, `es`, `fr`, `de`, `pt`) |
+| `TZ` | `UTC` | Zona horaria (también el reloj de la programación de copias) |
+
+### Tailnet
+
+| Variable | Por defecto | Significado |
+|---|---|---|
+| `TAILNET_NAME` | `myorg` | Etiqueta de la tailnet. *asistente* |
+| `HSE_BASE_DOMAIN` | `hse.net` | Dominio base de MagicDNS: los dispositivos son `<dispositivo>.<dominio base>`. Debe ser distinto del dominio del propio servidor. Se fija en el primer arranque; luego se edita en la página DNS. *asistente* |
+| `NETWORK_ISOLATION` | `true` | Cada usuario sólo alcanza sus dispositivos: ver [Aislamiento de red](#network-isolation-and-acls). *asistente* |
+| `NODE_KEY_EXPIRY` | `180d` | Vida de la clave de los dispositivos: ver [Caducidad de la clave](#device-key-expiry) |
+
+### Cuentas e inicio de sesión
+
+| Variable | Por defecto | Significado |
+|---|---|---|
+| `HSE_ADMIN_EMAIL`, `HSE_ADMIN_PASSWORD` | | Primer administrador, creado en el primer arranque si no hay ninguna cuenta. *asistente* |
+| `HSE_SIGNUP` | `off` | Auto-registro: `off`, `invite` (pide una clave de invitación) u `open`. *asistente* |
+| `MFA_REQUIRED` | `admins` | Quién debe configurar la verificación en dos pasos: `admins`, `everyone` u `optional`. Los admins lo cambian después en **Ajustes → General** |
+| `SESSION_SECRET` | *(generado)* | Firma las sesiones de la consola. Si está vacío se genera y se guarda en `/data/config/session-secret` |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `SMTP_USE_SSL`, `SMTP_FROM` | | Servidor de correo opcional, para enviar invitaciones y enlaces de restablecimiento |
+| `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | | Iniciar sesión con un proveedor OIDC externo: ver [Inicio de sesión](#sign-in) |
+| `OIDC_SCOPE` | `openid profile email` | Scopes que piden la consola y Headscale |
+| `HSE_OIDC_ALLOWED_DOMAINS`, `HSE_OIDC_ALLOWED_USERS`, `HSE_OIDC_ALLOWED_GROUPS` | | Quién puede entrar con el proveedor (separado por comas; vacío = todos los que el proveedor deje pasar) |
+| `PORTAL_ADMIN_EMAILS` | `HSE_ADMIN_EMAIL` | Cuentas del proveedor que son administradoras en la consola |
+| `PORTAL_ADMIN_GROUPS`, `PORTAL_NETWORK_ADMIN_GROUPS`, `PORTAL_AUDITOR_GROUPS` | | Grupos del proveedor que corresponden a cada rol de la consola: ver [Roles](#roles) |
+| `HSE_AUTHENTIK_UPSTREAM` | | `host:puerto` de un Authentik externo que Caddy sirve bajo `/authentik`, para que no cambie la URL de su emisor |
+
+### Notificaciones
+
+| Variable | Por defecto | Significado |
+|---|---|---|
+| `NOTIFY_URLS` | | Destinos (Slack, Telegram, ntfy, webhook): ver [Operación → Notificaciones](operations.md#notifications) |
+| `NOTIFY_EVENTS` | todos | Qué eventos de dispositivos se envían |
+
+### Base de datos
+
+| Variable | Por defecto | Significado |
+|---|---|---|
+| `HEADSCALE_DB_TYPE` | `sqlite` | `sqlite` o `postgres` (un servidor externo): ver [Base de datos](#database) |
+| `HEADSCALE_PG_HOST`, `HEADSCALE_PG_PORT`, `HEADSCALE_PG_NAME`, `HEADSCALE_PG_USER`, `HEADSCALE_PG_PASS`, `HEADSCALE_PG_SSLMODE` | puerto `5432`, base y usuario `headscale`, TLS `disable` | Conexión al PostgreSQL externo |
+| `HEADSCALE_PG_RO_USER`, `HEADSCALE_PG_RO_PASS` | | Rol de solo lectura que la imagen crea para la consola, para que nunca tenga las credenciales del propietario |
+
+### Copias de seguridad
+
+| Variable | Por defecto | Significado |
+|---|---|---|
+| `BACKUP_SCHEDULE` | `0 3 * * *` | Sintaxis cron, en la zona horaria `TZ`; `off` desactiva las copias programadas. Un valor no válido detiene el contenedor al arrancar. *asistente* |
+| `BACKUP_KEEP_DAYS` | `14` | Las copias más antiguas se borran; la última correcta nunca se borra. *asistente* |
+| `BACKUP_MODE` | `create` | Sólo para la imagen `backup` usada como sidecar: `sync` sube los archivos que escribió la imagen todo en uno |
+| `BACKUP_SYNC_INTERVAL` | `900` | Segundos entre dos subidas en modo `sync` |
 
 ## Modos de HTTPS { #https-modes }
 
-| `SSL_MODE` | Quién termina el TLS | Úsalo cuando |
+| `HSE_TLS` | Quién termina TLS | Úsalo cuando |
 |---|---|---|
-| `letsencrypt` | Caddy, con un certificado de Let's Encrypt | Servidor público con dominio y puertos 80/443 abiertos |
-| `selfsigned` | Caddy, con su CA interna | Sin DNS público; puedes instalar una CA en los clientes |
-| `front` | Otro proxy por delante (NPM, nginx, Traefik, Caddy) | Ya tienes un reverse proxy |
-| `none` | Nadie (HTTP sin cifrar) | localhost, una LAN de confianza o detrás de otra VPN |
+| `auto` | Caddy, con un certificado de Let's Encrypt | Servidor público con dominio; puertos 80/443 abiertos |
+| `internal` | Caddy, con su CA interna | Sin DNS público; puedes instalar una CA en los clientes |
+| `off` | Nadie (HTTP plano), o un proxy delante | localhost, una LAN de confianza, o detrás de tu propio reverse proxy |
 
-Con `selfsigned`, el instalador exporta el certificado raíz de Caddy a
-`caddy-root-ca.crt`. Instálalo en cada cliente o se negarán a conectar
+Con `internal`, el certificado raíz de Caddy está en `/data/caddy/pki/` (y en cada
+copia). Instálalo en todos los clientes o se negarán a conectar
 (`x509: certificate signed by unknown authority`). Las apps de Android e iOS sólo
 funcionan con un certificado de confianza pública.
 
-El relay DERP integrado necesita el **UDP 3478** accesible desde internet en
-todos los modos: ningún proxy HTTP puede transportarlo.
+Detrás de un reverse proxy que ya usas (nginx, Traefik, Caddy, Nginx Proxy Manager)
+usa `HSE_TLS=off`, un `HSE_PUBLIC_URL` con `https://` y `HSE_TRUSTED_PROXIES`: mira
+[Edición avanzada → Un proxy delante](advanced.md#a-proxy-in-front) para la lista de
+comprobación y los ejemplos listos.
 
-### Servidores DERP públicos
+El relé DERP integrado necesita el **UDP 3478** accesible desde Internet en todos los
+modos: ningún proxy HTTP puede transportarlo.
 
-El instalador pregunta si usar también los relés DERP públicos de Tailscale
-(`DERP_USE_PUBLIC`, **sí** por defecto). Responde **no** para una instalación
-totalmente autoalojada: sólo se usa tu relé integrado y `derp.urls` queda vacío,
-así que ni Headscale ni el panel web contactan con el mapa DERP de tailscale.com.
-Los dispositivos que no puedan conectar directamente dependerán de tu relé:
-mantén accesibles el UDP 3478 y HTTPS. Vuelve a ejecutar `./install.sh` para
-cambiarlo.
+### Relés (DERP) { #relays-derp }
 
-## Detrás de un reverse proxy existente { #behind-an-existing-reverse-proxy }
-
-Elige `front` e indica al instalador qué proxy usas y la dirección de esta
-máquina vista desde él. Deja una configuración lista para usar en `reverse-proxy/`:
-
-| Proxy | Fichero |
-|---|---|
-| Nginx Proxy Manager | `reverse-proxy/NGINX-PROXY-MANAGER.md` (paso a paso) |
-| nginx | `reverse-proxy/nginx-<dominio>.conf` |
-| Traefik | `reverse-proxy/traefik-<dominio>.yml` (file provider) |
-| Caddy | `reverse-proxy/Caddyfile` |
-
-Tu proxy reenvía el dominio entero a Caddy en `BACKEND_HOST:HTTP_PORT` y Caddy
-enruta por ruta. Requisitos que ya cubren los snippets: WebSocket / HTTP upgrade
-(para `/ts2021`), sin buffering de respuesta y timeouts de lectura largos (para
-el long-poll de `/machine/map`) y sin límite de tamaño de cuerpo.
-
-Si los contenedores no alcanzan tu URL pública (tu router no hace NAT loopback),
-pon en `FRONT_PROXY_IP` la IP del proxy en la LAN.
+Por defecto (`HSE_DERP_MODE=embedded`) el contenedor es su propio relé: DERP y STUN
+corren dentro y `derp.urls` queda vacío, así que ni Headscale ni la consola contactan
+con el mapa DERP de tailscale.com. Los dispositivos que no pueden conectar directamente
+dependen entonces de tu relé: mantén accesibles el UDP 3478 y HTTPS. `public` añade los
+relés públicos de Tailscale; `custom` usa tu propio mapa (`HSE_DERP_URL`, o uno subido en
+**Red → Relés DERP**).
 
 ## Inicio de sesión { #sign-in }
 
-| `AUTH_PROVIDER` | Cuentas | Acceso a la consola |
+Hay tres maneras de entrar en la consola, y se combinan:
+
+| Método | Cuentas | Notas |
 |---|---|---|
-| `authentik` | Authentik integrado: usuario + contraseña, Google opcional | Todos inician sesión; admins son los miembros de `vpn-admins` o `authentik Admins` |
-| `external` | Tu proveedor OIDC | Todos inician sesión; admins son los de `PORTAL_ADMIN_EMAILS` (o los grupos de `PORTAL_ADMIN_GROUPS`, si tu proveedor envía el claim `groups`) |
-| `none` | Ninguna | Sólo admins, con una API key de Headscale |
+| **Cuentas locales** (por defecto) | Se crean en la consola: contraseña, verificación en dos pasos opcional | Invitaciones, enlaces de restablecimiento y auto-registro, todo en la consola. Sin otro servicio que mantener |
+| **OIDC externo** | Tu proveedor (Authentik, Keycloak, Pocket ID, Google…) | Define `OIDC_*`. El mismo cliente inicia sesión en la consola y registra dispositivos en Headscale |
+| **API key** | Ninguna | Acceso de emergencia para administradores con una API key de Headscale |
+
+### Cuentas locales
+
+- El primer administrador sale del asistente, o de `HSE_ADMIN_EMAIL` +
+  `HSE_ADMIN_PASSWORD`.
+- **Usuarios → Invitar** crea un enlace de un solo uso (1, 7 o 30 días) donde la
+  persona elige nombre de usuario y contraseña; si la invitación lleva un email, la
+  cuenta debe usarlo. **Usuarios → Invitaciones pendientes** lista los enlaces aún no
+  usados (copiar de nuevo o revocar).
+- **Usuarios → ⋯ → Enlace de restablecimiento…** crea un enlace de un solo uso (1 hora,
+  24 horas o 7 días). **Establecer contraseña** pone una temporal que la persona debe
+  cambiar en su próximo inicio de sesión, y cierra sus sesiones abiertas.
+- Con un servidor SMTP (`SMTP_*`) la consola puede enviar por correo las invitaciones y
+  los enlaces. Sin él, copia el enlace y envíalo en privado.
+- Las contraseñas tienen al menos 8 caracteres y se guardan como hashes con sal. Los
+  inicios de sesión fallidos tienen límite de intentos por dirección.
+- El **auto-registro** desde la página de inicio de sesión es `off`, `invite` u `open`
+  (`HSE_SIGNUP`, o **Ajustes → General**). Quien se registra solo es siempre miembro.
 
 ### Roles { #roles }
 
-Además de admin y miembro, hay dos roles más específicos disponibles, ambos
-opcionales (desactivados salvo que los configures) y basados en grupos de
-Authentik, igual que ya funciona `PORTAL_ADMIN_GROUPS`:
+| Rol | Puede |
+|---|---|
+| Admin | Todo: máquinas, usuarios, DNS, control de acceso, claves, ajustes, logs, copias |
+| Admin de red | Editar la política de **Control de acceso** y el **DNS**. Nada más |
+| Auditor | Ver todo lo que ve un admin, sin cambiar nada, en ningún sitio, ni siquiera sus propios dispositivos |
+| Miembro | Ver y gestionar sólo sus propias máquinas y claves de autenticación |
 
-| Rol | Variable | Puede |
-|---|---|---|
-| Administrador de red | `PORTAL_NETWORK_ADMIN_GROUPS` | Editar la política de **Control de acceso** y el **DNS**. Nada más: ni Usuarios, ni Máquinas salvo las suyas, ni Registros, ni Ajustes. |
-| Auditor | `PORTAL_AUDITOR_GROUPS` | Ver todo lo que ve un admin (todas las máquinas, Usuarios, DNS, Control de acceso, Registros) pero no cambiar nada, en ningún sitio, ni siquiera en sus propios dispositivos. |
+Con cuentas locales el rol se fija por cuenta (**Usuarios**). Con un proveedor externo
+sale de sus grupos y correos:
 
-Si alguien está en más de uno de estos grupos, admin tiene prioridad. Con
-Authentik integrado, crea tú el grupo o grupos (**Directory → Groups**) y
-añade miembros: la consola ya recibe todos los grupos de un usuario que
-inicia sesión (el scope OIDC `profile` por defecto los incluye), así que no
-hace falta tocar el blueprint. Con tu propio proveedor OIDC, asegúrate de que
-envíe el claim `groups`.
+| Variable | Rol |
+|---|---|
+| `PORTAL_ADMIN_GROUPS`, `PORTAL_ADMIN_EMAILS` | Admin |
+| `PORTAL_NETWORK_ADMIN_GROUPS` | Admin de red |
+| `PORTAL_AUDITOR_GROUPS` | Auditor |
 
-### Authentik integrado { #built-in-authentik }
-
-- El primer admin es `akadmin`; el instalador muestra su contraseña del primer
-  arranque. Cámbiala en `/authentik/if/user/`.
-- Invita a la gente desde la consola (**Usuarios → Invitar usuario**): cada
-  uno elige su usuario y su contraseña; ver [Invitaciones y restablecer la
-  contraseña](#invitations-and-password-reset).
-- O dalos de alta tú en **`/add-user`** (o **Usuarios → Añadir usuario** en la
-  consola): un formulario sencillo con nombre, usuario, email, contraseña y si es
-  admin. Sin entrar en la administración de Authentik. El email y el usuario
-  deben ser únicos.
-- Las páginas de login usan el tema de Headscale Easy (oscuro/claro según el navegador).
-- Authentik se configura con el blueprint `authentik/blueprints/headscale.yaml`.
-  El instalador lo vuelve a aplicar en cada ejecución. El inicio y el cierre de
-  sesión usan flujos propios de Headscale Easy (`headscale-easy-sign-in`,
-  `headscale-easy-sign-out`): Authentik restablece sus flujos por defecto de vez
-  en cuando.
-
-### Invitaciones y restablecer la contraseña { #invitations-and-password-reset }
-
-**Invitaciones.** En **Usuarios → Invitar usuario** elige el acceso (miembro o
-admin), opcionalmente un email, y cuánto tiempo vale el enlace (1, 7 o 30 días;
-7 por defecto). La consola muestra un enlace para copiar y enviar; quien lo abre
-ve *Create your account* (flujo `headscale-easy-invitation`), elige usuario y
-contraseña (las mismas reglas que `/add-user`: al menos 10 caracteres, usuario y
-email únicos) y entra directamente en la consola, en el grupo que elegiste
-(`headscale-users` o `vpn-admins`). Si la invitación lleva email, la cuenta
-tiene que usarlo (el campo está bloqueado). El enlace sirve una vez: se gasta
-al crear la cuenta, no al abrirlo. Los admins a los que la verificación en dos
-pasos obliga la configuran antes de entrar. **Usuarios → Invitaciones
-pendientes** lista los enlaces aún sin usar (copiar de nuevo o **Revocar**).
-
-**Restablecer la contraseña sin email.** En el menú **⋯** de un usuario,
-**Enlace para restablecer la contraseña…** crea un enlace de un solo uso
-(válido 1 hora, 24 horas o 7 días) donde esa persona elige una contraseña nueva
-(flujo `headscale-easy-recovery`); la anterior sigue funcionando hasta
-entonces. Envíalo por un canal privado. Quien tiene cuenta pero aún no ha
-conectado ningún dispositivo (y por tanto aún no es usuario de Headscale)
-aparece en **Cuentas sin dispositivos**, con la misma acción. Las cuentas se
-emparejan con los usuarios de Headscale por su identidad OIDC, no por el
-nombre. Los superusuarios de Authentik (`akadmin`, `authentik Admins`) quedan
-fuera a propósito: restablecen su contraseña en Authentik (o con
-`docker exec -it authentik-worker ak create_recovery_key 60 akadmin`).
-
-**Con email (opcional).** El instalador pregunta por un servidor SMTP
-(desactivado por defecto): servidor, puerto, seguridad (STARTTLS, SSL/TLS o
-ninguna), usuario, contraseña y remitente; se guardan como `SMTP_*` en `.env` y
-Authentik los recibe como `AUTHENTIK_EMAIL__*`. Entonces la página de inicio de
-sesión muestra **Forgot password?** (¿Olvidaste la contraseña?), que envía un
-enlace a la dirección de la cuenta (flujo `headscale-easy-forgot-password`), y
-la consola también puede enviar por email las invitaciones y los enlaces. Sin
-email no aparece ese enlace. Prueba la configuración con
-`docker exec authentik-worker ak test_email tu@example.com`.
-
-La consola hace todo esto mediante la API de Authentik con el token de la
-cuenta de servicio (`PORTAL_AUTHENTIK_TOKEN`), al que el blueprint permite
-listar cuentas, crear enlaces de restablecimiento y gestionar invitaciones. Una
-instalación hecha con una versión anterior lo obtiene volviendo a ejecutar
-`./install.sh`.
+Admin tiene prioridad si alguien está en varios grupos. Tu proveedor debe enviar un claim
+`groups` (el scope `profile` por defecto suele incluirlo).
 
 ### Verificación en dos pasos { #two-factor-authentication }
 
-El inicio de sesión de Headscale Easy pide un segundo factor después de la
-contraseña: una app de códigos (TOTP) o una passkey. Los admins eligen quién
-está obligado en el panel web, **Ajustes → General → Verificación en dos
-pasos**; el cambio se aplica en Authentik al momento (desde el siguiente inicio
-de sesión), sin reinstalar. `MFA_REQUIRED` en `.env` (lo pregunta el
-instalador) es el valor inicial, y volver a ejecutar `./install.sh` aplica el
-que se elija ahí:
+Las cuentas locales pueden pedir un segundo factor tras la contraseña: una app
+autenticadora (TOTP), con códigos de recuperación. Los admins eligen quién debe usarlo en
+**Ajustes → General → Verificación en dos pasos** (`MFA_REQUIRED` es el valor inicial):
 
 | `MFA_REQUIRED` | Comportamiento |
 |---|---|
-| `admins` (por defecto) | Los miembros de `vpn-admins` y `authentik Admins` lo configuran la primera vez que entran; el resto, si quiere |
-| `everyone` | Todos los usuarios lo configuran |
-| `optional` | Nadie está obligado |
+| `admins` (por defecto) | Los admins deben configurarlo la primera vez que entran; los miembros pueden |
+| `everyone` | Todos los usuarios deben configurarlo |
+| `optional` | A nadie se le obliga |
 
-A quien ya tiene un segundo factor siempre se le pide. Cada persona gestiona el
-suyo en **Ajustes → General → Cuenta, contraseña y verificación en dos pasos**.
-El login con Google se apoya en la verificación en dos pasos de Google, y el
-acceso de emergencia con API key no tiene segundo factor.
-
-Dónde se guarda: el modo es la primera línea (`mode = "admins"`) de la política
-de Authentik *Headscale Easy: two-factor required for this user*. El blueprint
-crea esa política una sola vez, a partir de `MFA_REQUIRED`, y no la vuelve a
-tocar (`state: created`), así que reiniciar Authentik no deshace lo que eligió
-un admin. El panel cambia esa línea mediante la API de Authentik con el token
-de `PORTAL_AUTHENTIK_TOKEN` (lo genera el instalador), que pertenece a la
-cuenta de servicio `headscale-easy-web` y sólo puede leer y cambiar esa
-política (además de las invitaciones y los enlaces de restablecimiento, arriba). El token nunca llega al navegador. Sin él (un `.env` escrito por un
-instalador anterior, hasta que se vuelva a ejecutar `./install.sh`) el panel muestra el modo
-en sólo lectura; con tu propio proveedor OIDC, la verificación en dos pasos se
-configura allí y la sección no aparece. Desde el servidor:
-`docker exec headscale-easy python /app/mfa.py get` (o `set everyone`).
-
-### Login con Google { #sign-in-with-google }
-
-Disponible con Authentik y HTTPS. En la
-[consola de Google Cloud](https://console.cloud.google.com/apis/credentials) crea
-un **OAuth client ID** de tipo *Web application* con:
-
-- Authorized JavaScript origin: `https://<tu-dominio>`
-- Authorized redirect URI: `https://<tu-dominio>/authentik/source/oauth/callback/google/`
-
-Pasa el client ID y el secret al instalador. Quien entra con Google por primera
-vez obtiene una cuenta **sin grupo**: un admin debe añadirlo a `headscale-users`
-o `vpn-admins` para que pueda usar la VPN.
+A quien tiene segundo factor siempre se le pide. Cada persona gestiona el suyo en
+**Ajustes → General → Cuenta**. Con un proveedor externo, la verificación en dos pasos
+se configura allí. El acceso de emergencia con API key no tiene segundo factor.
 
 ### Tu propio proveedor OIDC { #your-own-oidc-provider }
 
-Registra un cliente con **dos** redirect URIs:
+Registra un cliente con **dos** redirect URI:
 
 - `https://<tu-dominio>/oidc/callback` (Headscale)
 - `https://<tu-dominio>/admin/callback` (consola)
 
-La consola y Headscale comparten el cliente para que la identidad de cada
-persona (`sub`) coincida en ambos.
-
-### Acceso de emergencia { #emergency-access }
-
-Con OIDC también puedes permitir entrar a la consola con una API key de
-Headscale (`PORTAL_API_KEY_LOGIN=true`), útil si el proveedor de identidad está
-caído. Crea una clave con `make apikey`.
+La consola y Headscale comparten el cliente para que la identidad (`sub`) de una persona
+coincida en ambos. Hay ejemplos paso a paso para Authentik, Pocket ID, Keycloak y Google
+en la [edición avanzada](advanced.md#identity-providers).
 
 ## Aislamiento de red y ACL { #network-isolation-and-acls }
 
-Con `NETWORK_ISOLATION=true` (el valor por defecto) el instalador aplica esta
-política la primera vez:
+Con `NETWORK_ISOLATION=true` (el valor por defecto, o la opción de aislamiento del asistente) la
+configuración inicial aplica esta política la primera vez:
 
 ```jsonc
 {
@@ -238,8 +210,7 @@ política la primera vez:
 Cada usuario sólo alcanza sus dispositivos, admins incluidos, y puede sacar
 tráfico a internet por exit nodes (sin la regla `autogroup:internet` un exit
 node acepta conexiones pero no reenvía nada). Una política existente nunca se
-sobrescribe: si instalaste antes de que existiera esta regla y los exit nodes no
-tienen internet, añade la segunda línea en **Control de acceso**. Edítala en **Control de acceso**; la sintaxis
+sobrescribe. Edítala en **Control de acceso**; la sintaxis
 es la [de Tailscale](https://tailscale.com/kb/1337/policy-syntax).
 
 **Control de acceso** tiene seis pestañas:
@@ -279,7 +250,7 @@ es la [de Tailscale](https://tailscale.com/kb/1337/policy-syntax).
 ## Caducidad de la clave de los dispositivos { #device-key-expiry }
 
 Como en Tailscale, cada dispositivo tiene una clave que caduca: pasado ese plazo
-tiene que volver a iniciar sesión. Headscale Easy la fija en **180 días** (el
+tiene que volver a iniciar sesión. Headscale Easy la fija en **180 días** (`NODE_KEY_EXPIRY`) (el
 valor de Tailscale); los admins la cambian en **Ajustes → General → Gestión de
 dispositivos** (de 1 a 365 días, o nunca). Al guardar se reinicia Headscale, y
 se aplica a los dispositivos que se añadan desde entonces: los existentes se
@@ -311,7 +282,7 @@ Tailscale:
   tailnet; A o AAAA según la dirección.
 
 Los miembros ven los mismos ajustes en solo lectura. La consola escribe el
-bloque `dns:` de `headscale-config.yaml` entre estos marcadores:
+bloque `dns:` de `/data/config/config.yaml` entre estos marcadores:
 
 ```yaml
 # >>> dns: managed by Headscale Easy (do not edit between these markers)
@@ -321,85 +292,59 @@ dns:
 ```
 
 después ejecuta `headscale configtest` y reinicia Headscale, restaurando el
-bloque anterior si la comprobación falla. El instalador conserva ese bloque al
-regenerar el fichero, así que tu DNS sobrevive a las reconfiguraciones.
+bloque anterior si la comprobación falla. La imagen conserva ese bloque al
+volver a renderizar el fichero (por ejemplo al cambiar un ajuste), así que tu DNS sobrevive.
 
-La validación y el reinicio pasan por el contenedor `hs-helper`, el único con
-el socket de Docker; ver [Seguridad](security.md).
+La validación y el reinicio pasan por el supervisor del propio contenedor: no hay
+socket de Docker en ningún sitio. Ver [Seguridad](security.md).
 
 ## Base de datos { #database }
 
-Headscale guarda usuarios, máquinas y claves en **SQLite** por defecto: un
-fichero junto a sus claves privadas, nada más que arrancar. Es lo que recomienda
-el propio Headscale y lo adecuado para casi cualquier tailnet. El instalador
-ofrece también **PostgreSQL**, para tailnets grandes o si ya tienes (y copias)
-un servidor PostgreSQL:
+Headscale guarda usuarios, máquinas y claves en **SQLite** por defecto: un fichero en
+`/data/headscale/`, sin nada más que ejecutar. Es la recomendación del propio Headscale y
+lo adecuado para casi cualquier tailnet. **PostgreSQL** se admite como servidor
+**externo**, para tailnets grandes o si ya ejecutas (y respaldas) uno:
 
-| Opción | Qué se ejecuta | `.env` |
+| Opción | `HEADSCALE_DB_TYPE` | Qué aportas |
 |---|---|---|
-| SQLite (por defecto) | Nada más | `HEADSCALE_DB_TYPE=sqlite` |
-| PostgreSQL en este stack | Contenedor `headscale-postgresql` (perfil de Compose `postgres`, volumen `headscale-db`), sin publicar | `HEADSCALE_DB_TYPE=postgres`, `HEADSCALE_PG_EXTERNAL=false` |
-| Tu propio PostgreSQL | Nada más; indicas host, puerto, base de datos, usuario propietario y contraseña, y el modo TLS | `HEADSCALE_DB_TYPE=postgres`, `HEADSCALE_PG_EXTERNAL=true` |
+| SQLite (por defecto) | `sqlite` | Nada |
+| PostgreSQL externo | `postgres` | host, puerto, base de datos, usuario propietario y contraseña, modo TLS (`HEADSCALE_PG_*`) |
 
-- **Cambiar no migra los datos.** Pasar una instalación existente entre SQLite
-  y PostgreSQL arranca Headscale con una base de datos vacía: hay que volver a
-  crear usuarios y registrar las máquinas. El instalador avisa y pregunta antes.
-- **El panel lee con un rol de solo lectura.** Necesita el Hostinfo que
-  reportan los dispositivos (SO, versión de Tailscale, relay DERP,
-  endpoints), que la API de Headscale no expone. El instalador crea
-  `HEADSCALE_PG_RO_USER` (`headscale_ro`) con
-  [`templates/headscale-pg-readonly.sql`](https://github.com/insanerask77/headscale-easy/blob/main/templates/headscale-pg-readonly.sql):
-  solo puede hacer `SELECT` de las columnas `id`, `host_info` y `endpoints`
-  de `nodes` (ni claves ni otras tablas) y sus sesiones son de solo lectura.
-  El panel nunca recibe las credenciales de Headscale. Habla con PostgreSQL
-  con un cliente pequeño incluido (solo biblioteca estándar: SCRAM-SHA-256,
-  TLS opcional), así que la imagen sigue sin paquetes de terceros.
-- **Tu propio servidor:** debe autenticar con `scram-sha-256` (lo habitual en
-  PostgreSQL desde la 14; el método antiguo `md5` se rechaza). La base de
-  datos debe existir y su propietario debe
-  ser el usuario que indicas (Headscale crea sus tablas con él). Para crear el
-  rol de solo lectura el instalador ejecuta ese SQL como propietario, lo que
-  requiere el privilegio `CREATEROLE`; si no puede, muestra el comando para
-  ejecutarlo como superusuario. `HEADSCALE_PG_SSLMODE` (`disable`, `prefer`,
-  `require`, `verify-ca`, `verify-full`) se aplica a Headscale, al panel y a
-  las copias.
-- Si una actualización de Headscale recrea la tabla `nodes`, las columnas de
-  SO y versión quedan vacías y el panel registra `permission denied`: vuelve a
-  ejecutar `./install.sh` para aplicar de nuevo el permiso.
+- **No hay conversión** entre SQLite y PostgreSQL (Headscale no tiene herramienta para
+  ello). Elige antes de añadir dispositivos.
+- **La consola lee con un rol de solo lectura.** Necesita el Hostinfo que informan los
+  dispositivos (SO, versión de Tailscale, relé DERP, endpoints), que la API de Headscale
+  no expone. Con `HEADSCALE_PG_RO_USER` la imagen crea ese rol con
+  [`templates/headscale-pg-readonly.sql`](https://github.com/insanerask77/headscale-easy/blob/next/templates/headscale-pg-readonly.sql):
+  sólo puede hacer `SELECT` de las columnas `id`, `host_info` y `endpoints` de `nodes`
+  (sin claves, sin otras tablas) y sus sesiones son de solo lectura. La consola nunca
+  recibe las credenciales propias de Headscale. Habla con PostgreSQL con un pequeño
+  cliente integrado (solo biblioteca estándar: SCRAM-SHA-256, TLS opcional).
+- **Tu servidor:** debe autenticar con `scram-sha-256` (el valor por defecto de
+  PostgreSQL desde la 14; el método antiguo `md5` se rechaza). La base de datos debe
+  existir y su propietario debe ser el usuario que indiques (Headscale crea sus tablas
+  con él). Para crear el rol de solo lectura la imagen ejecuta ese SQL como propietario,
+  lo que requiere el privilegio `CREATEROLE`; si no puede, la consola recurre a las
+  credenciales del propietario y lo avisa claramente en el log.
+  `HEADSCALE_PG_SSLMODE` (`disable`, `prefer`, `require`, `verify-ca`, `verify-full`)
+  se aplica a Headscale, a la consola y a las copias.
 - Las copias usan `pg_dump` (ver [Operación → Copias de seguridad](operations.md#backups)).
+  La [edición avanzada](advanced.md#postgresql) tiene un compose y una lista de comprobación.
 
 ## Idioma { #language }
 
-La consola sigue el idioma del navegador (inglés, español, francés, alemán o portugués) y cada persona puede
-cambiarlo en **Ajustes → General**. `UI_LANG` (`en`, `es`, `fr`, `de` o `pt`) fija el idioma por defecto cuando
-el navegador pide uno que la consola no tiene.
+La consola sigue el idioma del navegador (inglés, español, francés, alemán o portugués) y
+cada persona puede cambiarlo en **Ajustes → General**. `UI_LANG` (`en`, `es`, `fr`, `de` o
+`pt`) fija el valor por defecto cuando el navegador pide un idioma que la consola no tiene.
 
-## Ficheros generados { #generated-files }
+## Qué hay en `/data` { #what-lives-in-data }
 
-| Fichero | Lo escribe | Notas |
-|---|---|---|
-| `.env` | instalador | Toda la configuración y los secretos (`chmod 600`) |
-| `headscale-config.yaml` | instalador | Salvo el bloque DNS, que gestiona la consola |
-| `Caddyfile` | instalador | |
-| `docker-compose.override.yml` | instalador | Puertos de Caddy y cómo alcanzan los contenedores la URL pública |
-| `reverse-proxy/*` | instalador | Sólo con `SSL_MODE=front` |
-| `caddy-root-ca.crt` | instalador | Sólo con `SSL_MODE=selfsigned` |
+| Ruta | Contenido |
+|---|---|
+| `headscale/` | Base de datos de Headscale, claves y socket local |
+| `caddy/` | Certificados y logs de acceso |
+| `console/` | Bases de datos de cuentas, sesiones y auditoría, API key de Headscale |
+| `config/` | `settings.json`, `config.yaml` renderizado, `Caddyfile`, `derp.yaml` |
+| `backups/` | Las copias integradas y `status.json` |
 
-Todos están en `.gitignore`. No los edites a mano: vuelve a ejecutar el instalador.
-
-## Copias de la imagen todo en uno { #all-in-one-backups }
-
-Ajustes de las copias integradas de la [imagen todo en uno](all-in-one.md#backups)
-(entorno o `settings.json`; el compose dividido no las lee):
-
-| Variable | Por defecto | Significado |
-|---|---|---|
-| `BACKUP_SCHEDULE` | `0 3 * * *` | Sintaxis cron, en la zona horaria `TZ`; `off` desactiva las copias programadas. Un valor inválido detiene el contenedor al arrancar |
-| `BACKUP_KEEP_DAYS` | `14` | Las copias más antiguas se borran; la última correcta nunca se borra |
-| `TZ` | `UTC` | Zona horaria de la programación |
-| `BACKUP_MODE` | `create` | Solo para la imagen `backup` usada como sidecar: `sync` sube los archivos que escribió la imagen todo en uno en vez de hacer los suyos |
-| `BACKUP_SYNC_INTERVAL` | `900` | Segundos entre dos subidas en modo `sync` |
-
-## Referencia de `.env` { #env-reference }
-
-Ver [`.env.example`](https://github.com/insanerask77/headscale-easy/blob/main/.env.example): cada variable, documentada.
+El contenedor lo crea todo con permisos privados (700 / 600).
