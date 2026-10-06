@@ -1,3 +1,0 @@
-{
-  "The hs-helper service is not running or cannot reach Docker, so Headscale cannot be validated and restarted from here. Check it with: docker compose ps hs-helper": "Le service hs-helper n'est pas démarré ou ne peut pas joindre Docker : Headscale ne peut donc pas être validé ni redémarré d'ici. Vérifiez avec : docker compose ps hs-helper"
-}

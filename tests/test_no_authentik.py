@@ -1,4 +1,4 @@
-"""The console does not know Authentik (phase 6, block 2).
+"""The console does not know Authentik .
 
 Authentik is one external OIDC provider like Keycloak or Pocket ID. The console signs people in
 through it and nothing else: no API client, no service-account token, no Authentik-only pages.
@@ -7,7 +7,7 @@ What stays, on purpose:
 - aio/render.py: the optional Caddy route that serves an external Authentik under /authentik/
   (HSE_AUTHENTIK_UPSTREAM) and the "emails are not verified" detail of Headscale's OIDC config;
 - two lines of prose in web/app.py and web/local_accounts.py;
-- deploy/examples/authentik/ and its documentation.
+- advanced/oidc/authentik/ (and its overlay) and its documentation.
 
     python3 -m unittest tests.test_no_authentik
 """
@@ -53,9 +53,9 @@ class NoAuthentik(unittest.TestCase):
         for rel, n, line in lines_with_authentik("aio/*.py"):
             self.assertEqual(rel, "aio/render.py", "%s:%d: %s" % (rel, n, line))
 
-    def test_the_removed_settings_are_nowhere_in_the_code_or_the_examples(self):
+    def test_the_removed_settings_are_nowhere_in_the_code_or_the_overlays(self):
         paths = glob.glob(os.path.join(ROOT, "web", "*.py")) + glob.glob(os.path.join(ROOT, "aio", "*.py")) \
-            + glob.glob(os.path.join(ROOT, "deploy", "**", "*"), recursive=True)
+            + glob.glob(os.path.join(ROOT, "advanced", "**", "*"), recursive=True)
         for path in paths:
             if not os.path.isfile(path):
                 continue

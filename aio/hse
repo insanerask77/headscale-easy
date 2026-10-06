@@ -9,7 +9,7 @@
                                restore a backup (running container, or a stopped
                                volume: docker run --rm -v hse:/data --entrypoint hse IMAGE restore ...)
 
-Talks to the supervisor through the helper socket (GET /status), SIGHUP and
+Talks to the supervisor through the control socket (GET /status), SIGHUP and
 SIGUSR1 (pid in the run dir). backup and restore work on /data directly (see
 aio/backup.py and aio/restore.py). Exit codes: 0 ok, 1 failed, 2 usage, 3 a
 backup or restore is already running. Standard library only.
@@ -22,7 +22,7 @@ import signal
 import socket
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 
 RUN_DIR = os.environ.get("HSE_RUN_DIR", "/run/hse")
 DATA_DIR = os.environ.get("HSE_DATA_DIR", "/data")
@@ -44,7 +44,7 @@ class _Unix(http.client.HTTPConnection):
 
 
 def status():
-    conn = _Unix(os.path.join(RUN_DIR, "helper.sock"))
+    conn = _Unix(os.path.join(RUN_DIR, "control.sock"))
     try:
         conn.request("GET", "/status", headers={"Content-Length": "0"})
         resp = conn.getresponse()
@@ -59,7 +59,7 @@ def health():
     except (OSError, ValueError) as exc:
         print("unhealthy: supervisor not answering: %s" % exc, file=sys.stderr)
         return 1
-    rows = (data or {}).get("containers") or []
+    rows = (data or {}).get("processes") or []
     bad = [r["name"] for r in rows if r.get("state") != "running" or r.get("health") == "unhealthy"]
     if not rows or bad:
         print("unhealthy: %s" % (", ".join(bad) or "no processes"), file=sys.stderr)

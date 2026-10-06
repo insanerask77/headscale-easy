@@ -7,7 +7,7 @@ import acl_pages
 import policy
 from i18n import _, ngettext
 from pages import dialog
-from ui import (BASE, LOGO, badge, bare_page, csrf_input, esc, flash_html, icon, initials, layout, notice,
+from ui import (BASE, LOGO, badge, bare_page, copy_btn, csrf_input, esc, flash_html, icon, initials, layout, notice,
                 page_head, time_tag, user_label)
 
 
@@ -37,8 +37,61 @@ def _account_fields() -> str:
             f'<span>{esc(_("They must choose another password when they sign in"))}</span></label>')
 
 
+def _invite_fields() -> str:
+    roles = (("member", _("Member")), ("auditor", _("Auditor")), ("network_admin", _("Network admin")), ("admin", _("Admin")))
+    options = "".join(f'<option value="{k}">{esc(v)}</option>' for k, v in roles)
+    days = "".join(f'<option value="{d}"{" selected" if d == "7" else ""}>{esc(ngettext("{n} day", "{n} days", int(d)))}</option>'
+                   for d in ("1", "7", "30"))
+    return (f'<label class="field">{esc(_("Email"))}<input name="email" type="email" required autocomplete="off"></label>'
+            f'<label class="field">{esc(_("Role"))}<select name="role">{options}</select></label>'
+            f'<label class="field">{esc(_("Valid for"))}<select name="days">{days}</select></label>')
+
+
+def link_result_box(session: dict, result: dict, can_mail: bool) -> str:
+    """The single-use link of a new invitation or password reset. It is shown once: only the
+    hash is stored, so a lost link means making another one."""
+    reset = result.get("kind") == "reset"
+    title = _("Password reset link created") if reset else _("Invitation created")
+    who = result.get("email") or ""
+    mail = ""
+    if result.get("sent"):
+        mail = notice("ok", _("E-mail sent to {to}.", to=who))
+    elif can_mail and who:
+        mail = (f'<form method="post" action="{BASE}/users/send-link" class="inline-form">{csrf_input(session)}'
+                f'<input type="hidden" name="kind" value="{esc(result.get("kind", "invite"))}">'
+                f'<input type="hidden" name="link" value="{esc(result["link"])}">'
+                f'<input type="hidden" name="expires" value="{esc(result.get("expires", ""))}">'
+                f'<input type="hidden" name="to" value="{esc(who)}">'
+                f'<button class="btn" type="submit">{esc(_("Send by e-mail to {to}", to=who))}</button></form>')
+    return f"""
+    <section class="card keybox inv-result">
+      <h2>{esc(title)}</h2>
+      <p>{esc(_("Copy the link now and send it to {who}: it is not shown again.", who=who or _("the person")))}
+        {esc(_("It works once and expires on"))} {time_tag(result.get("expires"))}.</p>
+      <div class="code"><code>{esc(result["link"])}</code>{copy_btn(result["link"])}</div>
+      {mail}
+    </section>"""
+
+
+def invitations_section(session: dict, invites: list[dict]) -> str:
+    if not invites:
+        return ""
+    rows = "".join(
+        f'<tr><td>{esc(i.get("email") or "—")}</td><td>{esc(i.get("role") or "")}</td><td>{time_tag(i.get("expires"))}</td>'
+        f'<td><form method="post" action="{BASE}/invitations/{esc(i["token_hash"])}/revoke">{csrf_input(session)}'
+        f'<button class="btn" type="submit">{esc(_("Revoke"))}</button></form></td></tr>' for i in invites)
+    return f"""
+    <section class="card">
+      <h2>{esc(_("Pending invitations"))}</h2>
+      <div class="table-wrap"><table class="machines">
+        <thead><tr><th>{esc(_("Email"))}</th><th>{esc(_("Role"))}</th><th>{esc(_("Expires"))}</th><th></th></tr></thead>
+        <tbody>{rows}</tbody></table></div>
+    </section>"""
+
+
 def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], flash: str, error: str = "",
-               result: dict | None = None, signins: dict | None = None, extra: str = "") -> str:
+               result: dict | None = None, signins: dict | None = None, extra: str = "",
+               invites: list[dict] | None = None, can_mail: bool = False) -> str:
     counts: dict[str, int] = {}
     online: dict[str, int] = {}
     for n in nodes:
@@ -72,6 +125,7 @@ def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], f
                 <a href="{BASE}/settings/keys?user={uid}#new">{esc(_("Generate auth key for this user"))}</a>
                 <button type="button" data-open="ren-user-{uid}">{esc(_("Rename…"))}</button>
                 {f'<button type="button" data-open="pw-user-{uid}">{esc(_("Set password…"))}</button>' if u.get("name") in (signins or {}) else ""}
+                {f'<button type="button" data-open="rl-user-{uid}">{esc(_("Password reset link…"))}</button>' if u.get("name") in (signins or {}) else ""}
                 <hr>{delete}
               </div>
             </details>
@@ -88,14 +142,21 @@ def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], f
                                   esc(_("Their open sessions are signed out.")),
                                   f"{BASE}/users/{uid}/password", session, submit=_("Set password"),
                                   fields=_password_fields()))
+        if u.get("name") in (signins or {}):
+            dialogs.append(dialog(f"rl-user-{uid}", _("Password reset link for {name}", name=u.get("name")),
+                                  esc(_("Makes a single-use link, valid for 24 hours. Their open sessions stay signed in until they use it.")),
+                                  f"{BASE}/users/{uid}/reset-link", session, submit=_("Create link")))
         dialogs.append(dialog(f"del-user-{uid}", _("Delete {name}?", name=u.get("name")),
                               esc(_("The user is deleted from Headscale. Their sign-in account is not touched: "
                                     "if they sign in again, the user is created again.")),
                               f"{BASE}/users/{uid}/delete", session, submit=_("Delete user"), danger=True))
 
-    actions = f'<button class="btn" type="button" data-open="new-user">{esc(_("Create local user"))}</button>'
+    actions = (f'<button class="btn" type="button" data-open="invite-user">{esc(_("Invite user"))}</button> '
+               f'<button class="btn" type="button" data-open="new-user">{esc(_("Create local user"))}</button>')
     sub = _("Users of the tailnet. They are created automatically the first time someone connects a device by signing in.")
     body = page_head(_("Users"), esc(sub), actions) + flash_html(flash) + (notice("error", error) if error else "")
+    if result:
+        body += link_result_box(session, result, can_mail)
     body += f"""
     <div class="toolbar">
       <label class="search">{icon("search")}<input type="search" placeholder="{esc(_("Search users…"))}" data-filter aria-label="{esc(_("Search users"))}"></label>
@@ -109,6 +170,9 @@ def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], f
       </table>
     </div>
     <p class="no-results muted" hidden>{esc(_("No users match the search."))}</p>
+    {dialog("invite-user", _("Invite a user"),
+            esc(_("They get a single-use link to choose their user name and password.")),
+            f"{BASE}/invitations", session, submit=_("Create invitation"), fields=_invite_fields())}
     {dialog("new-user", _("Create local user"),
             esc(_("Without a password: a Headscale user without sign-in, for servers or devices that connect with auth keys. "
                   "With a password: an account the person can sign in with.")),
@@ -117,7 +181,7 @@ def users_page(session: dict, ctx: dict, users: list[dict], nodes: list[dict], f
                    f'<label class="field">{esc(_("Display name (optional)"))}<input name="display_name" autocomplete="off"></label>'
                    + _account_fields())}
     <div data-live="dialogs">{"".join(dialogs)}</div>"""
-    return layout(_("Users"), "users", body + extra, session, ctx)
+    return layout(_("Users"), "users", body + invitations_section(session, invites or []) + extra, session, ctx)
 
 
 # -----------------------------------------------------------------------------
@@ -161,7 +225,7 @@ def _raw_panel(session: dict, text: str, updated: str | None, result: tuple[str,
         <div class="kv"><dt><code>tag:name</code></dt><dd>{esc(_("Machines with that tag; the tag needs an owner in tagOwners."))}</dd></div>
         <div class="kv"><dt><code>user@</code></dt><dd>{esc(_("The machines of one user."))}</dd></div>
       </dl>
-      <p class="muted small">{esc(_("Per-user isolation (the installer's default policy):"))}</p>
+      <p class="muted small">{esc(_("Per-user isolation (the default policy):"))}</p>
       <div class="code"><code class="pre">{esc(ISOLATION)}</code></div>
     </div>"""
 

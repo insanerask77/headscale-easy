@@ -1,0 +1,18 @@
+# Advanced: Headscale on an external PostgreSQL server instead of SQLite.
+#
+#   docker compose -f compose.yaml -f advanced/postgres.yaml up -d
+#
+# Set the HEADSCALE_PG_* variables in .env. The console reads the database through a read-only role the
+# image creates itself (HEADSCALE_PG_RO_*). No server yet? Use advanced/postgres-bundled.yaml instead.
+services:
+  headscale-easy:
+    environment:
+      HEADSCALE_DB_TYPE: postgres
+      HEADSCALE_PG_HOST: ${HEADSCALE_PG_HOST:?set HEADSCALE_PG_HOST in .env}
+      HEADSCALE_PG_PORT: ${HEADSCALE_PG_PORT:-5432}
+      HEADSCALE_PG_NAME: ${HEADSCALE_PG_NAME:-headscale}
+      HEADSCALE_PG_USER: ${HEADSCALE_PG_USER:-headscale}
+      HEADSCALE_PG_PASS: ${HEADSCALE_PG_PASS:?set HEADSCALE_PG_PASS in .env}
+      HEADSCALE_PG_SSLMODE: ${HEADSCALE_PG_SSLMODE:-require}
+      HEADSCALE_PG_RO_USER: ${HEADSCALE_PG_RO_USER:-headscale_ro}
+      HEADSCALE_PG_RO_PASS: ${HEADSCALE_PG_RO_PASS:?set HEADSCALE_PG_RO_PASS in .env}

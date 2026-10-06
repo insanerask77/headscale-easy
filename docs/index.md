@@ -11,7 +11,7 @@ hide:
 # Headscale Easy
 
 **Headscale, with everything around it.**<br>
-A deployment and management layer for Headscale: installer, HTTPS, accounts
+A deployment and management layer for Headscale: a Compose app, HTTPS, accounts
 and sign-in, a Tailscale-style web console and backups. One container, one command to install.
 
 [Get started](getting-started.md){ .md-button .md-button--primary }
@@ -73,7 +73,7 @@ official Tailscale apps on every device; only the server is yours.
 
 -   :material-translate: **English, Spanish, French, German and Portuguese**
 
-    In the console; the installer speaks English and Spanish. More languages welcome.
+    In the console, in English and Spanish. More languages welcome.
 
 -   :material-feather: **Lightweight**
 

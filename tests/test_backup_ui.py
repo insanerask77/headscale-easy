@@ -1,6 +1,6 @@
 """Backups in the console: the list, Download (POST, attachment) and Restore (typed confirmation).
 
-The supervisor and the helper are fakes here (tests/test_supervisor.py covers the real be_restore); what is
+The supervisor and its control socket are fakes here (tests/test_supervisor.py covers the real be_restore); what is
 checked is the web side: who may do it, CSRF, the typed confirmation, names that try to leave the backups
 directory, links, the headers of the download and the page that waits for the restart.
 
@@ -103,7 +103,7 @@ class Restore(WithBackupDir):
 
     def post(self, session=ADMIN, result=("started", "1791209576.5"), **form):
         form = dict({"csrf": "tok", "name": NAME, "confirm": "RESTORE"}, **form)
-        with mock.patch.object(hs, "helper_restore", return_value=result) as call:
+        with mock.patch.object(hs, "control_restore", return_value=result) as call:
             status, headers, body = request("POST", self.URL, session, form)
         return status, headers, body, call
 
@@ -160,7 +160,7 @@ class Restore(WithBackupDir):
 class ClientAndFlash(unittest.TestCase):
     def test_restore_result_reads_the_file_next_to_the_socket(self):
         with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.object(hs, "HELPER_SOCKET", os.path.join(tmp, "helper.sock")):
+            with mock.patch.object(hs, "CONTROL_SOCKET", os.path.join(tmp, "control.sock")):
                 self.assertIsNone(hs.restore_result())
                 with open(os.path.join(tmp, "restore-result.json"), "w") as fh:
                     fh.write('{"ok": true, "requested": 1.5}')
@@ -198,7 +198,7 @@ class Upload(WithBackupDir):
         raw, ctype = _mp(*parts)
         upload = upload or mock.Mock(side_effect=self.saved)
         restore = restore or mock.Mock(return_value=("started", "1791209576.5"))
-        with mock.patch.object(hs, "helper_backup_upload", upload), mock.patch.object(hs, "helper_restore", restore):
+        with mock.patch.object(hs, "control_backup_upload", upload), mock.patch.object(hs, "control_restore", restore):
             status, headers, body = request("POST", self.URL, session, headers={"Content-Type": ctype}, raw=raw)
         return status, headers, body, upload, restore
 
@@ -296,7 +296,7 @@ class Upload(WithBackupDir):
         raw, _ctype = _mp(("csrf", "tok"), ("file", b"x" * 100, "a.tar.gz"))
         for ctype, body in (("multipart/form-data; boundary=zzz", raw), ("application/x-www-form-urlencoded", raw),
                             ("multipart/form-data; boundary=----hseTestBoundary", raw[:-30])):
-            with mock.patch.object(hs, "helper_backup_upload") as upload:
+            with mock.patch.object(hs, "control_backup_upload") as upload:
                 status, headers, _b = request("POST", self.URL, ADMIN, headers={"Content-Type": ctype}, raw=body)
             self.assertEqual((status, location(headers)), (303, f"{B}/backups?m=backup-upload-error"), ctype)
             upload.assert_not_called()
@@ -330,15 +330,15 @@ class Upload(WithBackupDir):
 
 class Page(WithBackupDir):
     def get(self, session=ADMIN, backup=True, path="/backups"):
-        helper = {"backup": {"enabled": True, "schedule": "0 3 * * *", "keep_days": 14, "running": False, "files": [],
+        control = {"backup": {"enabled": True, "schedule": "0 3 * * *", "keep_days": 14, "running": False, "files": [],
                              "last": None, "last_ok": None, "count": 0, "bytes": 0}} if backup else {}
-        with mock.patch.object(hs, "helper_status", return_value=helper):
+        with mock.patch.object(hs, "control_status", return_value=control):
             return request("GET", f"{B}{path}", session)
 
     def test_menu_entry_for_admins_when_the_image_has_backups(self):
         _s, _h, body = self.get()
         self.assertIn(f'<a class="nav-top active" href="{B}/backups">', body)
-        with mock.patch.dict(os.environ, {"BACKUP_DIR": ""}):  # 1.x: no entry
+        with mock.patch.dict(os.environ, {"BACKUP_DIR": ""}):  # not configured: no entry
             self.assertNotIn(f'href="{B}/backups"', self.get()[2])
         self.assertNotIn(f'href="{B}/backups"', self.get(MEMBER)[2])
 
@@ -350,7 +350,7 @@ class Page(WithBackupDir):
         self.assertEqual(self.get(MEMBER)[0], 403)
 
     def test_status_page_no_longer_carries_the_backup_cards(self):
-        with mock.patch.object(hs, "helper_status", return_value={"backup": {"enabled": True, "files": []}}):
+        with mock.patch.object(hs, "control_status", return_value={"backup": {"enabled": True, "files": []}}):
             _s, _h, body = request("GET", f"{B}/settings/status", ADMIN)
         self.assertNotIn("Back up now", body)
         self.assertNotIn("Available backups", body)

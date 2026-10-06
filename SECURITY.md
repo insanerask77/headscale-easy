@@ -91,7 +91,7 @@ proxy in front — see the
   `/data/console/api-key` (`600`). It expires (90 days) and the console renews it
   15 days before, and expires the old one.
 - **No Docker socket.** Access to it is **equivalent to root on the host**, so
-  nothing in Headscale Easy mounts it: not the console, not a helper container. A
+  nothing in Headscale Easy mounts it: not the console, not any other container. A
   small supervisor inside the container validates the config (`headscale configtest`),
   restarts Headscale and reports the health of the three processes, and answers
   the console only over a Unix socket in the container with that fixed set of

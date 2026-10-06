@@ -66,7 +66,7 @@ class ServedTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(dir=SHORT_TMP)
         self.addCleanup(self.tmp.cleanup)
-        self.sock = os.path.join(self.tmp.name, "helper.sock")
+        self.sock = os.path.join(self.tmp.name, "control.sock")
 
     def serve(self, backends):
         server = control.serve(self.sock, backends)
@@ -213,7 +213,7 @@ class WebClientTest(ServedTest):
 
     def setUp(self):
         super().setUp()
-        p = mock.patch.object(hs, "HELPER_SOCKET", self.sock)
+        p = mock.patch.object(hs, "CONTROL_SOCKET", self.sock)
         p.start()
         self.addCleanup(p.stop)
 
@@ -221,73 +221,73 @@ class WebClientTest(ServedTest):
         answers = iter([(200, {"ok": True, "started": True}), (200, {"ok": False, "error": "already running"}),
                         (200, {"ok": False, "error": "disk full"})])
         self.serve({"backup": lambda: next(answers)})
-        self.assertEqual([hs.helper_backup() for _ in range(3)], ["started", "busy", "error"])
+        self.assertEqual([hs.control_backup() for _ in range(3)], ["started", "busy", "error"])
 
     def test_backup_settings_results_and_request_file(self):
         answers = iter([(200, {"ok": True}), (200, {"ok": False, "error": "bad", "field": "schedule"}),
                         (200, {"ok": False, "error": "env", "field": "env"}), (200, {"ok": False, "error": "x"})])
         self.serve({"backup_settings": lambda: next(answers)})
-        self.assertEqual(hs.helper_backup_settings(True, "0 3 * * *", "14"), ("saved", ""))
+        self.assertEqual(hs.control_backup_settings(True, "0 3 * * *", "14"), ("saved", ""))
         path = os.path.join(os.path.dirname(self.sock), "backup-settings.json")
         with open(path, encoding="utf-8") as fh:
             self.assertEqual(json.load(fh), {"enabled": True, "schedule": "0 3 * * *", "keep_days": "14"})
         self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
-        self.assertEqual(hs.helper_backup_settings(True, "foo", "14"), ("invalid", "bad"))
-        self.assertEqual(hs.helper_backup_settings(True, "1 1 * * *", "1"), ("locked", ""))
-        self.assertEqual(hs.helper_backup_settings(True, "1 1 * * *", "1")[0], "error")
+        self.assertEqual(hs.control_backup_settings(True, "foo", "14"), ("invalid", "bad"))
+        self.assertEqual(hs.control_backup_settings(True, "1 1 * * *", "1"), ("locked", ""))
+        self.assertEqual(hs.control_backup_settings(True, "1 1 * * *", "1")[0], "error")
 
     def test_restore_results_and_request_file(self):
         answers = iter([(200, {"ok": True, "id": "1791209576.5"}), (200, {"ok": False, "error": "bad", "field": "invalid"}),
                         (200, {"ok": False, "error": "busy", "field": "busy"}), (200, {"ok": False, "error": "x"})])
         self.serve({"restore": lambda: next(answers)})
-        self.assertEqual(hs.helper_restore("headscale-easy-x.tar.gz"), ("started", "1791209576.5"))
+        self.assertEqual(hs.control_restore("headscale-easy-x.tar.gz"), ("started", "1791209576.5"))
         path = os.path.join(os.path.dirname(self.sock), "restore-ui.json")
         with open(path, encoding="utf-8") as fh:
             self.assertEqual(json.load(fh), {"name": "headscale-easy-x.tar.gz"})
         self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
-        self.assertEqual(hs.helper_restore("a"), ("invalid", "bad"))
-        self.assertEqual(hs.helper_restore("a"), ("busy", "busy"))
-        self.assertEqual(hs.helper_restore("a")[0], "error")
+        self.assertEqual(hs.control_restore("a"), ("invalid", "bad"))
+        self.assertEqual(hs.control_restore("a"), ("busy", "busy"))
+        self.assertEqual(hs.control_restore("a")[0], "error")
 
     def test_backup_upload_results_and_request_file(self):
         answers = iter([(200, {"ok": True, "name": "headscale-easy-x.tar.gz"}),
                         (200, {"ok": False, "error": "bad", "field": "invalid"}), (200, {"ok": False, "error": "x"})])
         self.serve({"backup_upload": lambda: next(answers)})
-        self.assertEqual(hs.helper_backup_upload(".upload-0123456789abcdef.part", "mine.tar.gz"),
+        self.assertEqual(hs.control_backup_upload(".upload-0123456789abcdef.part", "mine.tar.gz"),
                          ("saved", "headscale-easy-x.tar.gz"))
         path = os.path.join(os.path.dirname(self.sock), "backup-upload.json")
         with open(path, encoding="utf-8") as fh:
             self.assertEqual(json.load(fh), {"tmp": ".upload-0123456789abcdef.part", "name": "mine.tar.gz"})
         self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
-        self.assertEqual(hs.helper_backup_upload("t", "n"), ("invalid", "bad"))
-        self.assertEqual(hs.helper_backup_upload("t", "n")[0], "error")
+        self.assertEqual(hs.control_backup_upload("t", "n"), ("invalid", "bad"))
+        self.assertEqual(hs.control_backup_upload("t", "n")[0], "error")
 
     def test_routes_without_a_backend_are_unavailable(self):
         self.serve({})
-        self.assertEqual(hs.helper_backup_upload("t", "n")[0], "unavailable")
-        self.assertEqual(hs.helper_restore("a")[0], "unavailable")
-        self.assertEqual(hs.helper_backup_settings(True, "0 3 * * *", "14")[0], "unavailable")
-        self.assertEqual(hs.helper_backup(), "unavailable")
+        self.assertEqual(hs.control_backup_upload("t", "n")[0], "unavailable")
+        self.assertEqual(hs.control_restore("a")[0], "unavailable")
+        self.assertEqual(hs.control_backup_settings(True, "0 3 * * *", "14")[0], "unavailable")
+        self.assertEqual(hs.control_backup(), "unavailable")
 
     def test_without_the_socket_everything_is_unavailable(self):
-        self.assertEqual(hs.helper_backup_upload("t", "n")[0], "unavailable")
-        self.assertEqual(hs.helper_restore("a")[0], "unavailable")
-        self.assertEqual(hs.helper_backup_settings(True, "0 3 * * *", "14")[0], "unavailable")
-        self.assertEqual(hs.helper_backup(), "unavailable")
+        self.assertEqual(hs.control_backup_upload("t", "n")[0], "unavailable")
+        self.assertEqual(hs.control_restore("a")[0], "unavailable")
+        self.assertEqual(hs.control_backup_settings(True, "0 3 * * *", "14")[0], "unavailable")
+        self.assertEqual(hs.control_backup(), "unavailable")
 
     def test_backup_dead_socket_is_an_error(self):
         with open(self.sock, "w"):
             pass
-        self.assertEqual(hs.helper_backup(), "error")
+        self.assertEqual(hs.control_backup(), "error")
 
     def test_configtest_and_restart(self):
         self.serve({"configtest": lambda: (200, {"ok": True, "output": "Config OK"}),
                     "restart": lambda: (200, {"ok": True}),
-                    "status": lambda: (200, {"ok": True, "docker": True, "headscale": {"version": "v0.26.1"}})})
-        self.assertTrue(hs.docker_available())
+                    "status": lambda: (200, {"ok": True, "api": 1, "headscale": {"version": "v0.26.1"}})})
+        self.assertTrue(hs.control_available())
         self.assertEqual(hs.headscale_configtest(), (True, "Config OK"))
         self.assertTrue(hs.restart_headscale())
-        self.assertEqual(hs.helper_status()["headscale"]["version"], "v0.26.1")
+        self.assertEqual(hs.control_status()["headscale"]["version"], "v0.26.1")
 
     def test_configtest_failure(self):
         self.serve({"configtest": lambda: (200, {"ok": False, "output": "FTL bad"})})
@@ -296,8 +296,8 @@ class WebClientTest(ServedTest):
     def test_a_failing_supervisor(self):
         self.serve({"configtest": lambda: (503, {"ok": False, "error": "Headscale is not running"}),
                     "restart": lambda: (503, {"ok": False, "error": "Headscale is not running"}),
-                    "status": lambda: (200, {"ok": True, "docker": False})})
-        self.assertFalse(hs.docker_available())
+                    "status": lambda: (503, {"ok": False})})
+        self.assertFalse(hs.control_available())
         ok, out = hs.headscale_configtest()
         self.assertFalse(ok)
         self.assertIn("503", out)
@@ -306,15 +306,15 @@ class WebClientTest(ServedTest):
     def test_socket_present_but_dead(self):
         with open(self.sock, "w"):
             pass
-        self.assertFalse(hs.docker_available())
-        self.assertIsNone(hs.helper_status())
+        self.assertFalse(hs.control_available())
+        self.assertIsNone(hs.control_status())
         self.assertFalse(hs.headscale_configtest()[0])
         self.assertFalse(hs.restart_headscale())
 
     def test_nothing_available_fails_closed(self):
-        self.assertFalse(hs.docker_available())
-        self.assertIsNone(hs.helper_status())
-        self.assertEqual(hs.headscale_configtest(), (False, "hs-helper is not running"))
+        self.assertFalse(hs.control_available())
+        self.assertIsNone(hs.control_status())
+        self.assertEqual(hs.headscale_configtest(), (False, "the supervisor is not running"))
         self.assertFalse(hs.restart_headscale())
 
 

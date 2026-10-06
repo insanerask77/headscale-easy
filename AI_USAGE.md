@@ -8,8 +8,7 @@ run the project and how carefully to review it.
 ## What the AI did
 
 - **Generated and modified a significant part of the code**: the web UI
-  (Python), the installer (`install.sh`), the Authentik blueprint, the Docker
-  Compose files, the tests and the CI workflows. Several features of 1.1.0
+  (Python), the Docker Compose files, the tests and the CI workflows. Features
   were developed by AI agents working in parallel, one per feature, and then
   integrated (see the [changelog](https://insanerask77.github.io/headscale-easy/changelog/)).
 - **Helped with debugging, refactoring, translations and documentation**,

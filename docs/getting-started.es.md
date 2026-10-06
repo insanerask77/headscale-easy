@@ -2,11 +2,11 @@
 
 ## En cinco minutos
 
-1. **Clona:** `git clone https://github.com/insanerask77/headscale-easy.git && cd headscale-easy`
-2. **Ejecuta el instalador:** `./install.sh`. Pregunta la dirección pública y quién pone el
-   HTTPS (Let's Encrypt por defecto), y arranca un contenedor.
-3. **Configúralo:** abre la dirección que imprime y escribe el token de un solo uso (de
-   `docker compose logs`): administrador, nombre de la tailnet, relay (DERP), registro y copias.
+1. **Descarga:** `mkdir headscale-easy && cd headscale-easy && curl -fsSLO https://raw.githubusercontent.com/insanerask77/headscale-easy/main/compose.yaml`
+2. **Arráncalo:** `docker compose up -d`. Un contenedor, con la versión 2.0 fijada en el archivo.
+3. **Configúralo:** abre `http://<tu-servidor>/admin/setup` y escribe el token de un solo uso (de
+   `docker compose logs`): administrador, dirección pública y HTTPS, nombre de la tailnet, relay
+   (DERP), registro y copias.
 4. **Entra:** abre `https://<tu-dominio>/admin`.
 5. **Conecta tu primer dispositivo:** `tailscale up --login-server=https://<tu-dominio>`.
 
@@ -17,40 +17,42 @@ repasa [Producción y bastionado](hardening.md).
 
 - Un Linux (basta un VPS pequeño: 1 vCPU y 1 GB de RAM; el contenedor en reposo usa menos de
   100 MB).
-- Docker con el plugin de Compose; el instalador se ofrece a instalarlo.
+- Docker con el plugin de Compose (v2.24 o más reciente).
 - Para HTTPS real: un dominio que apunte a la máquina y los puertos 80/443 abiertos.
 - El **UDP 3478** accesible desde internet (STUN del relay DERP integrado).
 
 ## Instalación
 
 ```bash
-git clone https://github.com/insanerask77/headscale-easy.git
-cd headscale-easy
-./install.sh
+mkdir headscale-easy && cd headscale-easy
+curl -fsSLO https://raw.githubusercontent.com/insanerask77/headscale-easy/main/compose.yaml
+docker compose up -d
 ```
 
-El instalador pregunta la dirección pública, quién pone el HTTPS (`auto`: Let's Encrypt, y pide un
-correo; `internal`: un certificado de su propia CA; `off`: HTTP sin cifrar, o lo termina un proxy
-que ya tienes) y, opcionalmente, un correo (y contraseña) de administrador para saltarse el asistente.
-Escribe un compose y un `.env` pequeño (modo 600) en `./headscale-easy` (`--dir` lo cambia), ejecuta `docker compose up -d`, espera a que el contenedor esté sano e imprime la
-dirección del asistente.
+`compose.yaml` es toda la app: un servicio, dos volúmenes con nombre (`hse-data` y
+`hse-backups`), sin capabilities añadidas y sin socket de Docker. Abre el asistente y
+responde ahí; el token de un solo uso está en `docker compose logs headscale-easy`.
 
-Sin preguntas:
+Para responder de antemano (o arrancar sin asistente), pon las respuestas en un `.env` al lado:
 
 ```bash
-HSE_PUBLIC_URL=https://vpn.example.com HSE_TLS=auto ACME_EMAIL=yo@example.com \
-HSE_ADMIN_EMAIL=yo@example.com HSE_ADMIN_PASSWORD='una contraseña larga' \
-  ./install.sh --yes
+curl -fsSL https://raw.githubusercontent.com/insanerask77/headscale-easy/main/.env.example -o .env
+chmod 600 .env        # luego descomenta y edita lo que necesites
 ```
 
-Con `HSE_ADMIN_EMAIL` no hay asistente: el servidor arranca con esa cuenta.
+Por ejemplo `HSE_PUBLIC_URL`, `HSE_TLS` (`auto`: Let's Encrypt, necesita `ACME_EMAIL`; `internal`:
+un certificado de la CA propia de Caddy; `off`: HTTP sin cifrar, o lo termina un proxy que ya
+tienes) y `HSE_ADMIN_EMAIL` con `HSE_ADMIN_PASSWORD` para saltarte el asistente: el servidor
+arranca con esa cuenta.
 
 !!! tip "Actualizar"
-    Vuelve a ejecutar `./install.sh` en el mismo directorio: solo descarga la imagen nueva y
-    recrea el contenedor. El `.env` y los datos no se tocan.
+    Cambia `HSE_VERSION` en `.env` (o la etiqueta en `compose.yaml`) y ejecuta
+    `docker compose pull && docker compose up -d`. Los datos viven en los volúmenes y no se tocan;
+    haz antes una copia con `docker exec headscale-easy hse backup`.
 
-Todo lo demás (un proveedor de identidad, un proxy delante, PostgreSQL, copias remotas) está en la
-[edición avanzada](advanced.md). Mira [Imagen todo en uno](all-in-one.md) para todos los ajustes.
+Todo lo demás (un proveedor de identidad, un proxy delante, PostgreSQL, copias remotas) está en
+[Configuraciones avanzadas](advanced/index.md). Mira [Imagen todo en uno](all-in-one.md) y
+[Configuración](configuration.md) para todos los ajustes.
 
 ## Puertos
 

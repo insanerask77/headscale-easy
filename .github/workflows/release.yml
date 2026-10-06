@@ -1,5 +1,7 @@
 name: Release
 
+# The GitHub release of a version tag: its notes are the CHANGELOG.md entry. The tag must equal the VERSION
+# file and the entry must be dated (scripts/release_info.py); the images are published by docker.yml.
 on:
   push:
     tags: ["v*.*.*"]
@@ -12,16 +14,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: The tag, VERSION and CHANGELOG.md agree
+        run: python3 scripts/release_info.py check --tag "$GITHUB_REF_NAME"
       - name: Release notes from CHANGELOG.md
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          awk -v v="$version" '
-            $0 ~ "^## \\[" v "\\]" { on = 1; next }
-            on && /^## \[/ { exit }
-            on && /^\[/ { exit }
-            on { print }' CHANGELOG.md > notes.md
+        run: python3 scripts/release_info.py notes "$GITHUB_REF_NAME" > notes.md
       - uses: softprops/action-gh-release@v2
         with:
           body_path: notes.md
-          # v2.0.0-alpha.1, -beta.N, -rc.N (from 'next') are pre-releases
+          # v2.1.0-alpha.1, -beta.N, -rc.N are pre-releases
           prerelease: ${{ contains(github.ref_name, '-') }}

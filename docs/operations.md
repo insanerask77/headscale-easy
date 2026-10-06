@@ -124,29 +124,40 @@ docker exec headscale-easy hse backups     # list the backups
 docker logs -f headscale-easy              # [supervisor] [headscale] [caddy] [console]
 ```
 
-The Headscale CLI is always available inside the container:
+The Headscale CLI is always available inside the container. Point it at the rendered config with
+`-c /data/config/config.yaml` (without it the CLI cannot find Headscale's socket):
 
 ```bash
-docker exec headscale-easy headscale nodes list
-docker exec headscale-easy headscale preauthkeys create --user 1 --reusable --expiration 24h
-docker exec headscale-easy headscale --help
+docker exec headscale-easy headscale -c /data/config/config.yaml nodes list
+docker exec headscale-easy headscale -c /data/config/config.yaml preauthkeys create --user 1 --reusable --expiration 24h
+docker exec headscale-easy headscale -c /data/config/config.yaml --help
 ```
 
-## Updating
+## Upgrading { #updating }
+
+Every release is a version of one image, and `compose.yaml` pins it
+(`HSE_VERSION`, `2.0.0` by default). An upgrade is three steps, and the data stays in
+the volumes:
 
 ```bash
-./install.sh                    # in the same directory: pulls the new image and recreates the container
-# or, with the compose file:
-docker compose pull && docker compose up -d
-# or, with docker run:
-docker pull ghcr.io/insanerask77/headscale-easy && docker rm -f headscale-easy   # then the same docker run
+docker exec headscale-easy hse backup      # 1. a backup first (it lands in the backups volume)
+# 2. set HSE_VERSION=2.0.1 in .env (or change the tag in compose.yaml)
+docker compose pull && docker compose up -d   # 3. fetch the new image and recreate the container
 ```
 
-The data is in the volume, so nothing is lost. Pin the version in production
-(`HSE_VERSION=2.0.0` in the compose `.env`, or an exact image tag) and read the
-release notes before major upgrades: Headscale's API changes between versions,
-which is why every release of Headscale Easy ships one pinned Headscale. Take a
-backup first (`hse backup`).
+Then open the console: the version is in the footer and on the **Status** page, and the
+container is healthy once `docker compose ps` says so. Read the
+[release notes](https://github.com/insanerask77/headscale-easy/releases) first: Headscale's API
+changes between versions, which is why every release of Headscale Easy ships one pinned Headscale.
+
+**Rolling back:** set the previous `HSE_VERSION` and run the same `pull` and `up -d`. If a
+release changed the data format, restore the backup from step 1 with
+[`hse restore`](all-in-one.md#backups).
+
+**Which tag to use.** A release publishes `X.Y.Z` (exact), `X.Y` (the latest patch of that
+minor), `X` (the latest minor of that major) and `latest`. Pin `X.Y.Z` in production; `X.Y`
+takes patch fixes by itself. The tags `edge`, `next`, `dev` and `branch-*` are builds of a
+branch for trying changes: they are **not for `compose.yaml`**, which must stay on a release.
 
 ## Backups
 
@@ -162,10 +173,10 @@ ways to keep copies elsewhere:
 
 - **Mount another disk over `/data/backups`**, for example a NAS folder
   (`-v /mnt/nas/hse-backups:/data/backups`, writable by uid 1000).
-- **The `backup-remote` profile** of [`deploy/compose/`](advanced.md#the-compose-file):
+- **The `backup-remote` add-on** (`advanced/backup-remote.yaml`, see [Advanced configurations](advanced/backup-remote.md)):
   a sidecar container that uploads each new archive and applies a remote
   retention. Set `BACKUP_REMOTE` in the compose `.env` and start it with
-  `docker compose --profile backup-remote up -d`. Two kinds of destination:
+  `docker compose -f compose.yaml -f advanced/backup-remote.yaml up -d`. Two kinds of destination:
 
     - **An rclone remote** (`BACKUP_REMOTE=s3:my-bucket/headscale-easy`): S3, B2,
       SFTP, Google Drive and [dozens more](https://rclone.org/overview/). Define the
@@ -193,8 +204,8 @@ console, or `hse restore <file>` on a running one.
 ## Uninstalling
 
 ```bash
-./uninstall.sh           # remove the container, keep the data
-./uninstall.sh --purge   # also delete the volumes: users, devices, keys, certificates AND the backups
+docker compose down      # remove the container, keep the data
+docker compose down -v   # also delete the volumes: users, devices, keys, certificates AND the backups
 ```
 
 With `docker run`: `docker rm -f headscale-easy`, and `docker volume rm hse` to
@@ -339,7 +350,7 @@ the cause and wait an hour.
 shows the proxy's address.** The proxy must pass WebSockets and upgrade headers,
 must not buffer responses, and must forward the original `Host`. Set
 `HSE_TLS=off`, an `https://` `HSE_PUBLIC_URL` and `HSE_TRUSTED_PROXIES`. Use the
-snippets in [`deploy/examples/front-proxy/`](advanced.md#a-proxy-in-front).
+snippets in [`advanced/proxy/`](advanced/proxy.md).
 
 **A device stays "waiting for approval" or shows a registration URL.** With an
 external provider the person must finish sign-in in the browser it opened.

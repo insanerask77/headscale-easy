@@ -2,8 +2,8 @@
 
 Headscale Easy es un solo contenedor con Headscale, Caddy y la consola web, que se
 configura desde el navegador. Sin socket de Docker y sin ningún otro servicio. Esta
-página es la referencia de la imagen; la [guía rápida](getting-started.md) usa el
-instalador, que escribe exactamente esto.
+página es la referencia de la imagen; la [guía rápida](getting-started.md) lo
+lanza con Docker Compose.
 
 ```bash
 docker run -d --name headscale-easy \
@@ -19,11 +19,6 @@ docker logs headscale-easy
 ```
 
 Abre `http://<tu-servidor>/admin/setup`, introduce el token y sigue los pasos.
-
-!!! note "Nombre de la imagen"
-    La imagen es `ghcr.io/insanerask77/headscale-easy`. `headscale-easy-aio` se
-    publica como alias de la misma imagen durante una versión, para que los
-    `docker run` antiguos sigan funcionando.
 
 ## El asistente de primer arranque { #the-first-run-wizard }
 
@@ -80,11 +75,10 @@ docker run -d --name headscale-easy \
   ghcr.io/insanerask77/headscale-easy
 ```
 
-La precedencia es **entorno > `/data/config/settings.json` > valores por
-defecto**. Las variables (`HSE_TLS`, `TAILNET_NAME`, `HSE_BASE_DOMAIN` (dominio base de MagicDNS, por defecto `hse.net`), `HSE_SIGNUP` (`off` por defecto; `invite` exige clave de invitación; `open` permite a cualquiera; se cambia después en Ajustes → General), `HSE_DERP_MODE` (`embedded` por defecto: DERP y STUN propios del contenedor, publica `3478/udp`; `public` añade los relés públicos de Tailscale; `custom` usa tu mapa con `HSE_DERP_URL`), `NETWORK_ISOLATION`,
-`NODE_KEY_EXPIRY`, `UI_LANG`, `TZ`, `BACKUP_SCHEDULE` (cron, por defecto `0 3 * * *`; `off` la desactiva) y `BACKUP_KEEP_DAYS` (por defecto `14`), `OIDC_*`, `HSE_OIDC_ALLOWED_*`, `PORTAL_*_GROUPS`, `HSE_TRUSTED_PROXIES`, `HSE_AUTHENTIK_UPSTREAM`, `HEADSCALE_DB_TYPE`, `HEADSCALE_PG_RO_*` y
-`HEADSCALE_PG_*`, entre otras; los de la [edición avanzada](advanced.md) están descritos allí) están todas en la
-[referencia de variables](configuration.md#reference).
+La precedencia es **entorno > `/data/config/settings.json` > valores por defecto**. Todas las
+variables (HTTPS, tailnet, dominio base, registro, relé, copias, OIDC, PostgreSQL, el proxy delante...)
+están en la [referencia de variables](configuration.md#reference); las de las
+[configuraciones avanzadas](advanced/index.md) se describen allí.
 
 ## Qué hay en `/data`
 
@@ -234,7 +228,7 @@ el DNS en la consola valida la configuración y reinicia Headscale a través de
 están en el volumen.
 
 Medido con `scripts/aio-smoke.sh`: la imagen pesa 232 MB y el contenedor en reposo
-usa 72 MB de RAM, también mientras corre una copia. CI falla por encima de 250 MB y 100 MB
+usa 71 MB de RAM, también mientras corre una copia. CI falla por encima de 250 MB y 100 MB
 (mira [Arquitectura](architecture.md#resource-usage)).
 
 ## Límites

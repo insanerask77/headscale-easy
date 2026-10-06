@@ -16,8 +16,9 @@ translation and pull request makes it better.
 ## Project layout
 
 ```
-install.sh              Installer: Docker if missing, a few questions, writes a small .env and runs the compose file
-uninstall.sh            Uninstaller
+compose.yaml            The simple install: one service, the pinned image
+.env.example            Optional answers for the first start
+advanced/               Advanced configurations: compose overlays (PostgreSQL, a proxy in front, remote backups, sign-in providers)
 aio/                    The all-in-one image: Dockerfile, supervisor, config renderer, wizard, backups, `hse`
   supervisor.py         Starts and restarts Headscale, Caddy and the console; the console's socket protocol
   render.py             Renders Headscale's config.yaml, the Caddyfile and the DERP map from the settings
@@ -36,17 +37,15 @@ web/                    The web console (runs inside the image)
   ui.py                 Layout, sidebar, icons, shared helpers
   i18n.py, locales/     Translations
   static/               CSS, JS, font, favicon
-aio/                    The all-in-one image: supervisor, control socket, config renderer, wizard, backups
-backup/                 The optional `backup-remote` sidecar (S3, B2, SFTP, rsync)
-deploy/                 The reference compose file and the examples (proxies, identity providers, PostgreSQL)
-scripts/                aio-smoke.sh, compose-smoke.sh, validate.sh, check_i18n.py
+backup/                 The `backup-remote` sidecar image (S3, B2, SFTP, rsync)
+scripts/                aio-smoke.sh, compose-smoke.sh, advanced-smoke.sh, validate.sh, check_i18n.py
 tests/                  Unit tests (Python standard library only)
 docs/, mkdocs.yml       Documentation site (GitHub Pages), screenshots
 ```
 
 ## Principles
 
-- **Simple to run.** One container, one command; re-running the installer is safe.
+- **Simple to run.** One container, one command; restarting the container is safe.
   Never lose a user's data: keep it in the volume, and tell people in the
   changelog when something needs their attention.
 - **No dependencies in the console.** Python standard library only, plain
@@ -85,8 +84,8 @@ make test        # unit tests
 make validate    # project structure, compose files, the environment-variable reference
 ```
 
-`scripts/compose-smoke.sh` checks the reference compose file in `deploy/compose/`
-with the backup sidecar.
+`scripts/compose-smoke.sh` runs `compose.yaml` for real (healthy, hardened, a backup,
+`down && up -d` keeps the data) and then the remote backup add-on.
 
 ## Documentation
 
@@ -126,8 +125,7 @@ To add a language:
 3. Run `python3 scripts/check_i18n.py`: it lists missing and unused strings.
 
 `es.d/`-style per-feature files are supported for every language
-(`web/locales/<code>.d/*.json`). The installer's messages use
-`t "English" "Español"`; supporting more languages there is welcome too.
+(`web/locales/<code>.d/*.json`).
 
 ## Branches and releases
 
@@ -148,19 +146,24 @@ Two long-lived branches:
   force-push, no deletion.
 - Work branches into `next`: **squash merge**, with a Conventional Commit title
   (it becomes the commit message).
-- Keep work branches small (one task of a plan phase) and rebase them on their
+- Keep work branches small (one task) and rebase them on their
   base branch freely while they are yours; once someone else uses one, merge
   instead.
-- `CHANGELOG.md`: write under `## [Unreleased]` (or the version in progress).
-- `web/version.py` holds the version of the code on that branch.
+- `CHANGELOG.md`: write under the heading of the version in progress.
+- The `VERSION` file holds the version of the code on that branch (`web/version.py` and the image read it).
 
 ### Releasing
 
-1. Move the changelog entries to `## [x.y.z] - YYYY-MM-DD` and bump
-   `web/version.py` on a `release/x.y.z` branch, with a PR into `next`.
-2. Open a PR `next` → `main` and merge it with a **merge commit**, then tag the
-   merge commit `vx.y.z`. CI publishes the image and the GitHub release.
-3. Pre-releases are tagged on `next` (`v2.0.0-rc.1`).
+1. On a `release/x.y.z` branch, move the changelog entries to `## [x.y.z] - YYYY-MM-DD`, set
+   `VERSION`, and the default tag in `compose.yaml` and `ARG HSE_VERSION` in `aio/Dockerfile`, with a PR
+   into `next`. `python3 scripts/release_info.py check` (also part of `scripts/validate.sh`) fails when
+   they differ.
+2. Open a PR `next` → `main` and merge it with a **merge commit**, then tag the merge commit `vx.y.z`.
+   On the tag, CI checks the tag against `VERSION` and the dated changelog entry, publishes
+   `x.y.z`, `x.y`, `x` and `latest` of `headscale-easy` (and of `headscale-easy-backup`), pulls the
+   published image back and runs `scripts/compose-smoke.sh` on it, and creates the release page with the
+   changelog entry as its notes.
+3. Pre-releases are tagged on `next` (`v2.0.0-rc.1`): they publish only their own tag, never `latest`.
 
 ## Pull requests
 

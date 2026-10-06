@@ -264,7 +264,7 @@ def _loop() -> None:
             if "device.expiring" in events():
                 check_expiring(hs.all_nodes())
             if "backup.failed" in events():
-                check_backup((hs.helper_status() or {}).get("backup"))
+                check_backup((hs.control_status() or {}).get("backup"))
         except Exception as exc:  # noqa: BLE001 - keep the thread alive
             log.warning("notifications: expiry check failed: %s", exc)
         time.sleep(CHECK_INTERVAL)

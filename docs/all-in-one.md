@@ -2,8 +2,8 @@
 
 Headscale Easy is one container with Headscale, Caddy and the web console, set
 up from your browser. No Docker socket, no other service needed. This page is
-the reference for the image; the [quick start](getting-started.md) uses the
-installer, which writes exactly this.
+the reference for the image; the [quick start](getting-started.md) runs it
+with Docker Compose.
 
 ```bash
 docker run -d --name headscale-easy \
@@ -19,11 +19,6 @@ docker logs headscale-easy
 ```
 
 Open `http://<your-server>/admin/setup`, enter the token and follow the steps.
-
-!!! note "Image name"
-    The image is `ghcr.io/insanerask77/headscale-easy`. `headscale-easy-aio` is
-    published as an alias of the same image for one release, so older `docker run`
-    lines keep working.
 
 ## The first-run wizard
 
@@ -79,34 +74,10 @@ docker run -d --name headscale-easy \
   ghcr.io/insanerask77/headscale-easy
 ```
 
-Precedence is **environment > `/data/config/settings.json` > defaults**.
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `HSE_PUBLIC_URL` | *(none: wizard)* | Public `http(s)://host[:port]` of the server |
-| `HSE_TLS` | `auto` for https, `off` for http | `auto` (Let's Encrypt), `internal` (self-signed) or `off` |
-| `ACME_EMAIL` | | Required with `HSE_TLS=auto` |
-| `HSE_ADMIN_EMAIL`, `HSE_ADMIN_PASSWORD` | | First administrator, created on first start if no account exists |
-| `HSE_DERP_PORT` | `3478` | STUN port of the embedded DERP relay (publish it as `-p 3478:3478/udp`) |
-| `TAILNET_NAME` | `myorg` | Label of the tailnet |
-| `HSE_BASE_DOMAIN` | `hse.net` | MagicDNS base domain: devices are `<device>.<base domain>`. Must differ from the server's own domain. Set at first run; later edit it on the DNS page |
-| `NETWORK_ISOLATION` | `true` | Each user only reaches their own devices |
-| `NODE_KEY_EXPIRY` | `180d` | Device key lifetime |
-| `HSE_SIGNUP` | `off` | Self-registration: `off`, `invite` (needs an invitation key) or `open`. Admins change it later in **Settings → General** |
-| `HSE_DERP_MODE` | `embedded` | `embedded` (this container's own DERP + STUN, nothing third-party), `public` (also Tailscale's public map) or `custom` |
-| `HSE_DERP_URL` | | DERP map URL, with `HSE_DERP_MODE=custom` (you can also upload a map in the console) |
-| `DERP_USE_PUBLIC` | | Legacy alias: `true` = `public`, `false` = `embedded`; `HSE_DERP_MODE` wins |
-| `UI_LANG`, `TZ` | `en`, `UTC` | Console language and time zone (`TZ` is also the clock of the backup schedule) |
-| `BACKUP_SCHEDULE` | `0 3 * * *` | When to back up, cron syntax; `off` disables scheduled backups. An invalid value stops the container at start |
-| `BACKUP_KEEP_DAYS` | `14` | Backups older than this are deleted (the newest successful one is always kept) |
-| `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | | Sign in with an external OIDC provider |
-| `HSE_OIDC_ALLOWED_DOMAINS`, `HSE_OIDC_ALLOWED_USERS`, `HSE_OIDC_ALLOWED_GROUPS` | | Who may sign in through the provider (comma-separated; empty = everyone the provider lets in). See [Advanced edition](advanced.md#identity-providers) |
-| `PORTAL_ADMIN_GROUPS`, `PORTAL_NETWORK_ADMIN_GROUPS`, `PORTAL_AUDITOR_GROUPS`, `PORTAL_ADMIN_EMAILS` | | Who is what in the console, by provider group |
-| `OIDC_SCOPE` | `openid profile email` | Scopes asked by the console and Headscale |
-| `HSE_TRUSTED_PROXIES`, `HSE_TRUSTED_PROXIES_ANY` | | The proxy in front, as `/32` addresses: real client IPs. See [Advanced edition](advanced.md#a-proxy-in-front) |
-| `HSE_AUTHENTIK_UPSTREAM` | | An external Authentik served under `/authentik` (`host:port` for Caddy), so its issuer URL does not change |
-| `HEADSCALE_PG_RO_USER`, `HEADSCALE_PG_RO_PASS` | | A read-only PostgreSQL role the image creates for the console (it never gets the owner's credentials). See [Advanced edition](advanced.md#postgresql) |
-| `HEADSCALE_DB_TYPE`, `HEADSCALE_PG_*` | `sqlite` | Use an external PostgreSQL |
+Precedence is **environment > `/data/config/settings.json` > defaults**. Every variable (HTTPS,
+tailnet, base domain, sign-up, relay, backups, OIDC, PostgreSQL, the proxy in front...) is in the
+[variable reference](configuration.md#reference); the ones for [advanced configurations](advanced/index.md)
+are described there.
 
 ## What lives in `/data`
 
@@ -210,7 +181,7 @@ docker run … -v hse:/data -v /mnt/nas/hse-backups:/data/backups …
 ```
 
 The folder must be writable by uid 1000. For copies to S3, B2, SFTP or another
-server, use the `backup` image as a **sync sidecar** in the advanced edition:
+server, use the `backup` image as a **sync sidecar** as an advanced configuration (`advanced/backup-remote.yaml`):
 with `BACKUP_MODE=sync` it uploads each new archive it finds in `/backups`
 (mount the same folder, read-only) every `BACKUP_SYNC_INTERVAL` seconds and
 applies the remote retention. rclone and rsync are not bundled into the
@@ -251,7 +222,7 @@ through it. To update, pull the new image and recreate the container: the data
 is in the volume.
 
 Measured by `scripts/aio-smoke.sh`: the image is 232 MB and the idle container
-uses 72 MB of RAM, also while a backup runs. CI fails above 250 MB and 100 MB
+uses 71 MB of RAM, also while a backup runs. CI fails above 250 MB and 100 MB
 (see [Architecture](architecture.md#resource-usage)).
 
 ## Limits

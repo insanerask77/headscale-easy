@@ -1,0 +1,49 @@
+# Headscale Easy 2.0: your own Tailscale control server in one container.
+# https://github.com/insanerask77/headscale-easy
+#
+#   docker compose up -d
+#   docker compose logs headscale-easy      # prints the one-time setup token
+#
+# Then open http://<this server>/admin/setup and follow the wizard. Everything is optional:
+# copy .env.example to .env only if you want to answer in advance (public URL, HTTPS, admin).
+#
+# Headscale, Caddy (HTTPS) and the web console run in this one container. Options such as an
+# external PostgreSQL, your own identity provider (Authentik, Pocket ID, Keycloak, Google), a
+# proxy in front or remote backups are add-ons: see docs/advanced.md.
+name: headscale-easy
+
+services:
+  headscale-easy:
+    image: ghcr.io/insanerask77/headscale-easy:${HSE_VERSION:-2.0.0}
+    container_name: headscale-easy
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "${HSE_HTTP_PORT:-80}:80"
+      - "${HSE_HTTPS_PORT:-443}:443"
+      - "${HSE_HTTPS_PORT:-443}:443/udp"
+      - "${HSE_DERP_PORT:-3478}:${HSE_DERP_PORT:-3478}/udp"   # DERP/STUN: the clients' fallback relay. Not HTTP: a proxy cannot carry it.
+    volumes:
+      - hse-data:/data
+      # Backups: a named volume by default. To keep them in a folder (a NAS mount), use a bind mount
+      # instead and make it writable by uid 1000:  mkdir -p backups && chown 1000:1000 backups
+      - hse-backups:/data/backups
+    # The image runs as an unprivileged user and needs no capability: ports 80/443 are bound through
+    # this sysctl (Docker >= 20.10 already has it; Podman and older engines need it set).
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  hse-data:
+  hse-backups:

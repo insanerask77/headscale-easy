@@ -1,0 +1,396 @@
+# yaml-language-server: $schema=https://goauthentik.io/blueprints/schema.json
+#
+# Headscale Easy — Authentik as an external OIDC provider
+#
+# Optional example for the all-in-one image (docs: Advanced configurations → Your own sign-in provider). Authentik
+# only signs people in: the console keeps its own accounts, invitations, password resets and
+# two-factor, and never calls Authentik's API.
+# https://github.com/insanerask77/headscale-easy
+#
+# Applied by the Authentik worker on start-up and whenever this file changes.
+# Mounted at /blueprints/custom/.
+#
+# Creates:
+#   - Groups 'headscale-users' (can join the tailnet) and 'vpn-admins' (administrators in
+#     the console: PORTAL_ADMIN_GROUPS)
+#   - One OIDC provider with its application, 'headscale': the tailnet ('tailscale up') and
+#     the console. It accepts the console's redirect URIs (/admin/callback and /admin/),
+#     because the all-in-one image signs in to both with the same OIDC client
+#   - The "Headscale Easy" sign-in flow and theme
+#   - With GOOGLE_CLIENT_ID set: "Sign in with Google"
+#
+# Values that change per install come from environment variables (!Env), so
+# this file is the same for every installation.
+
+version: 1
+metadata:
+  name: Headscale Easy
+  labels:
+    blueprints.goauthentik.io/description: "Headscale Easy: OIDC for Headscale and its console, theme and sign-in flow"
+
+context:
+  public_url: !Env [HEADSCALE_PUBLIC_URL, "http://localhost"]
+  google_client_id: !Env [GOOGLE_CLIENT_ID, ""]
+
+entries:
+  # ---------------------------------------------------------------------------
+  # Dependencies: the default flows, mappings and brand referenced below are
+  # created by other blueprints, in no guaranteed order on first start.
+  # ---------------------------------------------------------------------------
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs:
+      identifiers:
+        name: System - OAuth2 Provider - Scopes
+      required: true
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs:
+      identifiers:
+        name: Default - Authentication flow
+      required: true
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs:
+      identifiers:
+        name: Default - Provider authorization flow (implicit consent)
+      required: true
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs:
+      identifiers:
+        name: Default - Provider invalidation flow
+      required: true
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs:
+      identifiers:
+        name: Default - Invalidation flow
+      required: true
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs:
+      identifiers:
+        name: Default - Brand
+      required: true
+  - model: authentik_blueprints.metaapplyblueprint
+    conditions:
+      - !Context google_client_id
+    attrs:
+      identifiers:
+        name: Default - Source authentication flow
+      required: true
+  - model: authentik_blueprints.metaapplyblueprint
+    conditions:
+      - !Context google_client_id
+    attrs:
+      identifiers:
+        name: Default - Source enrollment flow
+      required: true
+
+  # ---------------------------------------------------------------------------
+  # Groups. 'created': only created here; members are managed in Authentik and
+  # never overwritten when the blueprint is applied again.
+  # ---------------------------------------------------------------------------
+  - model: authentik_core.group
+    state: created
+    id: group-users
+    identifiers:
+      name: headscale-users
+  - model: authentik_core.group
+    state: created
+    id: group-admins
+    identifiers:
+      name: vpn-admins
+
+  # ---------------------------------------------------------------------------
+  # Sign-in and sign-out flows of Headscale Easy
+  # ---------------------------------------------------------------------------
+  # Authentik re-applies its own default blueprints from time to time and
+  # resets anything changed in the default flows (the "Welcome to authentik!"
+  # title, the sources of its sign-in page). So Headscale Easy has its own
+  # flows, reusing the default stages, and the brand points at them.
+  - model: authentik_stages_identification.identificationstage
+    id: identification
+    identifiers:
+      name: headscale-easy-identification
+    attrs:
+      user_fields:
+        - email
+        - username
+      pretend_user_exists: true
+      show_matched_user: true
+
+  - model: authentik_flows.flow
+    id: flow-sign-in
+    identifiers:
+      slug: headscale-easy-sign-in
+    attrs:
+      name: "Headscale Easy: sign in"
+      title: Sign in
+      designation: authentication
+      authentication: none
+      layout: stacked
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf flow-sign-in
+      stage: !KeyOf identification
+      order: 10
+  - model: authentik_flows.flowstagebinding
+    id: sign-in-password-binding
+    identifiers:
+      target: !KeyOf flow-sign-in
+      stage: !Find [authentik_stages_password.passwordstage, [name, default-authentication-password]]
+      order: 20
+    attrs:
+      re_evaluate_policies: true
+  # Two-factor authentication: Authentik's own optional stage. It asks for a code only
+  # when the user already has a second factor; users enrol one in their Authentik
+  # settings. To REQUIRE it, bind your own policy to this stage in Authentik.
+  - model: authentik_flows.flowstagebinding
+    id: sign-in-mfa-binding
+    identifiers:
+      target: !KeyOf flow-sign-in
+      stage: !Find [authentik_stages_authenticator_validate.authenticatorvalidatestage, [name, default-authentication-mfa-validation]]
+      order: 30
+    attrs:
+      evaluate_on_plan: false
+      re_evaluate_policies: true
+      policy_engine_mode: all
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf flow-sign-in
+      stage: !Find [authentik_stages_user_login.userloginstage, [name, default-authentication-login]]
+      order: 100
+  # Same conditions as the default flow: skip the password when the user
+  # already authenticated another way (passkey, source)
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf sign-in-password-binding
+      policy: !Find [authentik_policies_expression.expressionpolicy, [name, default-authentication-flow-password-stage]]
+      order: 10
+    attrs:
+      failure_result: true
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf sign-in-mfa-binding
+      policy: !Find [authentik_policies_expression.expressionpolicy, [name, default-authentication-flow-authenticator-validate-stage]]
+      order: 10
+    attrs:
+      failure_result: true
+
+  # ---------------------------------------------------------------------------
+  # The tailnet: Headscale's OIDC provider ('tailscale up' opens this sign-in)
+  # ---------------------------------------------------------------------------
+  - model: authentik_providers_oauth2.oauth2provider
+    id: provider
+    identifiers:
+      name: headscale
+    attrs:
+      client_type: confidential
+      # Required in blueprints: the UI fills it in, but left empty Authentik
+      # rejects sign-ins with "Invalid grant_type for provider".
+      grant_types:
+        - authorization_code
+        - refresh_token
+      client_id: !Env OIDC_CLIENT_ID
+      client_secret: !Env OIDC_CLIENT_SECRET
+      authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+      # Headscale does not support JWE: leave the encryption key empty
+      signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+      # Issuer = <public_url>/authentik/application/o/headscale/
+      issuer_mode: per_provider
+      include_claims_in_id_token: true
+      property_mappings:
+        - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-openid]]
+        - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-email]]
+        - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
+      redirect_uris:
+        - matching_mode: strict
+          url: !Format ["%s/oidc/callback", !Context public_url]
+          redirect_uri_type: authorization
+        # all-in-one image: the console signs in through THIS provider too (one OIDC client for
+        # Headscale and the console, OIDC_CLIENT_ID), so its callback and its logout page belong here
+        - matching_mode: strict
+          url: !Format ["%s/admin/callback", !Context public_url]
+          redirect_uri_type: authorization
+        - matching_mode: strict
+          url: !Format ["%s/admin/", !Context public_url]
+          redirect_uri_type: logout
+
+  - model: authentik_core.application
+    id: app
+    identifiers:
+      slug: headscale
+    attrs:
+      name: Tailnet
+      provider: !KeyOf provider
+      # Not launched from the browser: 'tailscale up' opens the sign-in
+      meta_hide: true
+      meta_description: "Device sign-in to the tailnet"
+      # Being in ONE of the groups bound below is enough
+      policy_engine_mode: any
+
+  # Who may authorize against the application. Without these bindings any
+  # Authentik user, including one just created through Google, would get in.
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf app
+      order: 0
+    attrs:
+      group: !KeyOf group-users
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf app
+      order: 1
+    attrs:
+      group: !KeyOf group-admins
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf app
+      order: 2
+    attrs:
+      group: !Find [authentik_core.group, [name, "authentik Admins"]]
+
+  # ---------------------------------------------------------------------------
+  # Sign in with Google (only when GOOGLE_CLIENT_ID is set)
+  # ---------------------------------------------------------------------------
+  # Google has no user name: the email is used so it is not asked for.
+  - model: authentik_sources_oauth.oauthsourcepropertymapping
+    id: google-username
+    conditions:
+      - !Context google_client_id
+    identifiers:
+      name: "Google: username = email"
+    attrs:
+      expression: |
+        return {"username": info.get("email")}
+
+  # Own flows for Google sign-in (same stages as Authentik's defaults, which
+  # say "Welcome to authentik!" and would be reset if changed).
+  - model: authentik_flows.flow
+    id: flow-google-sign-in
+    conditions:
+      - !Context google_client_id
+    identifiers:
+      slug: headscale-easy-google-sign-in
+    attrs:
+      name: "Headscale Easy: sign in with Google"
+      title: Sign in
+      designation: authentication
+      authentication: require_unauthenticated
+  - model: authentik_flows.flowstagebinding
+    conditions:
+      - !Context google_client_id
+    identifiers:
+      target: !KeyOf flow-google-sign-in
+      stage: !Find [authentik_stages_user_login.userloginstage, [name, default-source-authentication-login]]
+      order: 0
+  - model: authentik_policies.policybinding
+    conditions:
+      - !Context google_client_id
+    identifiers:
+      target: !KeyOf flow-google-sign-in
+      policy: !Find [authentik_policies_expression.expressionpolicy, [name, default-source-authentication-if-sso]]
+      order: 0
+
+  - model: authentik_flows.flow
+    id: flow-google-enrollment
+    conditions:
+      - !Context google_client_id
+    identifiers:
+      slug: headscale-easy-google-enrollment
+    attrs:
+      name: "Headscale Easy: first Google sign-in"
+      title: Choose a user name
+      designation: enrollment
+      authentication: none
+  # Asks for a user name only if the one from Google (the email) is taken
+  - model: authentik_flows.flowstagebinding
+    id: google-enrollment-prompt-binding
+    conditions:
+      - !Context google_client_id
+    identifiers:
+      target: !KeyOf flow-google-enrollment
+      stage: !Find [authentik_stages_prompt.promptstage, [name, default-source-enrollment-prompt]]
+      order: 0
+    attrs:
+      re_evaluate_policies: true
+  - model: authentik_flows.flowstagebinding
+    conditions:
+      - !Context google_client_id
+    identifiers:
+      target: !KeyOf flow-google-enrollment
+      stage: !Find [authentik_stages_user_write.userwritestage, [name, default-source-enrollment-write]]
+      order: 1
+  - model: authentik_flows.flowstagebinding
+    conditions:
+      - !Context google_client_id
+    identifiers:
+      target: !KeyOf flow-google-enrollment
+      stage: !Find [authentik_stages_user_login.userloginstage, [name, default-source-enrollment-login]]
+      order: 2
+  - model: authentik_policies.policybinding
+    conditions:
+      - !Context google_client_id
+    identifiers:
+      target: !KeyOf flow-google-enrollment
+      policy: !Find [authentik_policies_expression.expressionpolicy, [name, default-source-enrollment-if-sso]]
+      order: 0
+  - model: authentik_policies.policybinding
+    conditions:
+      - !Context google_client_id
+    identifiers:
+      target: !KeyOf google-enrollment-prompt-binding
+      policy: !Find [authentik_policies_expression.expressionpolicy, [name, default-source-enrollment-if-username]]
+      order: 0
+
+  - model: authentik_sources_oauth.oauthsource
+    id: google-source
+    conditions:
+      - !Context google_client_id
+    identifiers:
+      slug: google
+    attrs:
+      name: Google
+      enabled: true
+      provider_type: google
+      consumer_key: !Context google_client_id
+      consumer_secret: !Env [GOOGLE_CLIENT_SECRET, ""]
+      authentication_flow: !KeyOf flow-google-sign-in
+      enrollment_flow: !KeyOf flow-google-enrollment
+      # A Google account with the same email as a local user signs in as that
+      # user. Google verifies emails, so this is safe as long as local users'
+      # emails are real.
+      user_matching_mode: email_link
+      user_property_mappings:
+        - !KeyOf google-username
+
+  # "Google" button on the sign-in page
+  - model: authentik_stages_identification.identificationstage
+    conditions:
+      - !Context google_client_id
+    identifiers:
+      name: headscale-easy-identification
+    attrs:
+      sources:
+        - !KeyOf google-source
+
+  # ---------------------------------------------------------------------------
+  # "Headscale Easy" theme (Tailscale look, dark and light)
+  # ---------------------------------------------------------------------------
+  # Files live in authentik/branding/. Logo, favicon and background are served
+  # by Authentik from media/public/branding (mounted on the server); the CSS
+  # is embedded here with !File (mounted on the worker, which applies this).
+  - model: authentik_brands.brand
+    identifiers:
+      domain: authentik-default
+    attrs:
+      branding_title: Headscale Easy
+      # %(theme)s -> logo-light.svg / logo-dark.svg for the active theme
+      branding_logo: branding/logo-%(theme)s.svg
+      branding_favicon: branding/favicon.svg
+      branding_default_flow_background: branding/background.svg
+      branding_custom_css: !File [/branding/custom.css, ""]
+      flow_authentication: !KeyOf flow-sign-in
+      # Dark or light following the browser; each user can pin it in their
+      # Authentik settings. The CSS defines both variants.
+      attributes:
+        settings:
+          theme:
+            base: automatic

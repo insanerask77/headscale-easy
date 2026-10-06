@@ -1,0 +1,44 @@
+# Advanced: Headscale on a PostgreSQL container that runs beside it (when you have no server of your own).
+#
+#   docker compose -f compose.yaml -f advanced/postgres-bundled.yaml up -d
+#
+# Use this file INSTEAD of advanced/postgres.yaml. Set HEADSCALE_PG_PASS and HEADSCALE_PG_RO_PASS in .env.
+# Headscale (and only Headscale) writes as the owner role; the console reads with the read-only role.
+services:
+  postgres:
+    image: postgres:${POSTGRES_VERSION:-17}-alpine
+    container_name: headscale-easy-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: headscale
+      POSTGRES_DB: headscale
+      POSTGRES_PASSWORD: ${HEADSCALE_PG_PASS:?set HEADSCALE_PG_PASS in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql   # the parent directory: PostgreSQL 18's image keeps its data in a versioned folder below it
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U headscale -d headscale"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  headscale-easy:
+    environment:
+      HEADSCALE_DB_TYPE: postgres
+      HEADSCALE_PG_HOST: postgres
+      HEADSCALE_PG_NAME: headscale
+      HEADSCALE_PG_USER: headscale
+      HEADSCALE_PG_PASS: ${HEADSCALE_PG_PASS:?set HEADSCALE_PG_PASS in .env}
+      HEADSCALE_PG_SSLMODE: disable   # same host, same network
+      HEADSCALE_PG_RO_USER: ${HEADSCALE_PG_RO_USER:-headscale_ro}
+      HEADSCALE_PG_RO_PASS: ${HEADSCALE_PG_RO_PASS:?set HEADSCALE_PG_RO_PASS in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

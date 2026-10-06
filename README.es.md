@@ -7,7 +7,7 @@
 <p align="center">
   <b>Headscale, con todo lo que lo rodea.</b><br>
   Una capa de despliegue y gestión para <a href="https://github.com/juanfont/headscale">Headscale</a>, el servidor de control open source de Tailscale:
-  instalador, HTTPS, cuentas e inicio de sesión, una consola web estilo Tailscale y copias de seguridad. Se instala con un solo comando.
+  HTTPS, cuentas e inicio de sesión, una consola web estilo Tailscale y copias de seguridad. Se instala con un solo archivo de Docker Compose.
 </p>
 
 <p align="center">
@@ -39,7 +39,7 @@
 ## 🤔 ¿Por qué Headscale Easy?
 
 [Headscale](https://github.com/juanfont/headscale) funciona bien por sí solo, y
-Headscale Easy usa la imagen **oficial y sin modificar** de Headscale: no es un
+Headscale Easy usa el binario **oficial y sin modificar** de Headscale: no es un
 fork ni un sustituto. Lo que lleva tiempo es el "pegamento" alrededor cuando
 quieres una instalación completa y autoalojada para varias personas:
 
@@ -49,7 +49,7 @@ Headscale Easy empaqueta ese pegamento, en el espíritu de
 [wg-easy](https://github.com/wg-easy/wg-easy) para WireGuard:
 
 - **Un solo contenedor**: Headscale, HTTPS y la consola en una sola imagen,
-  configurada desde el navegador; vuelve a ejecutar el instalador para actualizar.
+  configurada desde el navegador; descarga la imagen nueva para actualizar.
 - **Una consola web** para el día a día, inspirada en el panel de Tailscale,
   donde cada miembro gestiona sólo sus dispositivos.
 - **Configuración centralizada**: unas pocas variables o el asistente, un dominio.
@@ -90,37 +90,51 @@ consola. Mira la [comparativa detallada](https://insanerask77.github.io/headscal
 - 🔐 **HTTPS a tu manera**: Let's Encrypt, autofirmado, detrás de tu proxy
   (Nginx Proxy Manager, nginx, Traefik, Caddy: con ejemplos listos) o
   HTTP en una LAN.
-- 🌍 **Inglés, español, francés, alemán y portugués** en la consola (instalador: inglés y español; ¡se aceptan más idiomas!).
+- 🌍 **Inglés, español, francés, alemán y portugués** en la consola (¡se aceptan más idiomas!).
 - 💾 **Copias diarias** de todo (base de datos, claves, cuentas, configuración) y
   restauración con un solo comando, también en un servidor nuevo.
 - 🪶 **Ligero**: un contenedor, unos 70 MB de RAM; la consola es Python de la
   librería estándar, sin compilación y sin framework JavaScript.
 
+## 📸 Capturas
+
+| Máquinas (tema claro) | Detalle de una máquina |
+|---|---|
+| ![Máquinas, tema claro](docs/images/machines-light.png) | ![Detalle de una máquina](docs/images/machine-detail.png) |
+| **Usuarios** | **DNS** |
+| ![Usuarios](docs/images/users.png) | ![DNS](docs/images/dns.png) |
+| **Controles de acceso** | **Claves** |
+| ![Controles de acceso](docs/images/access-controls.png) | ![Claves](docs/images/keys.png) |
+| **Inicio de sesión** | **Añadir dispositivo** |
+| ![Inicio de sesión](docs/images/sign-in.png) | ![Añadir dispositivo](docs/images/add-device.png) |
+
 ## 🚀 Inicio rápido
 
-Necesitas un Linux con Docker (el instalador puede instalarlo) y, para HTTPS
-real, un dominio que apunte a él.
+Necesitas un Linux con Docker y el plugin Compose (v2.24 o más reciente) y, para
+HTTPS real, un dominio que apunte a él.
 
 ```bash
-git clone https://github.com/insanerask77/headscale-easy.git
-cd headscale-easy
-./install.sh
+mkdir headscale-easy && cd headscale-easy
+curl -fsSLO https://raw.githubusercontent.com/insanerask77/headscale-easy/main/compose.yaml
+docker compose up -d
 ```
 
-El instalador pregunta la dirección pública, quién pone el HTTPS (y el correo de
-Let's Encrypt) y, si quieres, un correo de administrador; escribe un `.env` pequeño
-y un compose en `./headscale-easy` (`--dir` lo cambia) y arranca un contenedor.
+Esa es toda la instalación: un contenedor, con la versión 2.0 fijada en `compose.yaml`.
 Después:
 
-1. **Abre el asistente** en la dirección que imprime y escribe el token de un solo
-   uso (`docker compose logs`). Crea el administrador, pon nombre a la tailnet y
-   elige el relay (DERP), el modo de registro y las copias.
+1. **Abre el asistente** en `http://<tu-servidor>/admin/setup` y escribe el token de
+   un solo uso (`docker compose logs`). Crea el administrador, pon nombre a la
+   tailnet, indica la dirección pública y el HTTPS (Let's Encrypt necesita un
+   dominio y los puertos 80/443 abiertos) y elige el relay (DERP), el modo de
+   registro y las copias.
 2. **Entra** en `https://tu-dominio/admin`.
 3. **Conecta tu primer dispositivo** con la app oficial de Tailscale.
 
-Sin preguntas: `HSE_PUBLIC_URL=https://vpn.example.com HSE_TLS=auto
-ACME_EMAIL=yo@example.com ./install.sh --yes`. Vuelve a ejecutarlo para
-actualizar: solo descarga la imagen nueva, tus ajustes y datos no se tocan.
+¿Prefieres responder de antemano? Copia [`.env.example`](.env.example) a `.env`
+(dirección pública, HTTPS, administrador) antes de `docker compose up -d`: todas las
+líneas son opcionales. Para actualizar, cambia `HSE_VERSION` (o la etiqueta en
+`compose.yaml`) y ejecuta `docker compose pull && docker compose up -d`; tus ajustes y
+datos viven en volúmenes y nunca se tocan.
 
 ```bash
 tailscale up --login-server=https://tu-dominio
@@ -141,25 +155,18 @@ secretos, copias fuera del servidor y actualizaciones.
 | 80 / 443 | TCP | Consola web, plano de control, Let's Encrypt |
 | 3478 | UDP | STUN del relay DERP integrado (debe ser accesible) |
 
-## 🧪 Sin el instalador, y la edición avanzada
+## ⚙️ Configuraciones avanzadas
 
-Headscale Easy se entrega como un solo contenedor: Headscale + Caddy + la consola,
-configurado desde el navegador, sin socket de Docker. El instalador de arriba
-escribe justo esto; para ejecutarlo a mano:
+La instalación simple de arriba basta para la mayoría. Cuando necesites más, cada
+opción es un complemento pequeño de la misma app Compose: un PostgreSQL externo, tu
+propio proveedor de identidad (Authentik, Pocket ID, Keycloak, Google), un proxy
+delante, copias remotas. Mira [Configuraciones avanzadas](https://insanerask77.github.io/headscale-easy/es/advanced/)
+y [`advanced/`](advanced/).
 
-```bash
-docker run -d --name headscale-easy -p 80:80 -p 443:443 -p 3478:3478/udp \
-  -v hse:/data ghcr.io/insanerask77/headscale-easy
-docker logs headscale-easy      # el token de configuración de un solo uso
-```
-
-Luego abre `http://<tu-servidor>/admin/setup`. Detalles, variables para un
-arranque sin asistente y límites: [imagen todo en uno](https://insanerask77.github.io/headscale-easy/es/all-in-one/).
-
-Para un proxy delante, tu propio proveedor de identidad (Authentik, Pocket ID,
-Keycloak, Google), copias remotas o el compose con sus perfiles, mira la
-[edición avanzada](https://insanerask77.github.io/headscale-easy/es/advanced/) y
-[`deploy/`](deploy/).
+Sin Compose, la misma imagen corre con `docker run -d --name headscale-easy -p 80:80
+-p 443:443 -p 3478:3478/udp -v hse:/data ghcr.io/insanerask77/headscale-easy:2.0.0`; la
+página de la [imagen todo en uno](https://insanerask77.github.io/headscale-easy/es/all-in-one/)
+lista las variables para un arranque sin asistente.
 
 ## 🧩 Cómo funciona
 
@@ -189,8 +196,8 @@ Medido por CI con una imagen recién construida (detalles y método en
 |---|---:|---:|
 | Contenedores | **1** | — |
 | Tamaño de la imagen | **232 MB** | 250 MB |
-| RAM en reposo | **72 MB** | 100 MB |
-| RAM mientras corre una copia | **72 MB** | 100 MB |
+| RAM en reposo | **71 MB** | 100 MB |
+| RAM mientras corre una copia | **71 MB** | 100 MB |
 
 Headscale solo consume unos 20 MB en reposo: Caddy, la consola, el supervisor y las
 copias añaden unos 50 MB. Un proveedor de identidad es opcional y corre fuera: usa

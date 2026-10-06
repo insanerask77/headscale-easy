@@ -1,0 +1,114 @@
+# Advanced: sign in with Authentik, run beside the image (server, worker and its own PostgreSQL).
+#
+#   docker compose -f compose.yaml -f advanced/oidc/authentik.yaml up -d
+#
+# Authentik is served at https://<your domain>/authentik/ through the image's own Caddy
+# (HSE_AUTHENTIK_UPSTREAM), so the issuer URL never changes. Secrets and the address go in .env:
+# see advanced/oidc/authentik.md. Already have an Authentik? Skip this file and only set
+# HSE_AUTHENTIK_UPSTREAM (or OIDC_ISSUER to its own address).
+x-authentik-env: &authentik-env
+  AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?set AUTHENTIK_SECRET_KEY in .env}
+  AUTHENTIK_POSTGRESQL__HOST: authentik-postgresql
+  AUTHENTIK_POSTGRESQL__NAME: authentik
+  AUTHENTIK_POSTGRESQL__USER: authentik
+  AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_PG_PASS:?set AUTHENTIK_PG_PASS in .env}
+  AUTHENTIK_WEB__PATH: /authentik/
+  AUTHENTIK_WEB__BASE_URL: ${HSE_PUBLIC_URL:?set HSE_PUBLIC_URL in .env}
+  AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+  AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_ADMIN_EMAIL:-}
+  AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD:-}
+  HEADSCALE_PUBLIC_URL: ${HSE_PUBLIC_URL}
+  OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-headscale}
+  OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?set OIDC_CLIENT_SECRET in .env}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  AUTHENTIK_EMAIL__HOST: ${AUTHENTIK_SMTP_HOST:-localhost}
+  AUTHENTIK_EMAIL__PORT: ${AUTHENTIK_SMTP_PORT:-587}
+  AUTHENTIK_EMAIL__USERNAME: ${AUTHENTIK_SMTP_USERNAME:-}
+  AUTHENTIK_EMAIL__PASSWORD: ${AUTHENTIK_SMTP_PASSWORD:-}
+  AUTHENTIK_EMAIL__USE_TLS: ${AUTHENTIK_SMTP_USE_TLS:-false}
+  AUTHENTIK_EMAIL__USE_SSL: ${AUTHENTIK_SMTP_USE_SSL:-false}
+  AUTHENTIK_EMAIL__FROM: ${AUTHENTIK_SMTP_FROM:-authentik@localhost}
+  AUTHENTIK_EMAIL__TIMEOUT: "15"
+  TZ: ${TZ:-UTC}
+
+services:
+  headscale-easy:
+    environment:
+      OIDC_ISSUER: ${HSE_PUBLIC_URL}/authentik/application/o/headscale/
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-headscale}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?set OIDC_CLIENT_SECRET in .env}
+      HSE_AUTHENTIK_UPSTREAM: authentik-server:9000
+    # The image reaches its own public name at itself, or at the proxy in front of it (HSE_SELF_IP): Headscale
+    # and the console read the issuer's configuration there.
+    extra_hosts:
+      - "${HSE_DOMAIN:-localhost}:${HSE_SELF_IP:-127.0.0.1}"
+    depends_on:
+      authentik-server:
+        condition: service_started   # not service_healthy: Authentik takes minutes on its first start
+
+  authentik-postgresql:
+    image: docker.io/library/postgres:${AUTHENTIK_PG_IMAGE_TAG:-16-alpine}
+    container_name: hse-authentik-postgresql
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: authentik
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: ${AUTHENTIK_PG_PASS:?set AUTHENTIK_PG_PASS in .env}
+    volumes:
+      - authentik-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d authentik -U authentik"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+
+  authentik-server:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_IMAGE_TAG:-2026.8.3}
+    container_name: hse-authentik-server
+    restart: unless-stopped
+    command: server
+    depends_on:
+      authentik-postgresql:
+        condition: service_healthy
+    environment: *authentik-env
+    healthcheck:
+      test: ["CMD", "ak", "healthcheck"]
+      interval: 30s
+      timeout: 30s
+      retries: 5
+      start_period: 10m
+    volumes:
+      - authentik-data:/data
+      - authentik-media:/media
+      - ./advanced/oidc/authentik/blueprints:/blueprints/custom:ro
+      - ./advanced/oidc/authentik/branding:/media/public/branding:ro
+    shm_size: 512mb
+    security_opt:
+      - no-new-privileges:true
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_IMAGE_TAG:-2026.8.3}
+    container_name: hse-authentik-worker
+    restart: unless-stopped
+    command: worker
+    depends_on:
+      authentik-postgresql:
+        condition: service_healthy
+    environment: *authentik-env
+    volumes:
+      - authentik-data:/data
+      - authentik-media:/media
+      - ./advanced/oidc/authentik/blueprints:/blueprints/custom:ro
+      - ./advanced/oidc/authentik/branding:/branding:ro
+    shm_size: 512mb
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  authentik-db:
+  authentik-data:
+  authentik-media:

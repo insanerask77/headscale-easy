@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: ShellCheck
-        run: shellcheck -S warning install.sh uninstall.sh scripts/*.sh backup/*.sh
+        run: shellcheck -S warning scripts/*.sh backup/*.sh
 
       - uses: actions/setup-python@v5
         with:
@@ -66,5 +66,12 @@ jobs:
       - name: Build the backup sidecar
         run: docker build -t hse-backup:ci backup
 
-      - name: The advanced edition's compose file (hardened, named volumes, backup-remote sidecar)
+      - name: The Compose app (hardened, named volumes) and the backup-remote overlay
         run: ./scripts/compose-smoke.sh hse-aio:ci hse-backup:ci
+
+      - name: Advanced overlay, PostgreSQL 16, 17 and 18 (bundled server, read-only role, backup and restore)
+        run: |
+          for v in 16 17 18; do ./scripts/advanced-smoke.sh postgres "$v" hse-aio:ci || exit 1; done
+
+      - name: Advanced overlay, a proxy in front (real nginx, real client address)
+        run: ./scripts/advanced-smoke.sh proxy hse-aio:ci

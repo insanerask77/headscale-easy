@@ -62,11 +62,20 @@ def _ts_args(url: str, v: dict) -> str:
     args = [f"--login-server={url}"]
     if v["exit"]:
         args.append("--advertise-exit-node")
-    if v["route_list"]:
-        args.append("--advertise-routes=" + ",".join(v["route_list"]))
-    if not v["dns"]:
-        args.append("--accept-dns=false")
     return " ".join(args)
+
+
+def _env(url: str, v: dict, key: str) -> list[str]:
+    """KEY=value pairs for the official image's own variables (TS_ROUTES, TS_ACCEPT_DNS, TS_AUTH_ONCE...)."""
+    env = [f"TS_AUTHKEY={key or PLACEHOLDER}", f"TS_HOSTNAME={v['hostname']}",
+           "TS_STATE_DIR=/var/lib/tailscale",
+           "TS_AUTH_ONCE=true",  # a restart keeps the saved identity instead of logging in again with a spent key
+           f"TS_USERSPACE={'true' if v['userspace'] else 'false'}",
+           f"TS_ACCEPT_DNS={'true' if v['dns'] else 'false'}"]
+    if v["route_list"]:
+        env.append("TS_ROUTES=" + ",".join(v["route_list"]))
+    env.append("TS_EXTRA_ARGS=" + _ts_args(url, v))
+    return env
 
 
 def _forwarding(v: dict) -> bool:
@@ -81,13 +90,9 @@ def docker_run(url: str, v: dict, key: str) -> str:
         lines += ["  --cap-add NET_ADMIN --cap-add NET_RAW", "  --device /dev/net/tun"]
     if _forwarding(v):
         lines += ["  --sysctl net.ipv4.ip_forward=1", "  --sysctl net.ipv6.conf.all.forwarding=1"]
-    lines += [f"  -v {q(name)}:/var/lib/tailscale",
-              f"  -e TS_AUTHKEY={q(key) if key else PLACEHOLDER}",
-              f"  -e TS_HOSTNAME={q(v['hostname'])}",
-              "  -e TS_STATE_DIR=/var/lib/tailscale",
-              f"  -e TS_USERSPACE={'true' if v['userspace'] else 'false'}",
-              f"  -e {q('TS_EXTRA_ARGS=' + _ts_args(url, v))}",
-              "  tailscale/tailscale:latest"]
+    lines += [f"  -v {q(name)}:/var/lib/tailscale"]
+    lines += [f"  -e {q(e) if not e.endswith(PLACEHOLDER) else e}" for e in _env(url, v, key)]
+    lines += ["  tailscale/tailscale:latest"]
     return " \\\n".join(lines)
 
 
@@ -96,13 +101,9 @@ def compose(url: str, v: dict, key: str) -> str:
     j = json.dumps  # a JSON string is a valid, safely quoted YAML scalar
     out = ["services:", "  tailscale:", "    image: tailscale/tailscale:latest",
            f"    container_name: {j(name)}", f"    hostname: {j(v['hostname'])}", "    restart: unless-stopped",
-           "    environment:",
-           f"      - {j('TS_AUTHKEY=' + (key or PLACEHOLDER))}",
-           f"      - {j('TS_HOSTNAME=' + v['hostname'])}",
-           "      - TS_STATE_DIR=/var/lib/tailscale",
-           f"      - TS_USERSPACE={'true' if v['userspace'] else 'false'}",
-           f"      - {j('TS_EXTRA_ARGS=' + _ts_args(url, v))}",
-           "    volumes:", "      - tailscale-state:/var/lib/tailscale"]
+           "    environment:"]
+    out += [f"      - {j(e)}" for e in _env(url, v, key)]
+    out += ["    volumes:", "      - tailscale-state:/var/lib/tailscale"]
     if not v["userspace"]:
         out += ["    devices:", "      - /dev/net/tun:/dev/net/tun", "    cap_add:", "      - NET_ADMIN", "      - NET_RAW"]
     if _forwarding(v):

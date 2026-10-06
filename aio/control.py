@@ -1,7 +1,7 @@
 """aio/control.py: the control socket the supervisor offers to the console.
 
 The console asks the supervisor, over a Unix socket in the run directory, for a fixed set of
-operations on Headscale (and, since phase 3, on the backups). There are no parameters: no query
+operations on Headscale (and on the backups). There are no parameters: no query
 strings, no request bodies, no container names, no commands. Anything else is refused (404, 405
 or 400); values that an operation needs travel in a file in the run directory, never in a request.
 

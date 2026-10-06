@@ -1,5 +1,5 @@
 #!/bin/sh
-# Remote copies of the all-in-one image's backups (the backup-remote profile of deploy/compose).
+# Remote copies of the all-in-one image's backups (advanced/backup-remote.yaml).
 #
 # The image makes the backups itself in /data/backups; this container only copies them to
 # BACKUP_REMOTE. Mount that directory at /backups. Every BACKUP_SYNC_INTERVAL minutes (default 15)

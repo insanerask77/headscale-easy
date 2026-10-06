@@ -1,9 +1,9 @@
 {
   "DERP map": "Mapa DERP",
   "At most {n} relays.": "Como máximo {n} relays.",
-  "config.yaml has no managed DERP block: run ./install.sh once to enable it.": "config.yaml no tiene el bloque DERP gestionado: ejecuta ./install.sh una vez para activarlo.",
-  "Headscale Easy cannot write the DERP map file: run ./install.sh once to enable it.": "Headscale Easy no puede escribir el fichero del mapa DERP: ejecuta ./install.sh una vez para activarlo.",
-  "config.yaml has no managed DERP block. Run ./install.sh once to enable it.": "config.yaml no tiene el bloque DERP gestionado. Ejecuta ./install.sh una vez para activarlo.",
+  "config.yaml has no managed DERP block: restart the container to regenerate it.": "config.yaml no tiene el bloque DERP gestionado: reinicia el contenedor para regenerarlo.",
+  "Headscale Easy cannot write the DERP map file: check the permissions of /data/config.": "Headscale Easy no puede escribir el fichero del mapa DERP: revisa los permisos de /data/config.",
+  "config.yaml has no managed DERP block. Restart the container to regenerate it.": "config.yaml no tiene el bloque DERP gestionado. Reinicia el contenedor para regenerarlo.",
   "Headscale did not start with the new DERP map; the previous one was restored.": "Headscale no arrancó con el nuevo mapa DERP; se restauró el anterior.",
   "Region ID of {name} must be between {low} and {high}.": "El ID de región de {name} debe estar entre {low} y {high}.",
   "Region ID {n} is used twice.": "El ID de región {n} está repetido.",
