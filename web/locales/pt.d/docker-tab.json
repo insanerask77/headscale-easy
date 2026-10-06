@@ -26,5 +26,13 @@
   "Enable IP forwarding, IPv4 and IPv6, on the host too, then restart the container:": "Ative também o encaminhamento de IP, IPv4 e IPv6, no anfitrião e reinicie o contentor:",
   "If the host cannot give the container /dev/net/tun, tick “Userspace networking” above: it works everywhere, with lower performance.": "Se o anfitrião não puder dar /dev/net/tun ao contentor, marque «Rede em espaço de utilizador» acima: funciona em qualquer lado, com menos desempenho.",
   "Already running? Apply a changed option without recreating the container": "Já está em execução? Aplique uma alteração sem recriar o contêiner",
-  "Recreating the container does not withdraw a route or an exit node it already advertised: the saved state wins. This command sets exactly what the form says, and an empty route list or an unticked exit node withdraws it:": "Recriar o contêiner não retira uma rota nem um exit node já anunciados: o estado salvo prevalece. Este comando define exatamente o que o formulário diz; uma lista de rotas vazia ou um exit node desmarcado os retira:"
+  "Recreating the container does not withdraw a route or an exit node it already advertised: the saved state wins. This command sets exactly what the form says, and an empty route list or an unticked exit node withdraws it:": "Recriar o contêiner não retira uma rota nem um exit node já anunciados: o estado salvo prevalece. Este comando define exatamente o que o formulário diz; uma lista de rotas vazia ou um exit node desmarcado os retira:",
+  "Invalid exit node.": "Nó de saída inválido.",
+  "A device cannot offer to be an exit node and use one at the same time.": "Um dispositivo não pode oferecer-se como nó de saída e usar um ao mesmo tempo.",
+  "Accept subnet routes from other devices": "Aceitar rotas de sub-rede de outros dispositivos",
+  "Use exit node": "Usar nó de saída",
+  "None": "Nenhum",
+  "Changing these options later": "Alterar estas opções mais tarde",
+  "The environment is only read on the first start. On a container that already runs, apply a change with:": "O ambiente só é lido no primeiro arranque. Num contentor que já está a correr, aplique uma alteração com:",
+  "With an exit node, all traffic goes through it, including the lookup of this server’s name: the tailnet’s DNS must be able to resolve it, or the container cannot reach the server again.": "Com um nó de saída, todo o tráfego passa por ele, incluindo a resolução do nome deste servidor: o DNS da tailnet tem de o conseguir resolver, ou o contentor deixa de alcançar o servidor."
 }

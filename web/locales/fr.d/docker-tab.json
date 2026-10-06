@@ -26,5 +26,13 @@
   "Enable IP forwarding, IPv4 and IPv6, on the host too, then restart the container:": "Activez aussi le routage IP, IPv4 et IPv6, sur l'hôte, puis redémarrez le conteneur :",
   "If the host cannot give the container /dev/net/tun, tick “Userspace networking” above: it works everywhere, with lower performance.": "Si l'hôte ne peut pas donner /dev/net/tun au conteneur, cochez « Réseau en espace utilisateur » ci-dessus : cela fonctionne partout, avec moins de performances.",
   "Already running? Apply a changed option without recreating the container": "Déjà démarré ? Appliquez un changement sans recréer le conteneur",
-  "Recreating the container does not withdraw a route or an exit node it already advertised: the saved state wins. This command sets exactly what the form says, and an empty route list or an unticked exit node withdraws it:": "Recréer le conteneur ne retire ni une route ni un nœud de sortie déjà annoncés : l'état enregistré prévaut. Cette commande applique exactement le formulaire ; une liste de routes vide ou un nœud de sortie décoché les retire :"
+  "Recreating the container does not withdraw a route or an exit node it already advertised: the saved state wins. This command sets exactly what the form says, and an empty route list or an unticked exit node withdraws it:": "Recréer le conteneur ne retire ni une route ni un nœud de sortie déjà annoncés : l'état enregistré prévaut. Cette commande applique exactement le formulaire ; une liste de routes vide ou un nœud de sortie décoché les retire :",
+  "Invalid exit node.": "Nœud de sortie non valide.",
+  "A device cannot offer to be an exit node and use one at the same time.": "Un appareil ne peut pas proposer d’être un nœud de sortie et en utiliser un en même temps.",
+  "Accept subnet routes from other devices": "Accepter les routes de sous-réseau des autres appareils",
+  "Use exit node": "Utiliser un nœud de sortie",
+  "None": "Aucun",
+  "Changing these options later": "Modifier ces options plus tard",
+  "The environment is only read on the first start. On a container that already runs, apply a change with:": "L’environnement n’est lu qu’au premier démarrage. Sur un conteneur déjà en marche, appliquez un changement avec :",
+  "With an exit node, all traffic goes through it, including the lookup of this server’s name: the tailnet’s DNS must be able to resolve it, or the container cannot reach the server again.": "Avec un nœud de sortie, tout le trafic passe par lui, y compris la résolution du nom de ce serveur : le DNS du tailnet doit pouvoir le résoudre, sinon le conteneur ne pourra plus joindre le serveur."
 }
