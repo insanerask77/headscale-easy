@@ -1,24 +1,33 @@
 # Operations
 
+!!! note "Container name"
+    The commands use the name from the quick start, `headscale-easy`. If you used the
+    installer or `deploy/compose/`, the container is called `headscale-easy-aio`:
+    replace it, or run `docker compose exec headscale-easy …` from the compose directory.
+
 ## Users and admins
 
 Headscale Easy has four roles:
 
 - **Members** see and manage only their own machines and auth keys.
 - **Admins** see every machine and user and manage DNS, the ACL policy and API keys.
-- **Network admins** (optional) edit the ACL policy and DNS only.
-- **Auditors** (optional) see everything an admin sees, read only.
+- **Network admins** edit the ACL policy and DNS only.
+- **Auditors** see everything an admin sees, read only.
 
-See [Roles](configuration.md#roles) to set up the last two, built on their own
-Authentik group(s).
+With local accounts (the default) the role is set per account on the **Users**
+page; with an external provider it comes from its groups. See
+[Configuration → Roles](configuration.md#roles).
 
-With the built-in Authentik, admins are the members of `vpn-admins` (and
-Authentik's own `authentik Admins`). Add people at `/add-user` or from **Users →
-Add user**; the form lets you make them admins. A Headscale user is created
-automatically the first time someone connects a device by signing in.
-
-**Create local user** (Users page) creates a Headscale user without an account,
-for servers that join with auth keys.
+- **Invite people:** **Users → Invite user** makes a single-use link; they choose
+  their own user name and password. Or let them sign up from the sign-in page
+  (`HSE_SIGNUP`: off, with an invitation key, or open).
+- **Create user** (Users page) with only a name creates a Headscale user without
+  sign-in, for servers that join with auth keys. Add an e-mail, a password and a
+  role and it is an account the person can sign in with.
+- **Forgot a password?** **⋯ → Password reset link…** makes a single-use link, or
+  **Set password** sets a temporary one. Both sign the person out everywhere.
+- A Headscale user is created automatically the first time someone connects a
+  device by signing in.
 
 ## Connecting devices
 
@@ -27,9 +36,13 @@ for servers that join with auth keys.
 - **Linux / servers**: `tailscale up --login-server=https://<your-domain>`, or
   with an auth key (Settings → Keys) for unattended machines:
   `tailscale up --login-server=https://<your-domain> --authkey=<key>`.
-- **Without OIDC** (sign-in with API key only): the link `tailscale up` prints
-  (`https://<your-domain>/register/…`) opens the console, which asks you to
-  sign in and then to approve the device. Admins choose its owner.
+- **Containers**: **Add device → Docker** generates a `docker run` command and a
+  `docker-compose.yml` for the official `tailscale/tailscale` image, with an
+  optional single-use key.
+- **The sign-in link**: the link `tailscale up` prints
+  (`https://<your-domain>/register/…`) opens the console, which asks you to sign
+  in and then to approve the device. Members register devices to themselves;
+  admins choose the owner.
 - **Auth ID**: if a device shows a URL with a registration ID, an admin can
   also approve it with **Add device → Register with Auth ID**.
 
@@ -73,15 +86,11 @@ machines). A machine is *inactive* when it has been offline for more than 30
 days (counted from its registration if it never connected); admins get
 **Remove inactive machines…**, which lists them all ticked so you can untick
 the ones to keep. A machine that came back online in the meantime is never
-removed. Change the windows with `EXPIRY_WARNING_DAYS` and `INACTIVE_DAYS` in
-`.env` (then `docker compose up -d`).
-
+removed. 
 Tailscale apps that cannot read the device name (iPhone, iPad, Apple TV and
 the App Store build for Mac) register as `localhost`. Headscale Easy renames
 them once to `<owner>-<device>`, e.g. `ana-iphone` or `leo-mac`; a name you
-choose later is never changed. Set `AUTO_RENAME_LOCALHOST=false` in `.env` to
-turn it off. It checks every 5 seconds; change that with `RENAME_INTERVAL`
-(seconds) in `.env`.
+choose later is never changed. It checks every 5 seconds.
 
 The arrow next to the version turns red when a newer Tailscale client is
 available (hover it to see which).
@@ -95,139 +104,113 @@ lists the relays in use, how many devices prefer each and their median latency.
 
 Admins can also add relays they run themselves (`derper`) there: region ID
 (900 to 998), code, name, hostname, optional IPs and ports. Saving writes
-`headscale-derp.yaml`, points `derp.paths` of `config.yaml` at it, validates
+`/data/config/derp.yaml`, points `derp.paths` of `config.yaml` at it, validates
 the result with `headscale configtest` and restarts Headscale; if anything
-fails the previous map is restored. Existing installs need `./install.sh` once
-to add the marked block and the file. Not available in the demo.
+fails the previous map is restored. With the default (`embedded`) the container
+is its own relay: see [Configuration → Relays](configuration.md#relays-derp).
 
 ## Server status
 
 **Settings → Status** (admins and auditors) shows the health of the server at
 a glance: the Headscale and Headscale Easy versions with an "update available"
 notice (latest releases looked up on GitHub, cached for 12 hours), the state of
-every container of the stack (through `hs-helper`), disk use of the data and
-Headscale volumes, and basic figures from Headscale's metrics (devices online,
-requests served, memory). Each part degrades on its own: with the helper down
-or no Internet access the rest of the page still works. Set
-`STATUS_UPDATE_CHECK=false` in `.env` to never contact GitHub.
+the three processes (Headscale, Caddy, the console), disk use of the data volume
+and basic figures from Headscale's metrics (devices online, requests served,
+memory). Each part degrades on its own: with no Internet access the rest of the
+page still works.
 
 ## Everyday commands
 
-`make` lists everything. The most useful:
-
 ```bash
-make ps          # container status
-make health      # health of every container
-make logs        # follow logs (make logs service=headscale)
-make nodes       # machines, from the Headscale CLI
-make key user=alice   # reusable 24 h auth key
-make apikey      # new Headscale API key
-make config      # .env with secrets hidden
+docker exec headscale-easy hse health      # healthy when all three processes run
+docker exec headscale-easy hse reload      # re-render the config, restart Caddy and Headscale
+docker exec headscale-easy hse backup      # back up now
+docker exec headscale-easy hse backups     # list the backups
+docker logs -f headscale-easy              # [supervisor] [headscale] [caddy] [console]
 ```
 
-The Headscale CLI is always available: `docker exec headscale headscale --help`.
+The Headscale CLI is always available inside the container:
+
+```bash
+docker exec headscale-easy headscale nodes list
+docker exec headscale-easy headscale preauthkeys create --user 1 --reusable --expiration 24h
+docker exec headscale-easy headscale --help
+```
 
 ## Updating
 
 ```bash
-git pull
-./install.sh        # re-applies templates and the Authentik blueprint
-# or, if nothing in the repository changed:
-make update         # pull new images and recreate containers
+./install.sh                    # in the same directory: pulls the new image and recreates the container
+# or, with the compose file:
+docker compose pull && docker compose up -d
+# or, with docker run:
+docker pull ghcr.io/insanerask77/headscale-easy && docker rm -f headscale-easy   # then the same docker run
 ```
 
-Pin versions in `.env` with `HSE_VERSION`, `HEADSCALE_IMAGE_TAG` and
-`AUTHENTIK_IMAGE_TAG`. Read the Headscale and Authentik release notes before
-major upgrades.
+The data is in the volume, so nothing is lost. Pin the version in production
+(`HSE_VERSION=2.0.0` in the compose `.env`, or an exact image tag) and read the
+release notes before major upgrades: Headscale's API changes between versions,
+which is why every release of Headscale Easy ships one pinned Headscale. Take a
+backup first (`hse backup`).
 
 ## Backups
 
-!!! note "Using the all-in-one image?"
-    It backs itself up, with no extra container: see [All-in-one → Backups](all-in-one.md#backups). This section describes the split `docker-compose.yml` of 1.x.
-
-Daily backups are **optional**: the installer asks (off by default, since they
-add a small container and disk use, but recommended). When enabled, the
-`backup` container makes a backup every day at the time you chose (03:00 by
-default) and keeps the last 14 days in `./backups`; the installer makes a first
-one right away and shows the exact restore command. Each backup is one
-`.tar.gz` with:
-
-- Headscale's database (a consistent copy taken while it runs: `db.sqlite`, or
-  `headscale.sql` from `pg_dump` on [PostgreSQL](configuration.md#database))
-  and its private keys, so devices stay registered after a restore;
-- Authentik's database, if you use it;
-- the configuration (`.env`, `headscale-config.yaml`, `Caddyfile`...);
-- Caddy's internal CA with `SSL_MODE=selfsigned`.
-
-Turn them on or off, or change the time, folder and retention, by running
-`./install.sh` again. Or edit `.env` and run `docker compose up -d`:
-
-| Variable | Default | |
-|---|---|---|
-| `BACKUP_ENABLED` | `false` | Also add `backup` to `COMPOSE_PROFILES` |
-| `BACKUP_SCHEDULE` | `0 3 * * *` | Cron syntax (time zone `TZ`); `off` disables it |
-| `BACKUP_DIR` | `./backups` | Any path on the host, e.g. a NAS mount |
-| `BACKUP_KEEP_DAYS` | `14` | Older backups are deleted |
-
-| `BACKUP_REMOTE` | empty | Also upload each backup: see [Remote backups](#remote-backups) |
-| `BACKUP_REMOTE_KEEP_DAYS` | `BACKUP_KEEP_DAYS` | Retention on the remote |
-
-Back up right now with `make backup` (works with scheduled backups off too). Backups contain secrets (`.env`): they
-are readable only by you, keep copies somewhere safe and off this server.
+The container makes a backup every night at 03:00 and keeps 14 days, with no
+extra container. The schedule, what is inside, restoring (from the console, with
+`hse restore`, or on a new server) and the **Backups** menu are all in
+[All-in-one → Backups](all-in-one.md#backups).
 
 ### Remote backups { #remote-backups }
 
-A backup that sits on the same server does not survive losing the server. Set
-`BACKUP_REMOTE` (or answer the installer's question) and each backup is also
-uploaded, and old ones are deleted after `BACKUP_REMOTE_KEEP_DAYS`. Two kinds of
-destination:
+A backup that sits on the same server does not survive losing the server. Two
+ways to keep copies elsewhere:
 
-- **An rclone remote** (`BACKUP_REMOTE=s3:my-bucket/headscale-easy`): S3, B2,
-  SFTP, Google Drive and [dozens more](https://rclone.org/overview/). Define the
-  remote in `data/backup-remote/rclone.conf` (`rclone config` writes it), or for
-  S3 skip the file and set
-  `BACKUP_REMOTE=":s3,provider=AWS,env_auth=true,region=eu-west-1:my-bucket/dir"`
-  with `BACKUP_AWS_ACCESS_KEY_ID` and `BACKUP_AWS_SECRET_ACCESS_KEY` in `.env`.
-- **rsync over SSH** (`BACKUP_REMOTE=rsync:user@host:/srv/backups`): put the
-  private key in `data/backup-remote/id_ed25519` (and optionally `known_hosts`;
-  without it the first host key is accepted). `BACKUP_REMOTE_SSH_PORT` changes
-  the port. The directory must already exist on the server.
+- **Mount another disk over `/data/backups`**, for example a NAS folder
+  (`-v /mnt/nas/hse-backups:/data/backups`, writable by uid 1000).
+- **The `backup-remote` profile** of [`deploy/compose/`](advanced.md#the-compose-file):
+  a sidecar container that uploads each new archive and applies a remote
+  retention. Set `BACKUP_REMOTE` in the compose `.env` and start it with
+  `docker compose --profile backup-remote up -d`. Two kinds of destination:
 
-Use a key or bucket that can write but not delete if you can: then a compromised
-server cannot erase its own backups (set remote retention in the bucket's
-lifecycle rules instead). If the upload fails the local backup is kept and the
-job reports the error in `docker logs headscale-easy-backup`.
+    - **An rclone remote** (`BACKUP_REMOTE=s3:my-bucket/headscale-easy`): S3, B2,
+      SFTP, Google Drive and [dozens more](https://rclone.org/overview/). Define the
+      remote in `./remote-config/rclone.conf` (`rclone config` writes it), or for
+      S3 skip the file and set
+      `BACKUP_REMOTE=":s3,provider=AWS,env_auth=true,region=eu-west-1:my-bucket/dir"`
+      with `BACKUP_AWS_ACCESS_KEY_ID` and `BACKUP_AWS_SECRET_ACCESS_KEY`.
+    - **rsync over SSH** (`BACKUP_REMOTE=rsync:user@host:/srv/backups`): put the
+      private key in `./remote-config/id_ed25519` (and optionally `known_hosts`;
+      without it the first host key is accepted). `BACKUP_REMOTE_SSH_PORT` changes
+      the port. The directory must already exist on the server.
+
+    `BACKUP_REMOTE_KEEP_DAYS` sets the retention on the remote (default
+    `BACKUP_KEEP_DAYS`). Use a key or bucket that can write but not delete if you
+    can: then a compromised server cannot erase its own backups (set the retention
+    in the bucket's lifecycle rules instead). If an upload fails the local backup
+    is kept and the sidecar reports the error in `docker logs headscale-easy-backup-remote`.
 
 ### Restore
 
-```bash
-make restore file=backups/headscale-easy-20260929-030000.tar.gz
-make restore file=s3:my-bucket/headscale-easy/headscale-easy-20260929-030000.tar.gz   # from the remote
-```
-
-It stops the stack, puts back the configuration (the current files are kept as
-`*.before-restore-*`), Headscale's database and keys, Authentik's database and
-Caddy's CA, and starts the stack again. On PostgreSQL it loads the dump into
-the server named by the restored `.env` (the bundled one is started for it;
-your own must be reachable, with the database created) and re-creates the
-web UI's read-only role.
-
-**On a new server:** install Docker, clone the repository, copy the backup and
-run the same command — no need to run the installer first.
+See [All-in-one → Backing up and restoring](all-in-one.md#backing-up-and-restoring):
+from a stopped container (also how you restore on a new host), from the
+console, or `hse restore <file>` on a running one.
 
 ## Uninstalling
 
 ```bash
-./uninstall.sh           # remove containers, keep data and configuration
-./uninstall.sh --purge   # also delete volumes, configuration and ./data
+./uninstall.sh           # remove the container, keep the data
+./uninstall.sh --purge   # also delete the volumes: users, devices, keys, certificates AND the backups
 ```
+
+With `docker run`: `docker rm -f headscale-easy`, and `docker volume rm hse` to
+delete the data.
 
 ## Activity log
 
 **Logs** (admins only, in the sidebar) is the tailnet's activity log, like the
 configuration audit log of Tailscale's admin console. It records:
 
-- **Configuration**: every change made from the web UI — machines renamed,
+- **Configuration**: every change made from the console — machines renamed,
   removed, expired, routes, tags and key expiry changed, machines registered
   with an Auth ID; users created, renamed and deleted; auth keys and API keys
   created, revoked or expired; the access control policy (with a diff of the
@@ -235,10 +218,9 @@ configuration audit log of Tailscale's admin console. It records:
   two-factor mode. Automatic renames of machines called `localhost` show up
   as *Headscale Easy (automatic)*.
 - **Sign-in**: console sign-ins and sign-outs, and failed API key sign-ins.
-- **Devices**: every 30 seconds the web UI compares Headscale's state and logs
+- **Devices**: every 30 seconds the console compares Headscale's state and logs
   devices that register, are removed, connect or disconnect, whose key
-  expires, whose Tailscale version changes, or that are renamed outside the web
-  UI (for example with `headscale nodes rename`).
+  expires, whose Tailscale version changes, or that are renamed outside the console (for example with `headscale nodes rename`).
 
 Each event has the time, the actor (the user name, `API key <prefix>` for API
 key sessions, or *Headscale* for device events), the client IP, the target and
@@ -248,9 +230,8 @@ reduced to their prefix.
 Search, filter by category, actor and dates (UTC), and download the matching
 events with the CSV button. The first page updates on its own.
 
-The log lives in `./data/web/audit.db` (SQLite). Events older than
-`AUDIT_RETENTION_DAYS` in `.env` (default `90`; `0` keeps them forever) are
-deleted automatically. Changes made outside the web UI (the `headscale` CLI,
+The log lives in `/data/console/audit.db` (SQLite). Events older than
+90 days are deleted automatically. Changes made outside the console (the `headscale` CLI,
 the API) are not configuration events, but their effect on devices is logged.
 
 !!! note
@@ -261,8 +242,8 @@ the API) are not configuration events, but their effect on devices is logged.
 ## Notifications { #notifications }
 
 Headscale Easy can message you when something happens to a device. Set the
-destinations in `.env` (or answer the optional question in `./install.sh`) and
-run `docker compose up -d`:
+destinations with environment variables (in the `.env` next to the compose file
+or with `-e`) and recreate the container:
 
 ```bash
 # comma, space or new line separated
@@ -279,100 +260,113 @@ NOTIFY_EVENTS="device.registered,device.key_expired,device.expiring,device.remov
 
 Events (all by default; `NOTIFY_EVENTS` picks some): `device.registered` (a new
 device joined), `device.key_expired`, `device.expiring` (the key expires within
-`EXPIRY_WARNING_DAYS`; sent once per device and expiry date, checked every 15
+14 days; sent once per device and expiry date, checked every 15
 minutes) and `device.removed`. Messages go out in the background with a
 10-second timeout and 3 attempts, so a slow or broken destination never slows
-down the web UI; failures only appear in the web container's log (without the
+down the console; failures only appear in the container's log (without the
 URL, which holds secrets).
 
 Admins see the destinations (host only) in **Settings → General →
-Notifications**, with a **Send a test** button (blocked in the demo, recorded
-in the activity log).
+Notifications**, with a **Send a test** button (recorded in the activity log).
+
 ## Sessions
 
 **Settings → Sessions** lists where you are signed in (IP, browser, last
 activity). **Log out** ends one session, **Sign out everywhere** ends all of
 yours, and admins also see every user's sessions and can use **Sign out
 everyone else**. A revoked session stops working on its next request. Sessions
-live in `./data/web/sessions.db` (SQLite). After more than `SIGNIN_RATE_LIMIT`
-(10) failed sign-ins from one IP in `SIGNIN_RATE_WINDOW` (600 seconds) the web
-UI answers `429` until the window passes.
+live in `/data/console/sessions.db` (SQLite). After more than 10 failed
+sign-ins from one IP in 600 seconds the console answers `429` until the window
+passes.
 
 ## Troubleshooting
 
-**Headscale never becomes healthy (with OIDC).** It refuses to start until it
-can read the issuer's discovery document from inside its container. Check:
+Start with the logs and the health check:
 
 ```bash
-docker compose logs headscale
-docker exec caddy wget -qO- http://authentik-server:9000/authentik/application/o/headscale/.well-known/openid-configuration
+docker logs --tail 100 headscale-easy
+docker exec headscale-easy hse health
 ```
 
-If Authentik answers but Headscale cannot reach the public URL, your router
-probably lacks NAT loopback: with `SSL_MODE=front` set `FRONT_PROXY_IP`.
+**The container is unhealthy or restarts.** `hse health` says which of the three
+processes is down; the log lines are prefixed `[supervisor]`, `[headscale]`,
+`[caddy]` and `[console]`. A crashed process is restarted with backoff (1 s up to
+30 s). An invalid `BACKUP_SCHEDULE` or `HSE_TLS=auto` without `ACME_EMAIL` stops
+the container at start, with the reason in the log.
 
-**`redirect_uri` errors after changing the domain.** Re-run `./install.sh`: it
-re-applies the Authentik blueprint with the new URLs (Authentik does not do it by
-itself when only environment variables change).
+**Headscale never becomes healthy (with an external OIDC provider).** It refuses
+to start until it can read the issuer's discovery document from inside the
+container. Check `OIDC_ISSUER`, and that the container can reach it:
+
+```bash
+docker exec headscale-easy wget -qO- https://<issuer>/.well-known/openid-configuration
+```
+
+If the provider answers from outside but not from inside, your router probably
+lacks NAT loopback or the provider's name does not resolve from the container:
+use a resolvable address.
+
+**`redirect_uri` errors after changing the domain.** Register the new redirect
+URIs in your provider: `https://<domain>/oidc/callback` and
+`https://<domain>/admin/callback`.
 
 **Clients say `x509: certificate signed by unknown authority`.** You are using
-`SSL_MODE=selfsigned`: install `caddy-root-ca.crt` on the client, or switch to
-Let's Encrypt.
+`HSE_TLS=internal`: install Caddy's root certificate (`/data/caddy/pki/`) on the
+client, or switch to `auto` (Let's Encrypt).
 
 **Devices connect but cannot reach each other.** Check the ACL policy (with
 isolation, users only reach their own devices) and that UDP 3478 is open for
 the DERP relay.
 
 **The console says the API key expired.** The console renews its own
-Headscale API key when it has 15 days left (it keeps the new one in
-`data/web/api-key`), so this only happens if the server was off for that
-whole window or someone expired the key by hand. Re-run `./install.sh`: it
-creates a new one.
+Headscale API key when it has 15 days left, so this only happens if the server
+was off for that whole window or someone expired the key by hand. Delete
+`/data/console/api-key` and restart the container: it creates a new one.
 
-**Signing in to the console fails (OIDC).** "The sign-in expired or is not
-valid" means the browser came back without the cookie set when sign-in
-started: check that you open the console with the exact `PUBLIC_URL` (same
-host and scheme — `http` vs `https` matters) and that the browser accepts
-cookies. Other errors are in `docker compose logs web`. With your own
-provider, the redirect URI `https://<domain>/admin/callback` must be
-registered, and admins need a verified email in `PORTAL_ADMIN_EMAILS` or a
-group in `PORTAL_ADMIN_GROUPS`.
+**Signing in to the console fails.** "The sign-in expired or is not valid"
+means the browser came back without the cookie set when sign-in started: check
+that you open the console with the exact `HSE_PUBLIC_URL` (same host and scheme —
+`http` vs `https` matters) and that the browser accepts cookies. After more than
+10 failed sign-ins in 10 minutes the console answers `429` for a while. With an
+external provider, the redirect URI `https://<domain>/admin/callback` must be
+registered, and admins need a verified e-mail in `PORTAL_ADMIN_EMAILS` or a group
+in `PORTAL_ADMIN_GROUPS`. If nobody can sign in, start the container with
+`HSE_ADMIN_EMAIL` and `HSE_ADMIN_PASSWORD` to create an administrator, or use the
+Headscale API key sign-in.
 
 **Let's Encrypt does not issue the certificate.** Ports 80 and 443 must be
 reachable from the Internet and the domain must point at this host (check
-with `dig +short <domain>` from outside). `docker compose logs caddy` shows the
+with `dig +short <domain>` from outside). `docker logs headscale-easy` shows the
 ACME error. Too many failed attempts trigger Let's Encrypt's rate limits: fix
 the cause and wait an hour.
 
-**Behind my own proxy, devices do not connect or stay "offline".** The proxy
-must pass WebSockets and upgrade headers, must not buffer responses, and must
-forward to Caddy on port 80 with the original `Host`. Use the snippet the
-installer generated for your proxy (`NGINX-PROXY-MANAGER.md`,
-`nginx-<domain>.conf` or `traefik-<domain>.yml`), and set
-`FRONT_PROXY_IP` if containers cannot reach the public URL.
+**Behind my own proxy, devices do not connect or stay "offline", or every client
+shows the proxy's address.** The proxy must pass WebSockets and upgrade headers,
+must not buffer responses, and must forward the original `Host`. Set
+`HSE_TLS=off`, an `https://` `HSE_PUBLIC_URL` and `HSE_TRUSTED_PROXIES`. Use the
+snippets in [`deploy/examples/front-proxy/`](advanced.md#a-proxy-in-front).
 
-**A device stays "waiting for approval" or shows a registration URL.** With
-OIDC the person must finish sign-in in the browser it opened. Without OIDC,
-open that URL: the console shows the approval page (re-run `./install.sh` once
-if it shows Headscale's own page instead, so the Caddyfile gets the redirect),
-or register it from **Machines → Add device → Register with Auth ID**, or use
-an auth key. Check the owner: with isolation, a device registered to the
-wrong user is invisible to its owner.
+**A device stays "waiting for approval" or shows a registration URL.** With an
+external provider the person must finish sign-in in the browser it opened.
+Otherwise open that URL: the console shows the approval page, or register it from
+**Machines → Add device → Register with Auth ID**, or use an auth key. Check the
+owner: with isolation, a device registered to the wrong user is invisible to its
+owner.
 
 **DNS changes are rejected.** The console runs `headscale configtest` and
 rolls back when Headscale refuses the change; the error shown is Headscale's.
 The tailnet DNS name must differ from the server's domain. If the DNS page is
-read-only, it says why (`hs-helper` not running — check it with
-`docker compose ps hs-helper` and `docker compose logs hs-helper` — or
-`config.yaml` without the managed block — run `./install.sh` once).
+read-only it says why; check `hse health` and the `[supervisor]` log lines.
 
 **The ACL policy blocks traffic you expect.** Use **Check** in the policy
 editor before saving, and remember that with `NETWORK_ISOLATION=true` each
 user (admins included) only reaches their own devices unless the policy says
 otherwise. Tagged devices belong to the tag, not to a user.
 
-**Somebody signed in with Google but cannot use the VPN.** New Google accounts
-have no group. Add them to `headscale-users` in Authentik.
+**A backup failed.** The **Backups** menu shows the last result and the reason;
+`docker exec headscale-easy hse backups` lists them. The usual cause is
+`/data/backups` not writable by uid 1000 (a bind mount owned by root) or a full
+disk. With an external PostgreSQL, the dump needs the server reachable.
 
 Still stuck? [Open an issue](https://github.com/insanerask77/headscale-easy/issues/new/choose)
-with the output of `make health` and the relevant logs (remove secrets).
+with the output of `hse health` and the relevant logs (remove secrets).
