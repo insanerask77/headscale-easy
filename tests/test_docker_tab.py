@@ -48,10 +48,16 @@ class Snippets(unittest.TestCase):
         v, err = parsed(hostname="Edge-1", exit="1", routes="192.168.1.0/24, 10.0.0.0/8", dns="")
         self.assertEqual(err, "")
         run = docker_tab.docker_run(URL, v, "fake-authkey-one")
-        for part in ("--advertise-exit-node", "TS_ROUTES=192.168.1.0/24,10.0.0.0/8", "TS_ACCEPT_DNS=false",
+        for part in ("TS_ROUTES=0.0.0.0/0,::/0,192.168.1.0/24,10.0.0.0/8", "TS_ACCEPT_DNS=false",
                      "TS_AUTHKEY=fake-authkey-one", "TS_HOSTNAME=edge-1", "net.ipv4.ip_forward=1"):
             self.assertIn(part, run)
         self.assertIn("sysctls:", docker_tab.compose(URL, v, ""))
+
+    def test_exit_node_goes_in_ts_routes_never_in_extra_args(self):
+        v, _e = parsed(exit="1")
+        for snippet in (docker_tab.docker_run(URL, v, ""), docker_tab.compose(URL, v, "")):
+            self.assertIn("TS_ROUTES=0.0.0.0/0,::/0", snippet)
+            self.assertNotIn("--advertise-exit-node", snippet)
 
     def test_kernel_exit_node_gets_the_troubleshooting_tips_from_the_docs(self):
         v, _e = parsed(exit="1")
@@ -137,7 +143,7 @@ class Page(Base):
     def test_options_without_a_key(self):
         status, _h, body = self.post(MEMBER, exit="1")
         self.assertEqual(status, 200)
-        self.assertIn("--advertise-exit-node", body)
+        self.assertIn("TS_ROUTES=0.0.0.0/0,::/0", body)
         self.assertEqual(self.api.call_count, 0)  # no key unless asked
 
     def test_invalid_input_is_rejected_and_makes_no_key(self):
