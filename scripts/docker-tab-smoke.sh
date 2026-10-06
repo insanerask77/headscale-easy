@@ -150,6 +150,11 @@ approved() { [[ ",$(node "$1" approved_routes)," == *",$2,"* ]]; }
 approve() { local h="$1"; shift; hs nodes approve-routes -i "$(node "$h" id)" -r "$1" >/dev/null || fail "could not approve $1 for $h"; }
 ts_ip() { docker exec "$1" tailscale ip -4 2>/dev/null | head -1; }
 
+# logs_match <container> <egrep pattern>: the log is read to the end into a variable first. `docker logs | grep -q`
+# under pipefail reports failure (SIGPIPE, 141) whenever grep stops reading early on a long log, which made a
+# correct "permission denied" log look missing and, in the spent key case, hid a real complaint.
+logs_match() { local out; out=$(docker logs "$1" 2>&1); grep -qiE -- "$2" <<<"$out"; }
+
 # --- the client ------------------------------------------------------------------
 cli() { docker exec "$CLIENT" tailscale "$@"; }
 rx() { docker exec "$CLIENT" cat /sys/class/net/tailscale0/statistics/rx_bytes 2>/dev/null || echo 0; }
@@ -328,8 +333,8 @@ sleep 8
 wait_for 60 "the container is not online after being recreated with a spent key" is_online "$h"
 [ "$(docker inspect -f '{{.State.Running}}' "tailscale-$h")" = true ] || fail "the container stopped with a spent key"
 [ "$(node "$h" id)" = "$id1" ] && [ "$(node_count "$h")" = 1 ] || fail "a spent key created a second machine or replaced the first"
-docker logs "tailscale-$h" 2>&1 | grep -qiE 'authkey already used|invalid auth|unauthorized|You are logged out' \
-    && fail "the container complains about its spent key: $(docker logs "tailscale-$h" 2>&1 | grep -iE 'authkey already used|invalid auth|unauthorized|You are logged out' | head -3)"
+! logs_match "tailscale-$h" 'authkey already used|invalid auth|unauthorized|You are logged out' \
+    || fail "the container complains about its spent key: $(docker logs "tailscale-$h" 2>&1 | grep -iE 'authkey already used|invalid auth|unauthorized|You are logged out' | head -3)"
 ok "spent key: restart and recreate on the same volume stay online, same machine"
 end_case "$h"
 
@@ -344,7 +349,7 @@ without_line "$WORK/nocap.run" '--cap-add NET_ADMIN'
 run_snippet "$WORK/nocap.run"
 sleep 20
 if is_online "$h" && has_route "$h" 0.0.0.0/0; then fail "an exit node without NET_ADMIN registers and advertises itself: the cap-add line is not needed any more"; fi
-docker logs "tailscale-$h" 2>&1 | grep -qiE 'permission|not permitted|operation not|EPERM|tun' \
+logs_match "tailscale-$h" 'permission|not permitted|operation not|EPERM|tstun' \
     || fail "without NET_ADMIN the container logs no permission error"
 ok "missing NET_ADMIN: the container does not come up as an exit node and logs why"
 end_case "$h"
@@ -359,7 +364,7 @@ run_snippet "$WORK/nosysctl.run"
 # host does not forward by default (it exits and restarts, so it never registers).
 sleep 25
 if ! is_online "$h"; then
-    docker logs "tailscale-$h" 2>&1 | grep -q 'IP forwarding must be enabled' \
+    logs_match "tailscale-$h" 'IP forwarding must be enabled' \
         || fail "the container without sysctls did not register and logs no IP forwarding error"
     ok "missing sysctls: without them the container refuses to start as a router and logs why, so the snippet's lines are needed"
     end_case "$h"
