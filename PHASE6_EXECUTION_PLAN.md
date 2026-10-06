@@ -126,7 +126,7 @@ Files that only the split compose, the helper container and the 1.x installer us
 - [x] Remove `scripts/gen_render_goldens.sh`; keep `tests/fixtures/render/*` as frozen
       fixtures; delete the `compose` target and `front_authentik` cases that only the 1.x
       installer could produce; update the `tests/test_render.py` docstring. — *the goldens were
-      regenerated from the AIO renderer (`HSE_UPDATE_GOLDENS=1` rewrites them); `front_authentik` removed*
+      regenerated from the AIO renderer (rewritten by hand: the test never writes them); `front_authentik` removed*
 - [x] `tests/test_install.py`: keep what tests the **new** `install.sh`; delete 1.x cases.
 
 ### 1.4 Tests

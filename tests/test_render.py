@@ -1,11 +1,9 @@
 """aio/render.py: the config renderer of the all-in-one image.
 
 The golden files in tests/fixtures/render/<case>/ are frozen outputs: any change to the
-rendered config.yaml / Caddyfile shows up as a diff. After an intended change rewrite them with
-
-    HSE_UPDATE_GOLDENS=1 python3 -m unittest tests.test_render.GoldenTest
-
-and review the diff. The settings precedence and the rest are checked by assertions.
+rendered config.yaml / Caddyfile shows up as a diff. After an intended change, render the case by hand
+(render.render_headscale_config / render.render_caddyfile with the case's env.sh), replace the file and
+review the diff: the test never writes them itself. The settings precedence and the rest are checked by assertions.
 
     python3 -m unittest tests.test_render
 """
@@ -58,11 +56,7 @@ class GoldenTest(unittest.TestCase):
     """The rendered files equal the frozen ones, byte for byte."""
 
     def check(self, name, case, got):
-        path = os.path.join(FIXTURES, case, name)
-        if os.environ.get("HSE_UPDATE_GOLDENS"):
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write(got)
-        self.assertEqual(got, read(path))
+        self.assertEqual(got, read(os.path.join(FIXTURES, case, name)))
 
     def test_there_are_cases(self):
         self.assertTrue({"sqlite_off", "letsencrypt_oidc", "postgres_selfsigned", "existing_dns"} <= set(CASES))
