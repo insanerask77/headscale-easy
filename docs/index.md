@@ -12,7 +12,7 @@ hide:
 
 **Headscale, with everything around it.**<br>
 A deployment and management layer for Headscale: installer, HTTPS, accounts
-and sign-in, a Tailscale-style web console and backups. One command to install.
+and sign-in, a Tailscale-style web console and backups. One container, one command to install.
 
 [Get started](getting-started.md){ .md-button .md-button--primary }
 [GitHub](https://github.com/insanerask77/headscale-easy){ .md-button }
@@ -34,8 +34,8 @@ and sign-in, a Tailscale-style web console and backups. One command to install.
 what takes time is the glue around it — auth, DNS, HTTPS, device management
 and backups. **Headscale Easy** runs the official, unmodified Headscale and
 packages that glue, much like [wg-easy](https://github.com/wg-easy/wg-easy)
-does for WireGuard: installed by one interactive
-script and managed from a console modelled on Tailscale's admin panel. Use the
+does for WireGuard: one container, set up from
+your browser and managed from a console modelled on Tailscale's admin panel. Use the
 official Tailscale apps on every device; only the server is yours.
 
 ## Features
@@ -49,8 +49,8 @@ official Tailscale apps on every device; only the server is yours.
 
 -   :material-account-lock: **Real user accounts**
 
-    Passwords with the built-in Authentik, optional **Sign in with Google**, or
-    your own OIDC provider.
+    Passwords with two-factor, invitations and sign-up built in, or your own
+    OIDC provider (Authentik, Keycloak, Pocket ID, Google).
 
 -   :material-shield-account: **A private VPN per user**
 
@@ -68,7 +68,7 @@ official Tailscale apps on every device; only the server is yours.
 
 -   :material-lock-check: **HTTPS your way**
 
-    Let's Encrypt, self-signed, behind your existing proxy (config generated),
+    Let's Encrypt, self-signed, behind your existing proxy (ready-made snippets),
     or plain HTTP on a LAN.
 
 -   :material-translate: **English, Spanish, French, German and Portuguese**
@@ -78,7 +78,7 @@ official Tailscale apps on every device; only the server is yours.
 -   :material-feather: **Lightweight**
 
     The console is plain Python standard library: no build step, no JS
-    framework, no database of its own.
+    framework, no database server: one container, about 70 MB of RAM.
 
 </div>
 

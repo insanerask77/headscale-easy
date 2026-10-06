@@ -11,12 +11,12 @@ Todo está en [`deploy/`](https://github.com/insanerask77/headscale-easy/tree/ne
 |---|---|
 | El compose y sus perfiles | `deploy/compose/` |
 | Un proxy delante (nginx, Traefik, Caddy, Nginx Proxy Manager) | `deploy/examples/front-proxy/` |
-| Authentik, el camino sin cambios para una instalación 1.x | `deploy/examples/authentik/` |
+| Authentik como proveedor de identidad externo | `deploy/examples/authentik/` |
 | Pocket ID, Keycloak, Google | `deploy/examples/pocket-id/`, `keycloak.md`, `google.md` |
 
 Cada ejemplo dice exactamente qué se ejecutó y dónde, y qué solo se leyó.
 
-## El compose
+## El compose { #the-compose-file }
 
 `deploy/compose/docker-compose.yml` es lo que escribe el instalador, con comentarios: un servicio,
 dos volúmenes con nombre (los datos y las copias), ninguna capability de Linux, `no-new-privileges` y
@@ -26,9 +26,9 @@ asistente imprime un token de un solo uso en `docker compose logs`; o define `HS
 
 `docker compose --profile backup-remote up -d` añade un sidecar que sube cada copia nueva a S3, B2,
 SFTP (rclone) o a un servidor (rsync sobre SSH). Solo ve las copias, en solo lectura, y sube cada una
-una vez. Mira [Todo en uno: adónde van las copias](all-in-one.md#donde-van-las-copias).
+una vez. Mira [Todo en uno: adónde van las copias](all-in-one.md#where-the-backups-go).
 
-## Un proxy delante
+## Un proxy delante { #a-proxy-in-front }
 
 Si nginx, Traefik, Caddy o Nginx Proxy Manager ya termina el HTTPS en este equipo:
 
@@ -65,11 +65,10 @@ que llegas por red). `deploy/examples/postgresql/` es un compose con PostgreSQL 
 - **Las copias** ejecutan `pg_dump` (la imagen lleva un cliente PostgreSQL 18) y se restauran con `psql`;
   una restauración desde la consola carga el volcado cuando tanto la instalación como la copia usan
   PostgreSQL. `pg_dump` vuelca servidores hasta su propia versión mayor: aquí del 13 al 18. Con un
-  servidor más nuevo la copia falla con una frase que lo dice, y el sidecar `backup`
-  (`BACKUP_MODE=create`) es la salida.
-- **No hay migración de SQLite a PostgreSQL**: Headscale no tiene herramienta para ello.
+  servidor más nuevo la copia falla con una frase que lo dice: usa un servidor PostgreSQL 18 o anterior.
+- **No hay conversión de SQLite a PostgreSQL**: Headscale no tiene herramienta para ello. Elige antes de añadir dispositivos.
 
-## Proveedores de identidad
+## Proveedores de identidad { #identity-providers }
 
 Define `OIDC_ISSUER`, `OIDC_CLIENT_ID` y `OIDC_CLIENT_SECRET` y la gente entra en la consola y
 registra dispositivos a través de tu proveedor. URI de redirección: `https://<dominio>/admin/callback`
@@ -78,16 +77,16 @@ para la consola y `https://<dominio>/oidc/callback` para Headscale.
 | Variable | Qué |
 |---|---|
 | `HSE_OIDC_ALLOWED_DOMAINS`, `HSE_OIDC_ALLOWED_USERS`, `HSE_OIDC_ALLOWED_GROUPS` | Quién puede entrar (`oidc.allowed_*` de Headscale), separado por comas. **Vacío significa todo el que el proveedor deje entrar**: bien para tu Authentik o Keycloak, mal para Google, donde vale cualquier cuenta |
-| `PORTAL_ADMIN_GROUPS`, `PORTAL_NETWORK_ADMIN_GROUPS`, `PORTAL_AUDITOR_GROUPS` | Quién es qué en la consola, por grupo (grupos de administración por defecto: `vpn-admins`, `authentik Admins`) |
+| `PORTAL_ADMIN_GROUPS`, `PORTAL_NETWORK_ADMIN_GROUPS`, `PORTAL_AUDITOR_GROUPS` | Quién es qué en la consola, por grupo (los grupos que envía tu proveedor) |
 | `PORTAL_ADMIN_EMAILS` | Administradores por correo, para proveedores sin grupos |
 | `OIDC_SCOPE` | Scopes que se piden al entrar (por defecto `openid profile email`; Pocket ID da los grupos solo con `groups`) |
 
-### Un Authentik 1.x que ya tienes
+### Authentik
 
-Headscale identifica a un usuario OIDC por la **URL del emisor** del proveedor más el id del usuario.
-Si cambia el emisor, todos los usuarios son desconocidos. El stack 1.x sirve Authentik en
-`https://<dominio>/authentik/`; para conservar esa dirección, ejecuta el AIO junto a él y define
-`HSE_AUTHENTIK_UPSTREAM=authentik-server:9000` (Caddy enruta entonces `/authentik` allí), los `OIDC_*`
-del `.env` antiguo y `AUTHENTIK_API_TOKEN` (y `AUTHENTIK_URL` si no es el de por defecto) para que la
-consola siga gestionando invitaciones y restablecimientos a través de Authentik.
-`deploy/examples/authentik/` tiene el compose y los pasos.
+Authentik es un proveedor OIDC más: la consola y Headscale confían en su identidad y sus grupos, y no
+gestionan nada dentro de él (las invitaciones, los restablecimientos y el doble factor son de las
+cuentas locales de la consola). Headscale identifica a un usuario OIDC por la **URL del emisor** del
+proveedor más el id del usuario, así que elige una vez la dirección del emisor y mantenla. Para servir
+Authentik bajo tu dominio en `https://<dominio>/authentik/`, ejecútalo junto al contenedor y define
+`HSE_AUTHENTIK_UPSTREAM=authentik-server:9000` (Caddy enruta entonces `/authentik` allí).
+`deploy/examples/authentik/` tiene el compose, el blueprint de la aplicación OIDC y los grupos, y los pasos.

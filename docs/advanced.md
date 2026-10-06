@@ -11,7 +11,7 @@ Everything lives in [`deploy/`](https://github.com/insanerask77/headscale-easy/t
 |---|---|
 | The compose file and its profiles | `deploy/compose/` |
 | A proxy in front (nginx, Traefik, Caddy, Nginx Proxy Manager) | `deploy/examples/front-proxy/` |
-| Authentik, the zero-change path for a 1.x install | `deploy/examples/authentik/` |
+| Authentik as an external identity provider | `deploy/examples/authentik/` |
 | Pocket ID, Keycloak, Google | `deploy/examples/pocket-id/`, `keycloak.md`, `google.md` |
 
 Each example says exactly what was run and where, and what was only read.
@@ -64,8 +64,8 @@ defaults to `disable`: use `require` or `verify-full` for a server you reach ove
 - **Backups** run `pg_dump` (a PostgreSQL 18 client is in the image) and restore with `psql`; a
   restore from the console loads the dump when both the install and the backup use PostgreSQL. A
   `pg_dump` dumps servers up to its own major version: 13 to 18 here. For a newer server the backup
-  fails with a sentence that says so, and the `backup` sidecar (`BACKUP_MODE=create`) is the way out.
-- **No SQLite to PostgreSQL migration**: Headscale has no tool for it.
+  fails with a sentence that says so: use a PostgreSQL 18 or older server.
+- **No SQLite to PostgreSQL conversion**: Headscale has no tool for it. Choose before adding devices.
 
 ## Identity providers
 
@@ -76,15 +76,17 @@ console and `https://<domain>/oidc/callback` for Headscale.
 | Variable | What |
 |---|---|
 | `HSE_OIDC_ALLOWED_DOMAINS`, `HSE_OIDC_ALLOWED_USERS`, `HSE_OIDC_ALLOWED_GROUPS` | Who may sign in (Headscale's `oidc.allowed_*`), comma-separated. **Empty means everyone the provider lets in**: right for your own Authentik or Keycloak, wrong for Google, where any account qualifies |
-| `PORTAL_ADMIN_GROUPS`, `PORTAL_NETWORK_ADMIN_GROUPS`, `PORTAL_AUDITOR_GROUPS` | Who is what in the console, by group (default admin groups: `vpn-admins`, `authentik Admins`) |
+| `PORTAL_ADMIN_GROUPS`, `PORTAL_NETWORK_ADMIN_GROUPS`, `PORTAL_AUDITOR_GROUPS` | Who is what in the console, by group (the groups your provider sends) |
 | `PORTAL_ADMIN_EMAILS` | Administrators by e-mail, for providers without groups |
 | `OIDC_SCOPE` | Scopes asked at sign-in (default `openid profile email`; Pocket ID releases groups only for `groups`) |
 
-### An existing 1.x Authentik
+### Authentik
 
-Headscale identifies an OIDC user by the provider's **issuer URL** plus the user's id. Change the
-issuer and every user is a stranger. The 1.x stack serves Authentik at `https://<domain>/authentik/`;
-to keep that address, run the AIO next to it and set `HSE_AUTHENTIK_UPSTREAM=authentik-server:9000`
-(Caddy then routes `/authentik` there), `OIDC_*` from the old `.env`, and `AUTHENTIK_API_TOKEN` (and
-`AUTHENTIK_URL` if it is not the default) so the console can still manage invitations and resets
-through Authentik. `deploy/examples/authentik/` has the compose file and the steps.
+Authentik is one more OIDC provider: the console and Headscale trust its identity and groups, and
+manage nothing inside it (invitations, resets and two-factor are the console's local accounts).
+Headscale identifies an OIDC user by the provider's **issuer URL** plus the user's id, so pick the
+issuer address once and keep it. To serve Authentik under your own domain at
+`https://<domain>/authentik/`, run it next to the container and set
+`HSE_AUTHENTIK_UPSTREAM=authentik-server:9000` (Caddy then routes `/authentik` there).
+`deploy/examples/authentik/` has the compose file, the blueprint for the OIDC application and groups,
+and the steps.
