@@ -20,7 +20,7 @@ external pieces for advanced setups. Details, tasks and acceptance criteria in
 - [x] **P2.5. Findings from testing the AIO image** (embedded DERP, user credentials, sign-up modes, base domain, live status, Docker tab) · M
 - [x] **P3. Built-in backups** (nightly schedule, `hse backup` / `hse restore`, status card, sync sidecar) · M
 - [x] **P4. Advanced edition** (`deploy/compose`, proxy in front, Authentik/Pocket ID/Keycloak/Google, PostgreSQL, new `install.sh`) · M
-- [ ] **P5. Migration from 1.x and deprecations** · M
+- [x] ~~**P5. Migration from 1.x and deprecations**~~ · dropped: the product is an MVP, nobody runs 1.x, so 2.0 ships directly
 - [ ] **P6. Docs and clean-up** · M
 
 ## 🔴 Critical — keeps installations working and safe

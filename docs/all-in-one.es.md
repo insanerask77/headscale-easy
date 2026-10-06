@@ -182,7 +182,7 @@ Las dos vías comprueban primero el archivo (formato, SHA-256 de cada fichero,
 integridad de las bases de datos) y no cambian nada si no es válido. Antes de
 sustituir nada hacen una copia `…-pre-restore-…` de los datos actuales y la
 devuelven si la restauración falla a medias. Un archivo de una instalación 1.x
-se rechaza: mira las notas de migración (fase 5). Y al revés: `scripts/restore.sh`
+se rechaza. Y al revés: `scripts/restore.sh`
 (la herramienta de 1.x) rechaza un archivo de esta imagen y apunta a `hse restore`.
 
 ### Dónde van las copias
@@ -242,7 +242,7 @@ usa unos 65 MB de RAM, también mientras corre una copia. CI falla por encima de
 
 - Sin Authentik integrado: cuentas locales (con doble factor) u OIDC externo.
 - Las copias se quedan en el volumen: para copias remotas usa el sidecar de sincronización (mira [Copias de seguridad](#backups)).
-- La migración de una instalación 1.x todavía no está automatizada.
+- No hay migración desde 1.x: 2.0 es una instalación nueva.
 
 ## Usuarios y registro
 

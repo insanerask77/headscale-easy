@@ -198,8 +198,7 @@ Restore, in order of preference:
 Both ways check the archive first (format, SHA-256 of every file, database
 integrity) and change nothing if it is not valid. Before replacing anything they
 make a `…-pre-restore-…` backup of the current data, and put it back if the
-restore fails half way. An archive from a 1.x install is refused: see the
-migration notes (phase 5). The reverse is also true: `scripts/restore.sh`
+restore fails half way. An archive from a 1.x install is refused. The reverse is also true: `scripts/restore.sh`
 (the 1.x tool) refuses an archive from this image and points to `hse restore`.
 
 ### Where the backups go
@@ -260,7 +259,7 @@ uses about 65 MB of RAM, also while a backup runs. CI fails above 250 MB and 100
 - No bundled Authentik: use local accounts (with two-factor) or an external
   OIDC provider.
 - Backups stay on the volume: for remote copies use the sync sidecar (see [Backups](#backups)).
-- Migrating an existing 1.x install is not automated yet.
+- There is no migration from 1.x: 2.0 is a fresh install.
 
 ## Users and sign-up
 
