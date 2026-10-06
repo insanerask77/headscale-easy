@@ -9,6 +9,7 @@ socket.
 import glob
 import os
 import re
+import subprocess
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -33,11 +34,25 @@ REMOVED = [
 ]
 
 
+def _tracked(rel):
+    """Files git tracks under rel; None when git is not available (then the disk decides)."""
+    try:
+        out = subprocess.run(["git", "ls-files", "--", rel], cwd=ROOT, capture_output=True, text=True, check=True)
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return out.stdout.split()
+
+
 class NoLegacyTest(unittest.TestCase):
     def test_removed_paths_stay_removed(self):
+        # What counts is what is committed: a generated file a developer left in their own
+        # checkout (git-ignored, e.g. docker-compose.override.yml from a 1.x install) is not a come-back.
         for rel in REMOVED:
             path = os.path.join(ROOT, rel)
-            if os.path.isdir(path):  # a directory of stale bytecode is not a come-back
+            found = _tracked(rel)
+            if found is not None:
+                pass
+            elif os.path.isdir(path):  # a directory of stale bytecode is not a come-back
                 found = [f for _, _, names in os.walk(path) for f in names if not f.endswith(".pyc")]
             else:
                 found = [rel] if os.path.exists(path) else []
