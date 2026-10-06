@@ -92,38 +92,49 @@ compatibility to keep**: the 1.x pieces are deleted outright.
 Files that only the split compose, the helper container and the 1.x installer used.
 
 ### 1.1 Safe first: things nothing in 2.0 reads
-- [ ] `docker-compose.yml`, `docker-compose.override.yml`, `Caddyfile`, `headscale-config.yaml`
+- [x] `docker-compose.yml`, `docker-compose.override.yml`, `Caddyfile`, `headscale-config.yaml`
       (generated 1.x files in the root, if tracked), `Makefile` targets that call
-      `legacy/*` and `docker compose` on the root file (keep `make lint`, `make test`).
-- [ ] `legacy/install-1x.sh`, `legacy/uninstall-1x.sh`, then the `legacy/` directory.
-- [ ] `scripts/embed-compose.sh`, `scripts/compose-smoke.sh` *only if* it tests the root
-      compose (the one for `deploy/compose/` stays), `scripts/utils.sh` if only the legacy
-      scripts source it, `scripts/dev-local-accounts.sh` stays if it still works against the AIO.
-- [ ] `templates/front-*.tmpl` (their documentation copy already lives in
+      `legacy/*` and `docker compose` on the root file (keep `make lint`, `make test`). — *only the
+      root compose and the root `.env.example` (1.x variables) were tracked; the Makefile keeps
+      install/uninstall/purge/validate/lint/test/i18n*
+- [x] `legacy/install-1x.sh`, `legacy/uninstall-1x.sh`, then the `legacy/` directory.
+- [x] `scripts/utils.sh` and `scripts/dev-local-accounts.sh` removed (the second one built the 1.x `web`
+      service). — *`scripts/embed-compose.sh` **stays**: the new `install.sh` embeds
+      `deploy/compose/docker-compose.yml` with it (the plan was wrong); `scripts/compose-smoke.sh`
+      stays: it tests `deploy/compose/`*
+- [x] `templates/front-*.tmpl` (their documentation copy already lives in
       `deploy/examples/front-proxy/`).
-- [ ] `scripts/restore.sh`, `backup/backup.sh`, `backup/pg-client.sh` if only 1.x used them;
+- [x] `scripts/restore.sh`, `backup/backup.sh`, `backup/pg-client.sh` if only 1.x used them;
       keep `backup/remote.sh`, `backup/entrypoint.sh` (sync mode) and `backup/Dockerfile`,
-      trimmed to sync mode.
+      trimmed to sync mode. — *the sidecar image no longer carries sqlite, tar or the PostgreSQL clients;
+      `BACKUP_MODE` other than `sync` is refused*
 
 ### 1.2 Then the helper and the console image
-- [ ] Find what in the AIO uses `helper/` (`grep -rn helper aio web tests`); move that code
-      into `aio/` and drop `COPY helper` from `aio/Dockerfile`.
-- [ ] Delete `helper/`, `tests/test_docker_helper.py` (re-point any still-useful assertions
-      at `tests/test_supervisor.py`, which already covers the protocol).
-- [ ] Delete `web/Dockerfile` and the `web/` image build; the AIO copies `web/`.
-- [ ] `aio/restore.py` and `tests/test_restore_guard.py`: the 1.x refusal text becomes
+- [x] Find what in the AIO uses `helper/` (`grep -rn helper aio web tests`); move that code
+      into `aio/` and drop `COPY helper` from `aio/Dockerfile`. — *the supervisor used only the route
+      table and the socket server: now `aio/control.py`*
+- [x] Delete `helper/`, `tests/test_docker_helper.py` (re-point any still-useful assertions
+      at `tests/test_supervisor.py`, which already covers the protocol). — *replaced by
+      `tests/test_control.py` (protocol, backup routes and the console client against the real server);
+      `web/headscale.py` lost its Docker-socket fallback. CI's helper build/probe and the `web` image
+      build and publishing went with it (Block 3 does the rest of the CI/release work)*
+- [x] Delete `web/Dockerfile` and the `web/` image build; the AIO copies `web/`.
+- [x] `aio/restore.py` and `tests/test_restore_guard.py`: the 1.x refusal text becomes
       "this is not a Headscale Easy 2 backup"; delete tests of `restore.sh`.
 
 ### 1.3 Renderer goldens (see Findings)
-- [ ] Remove `scripts/gen_render_goldens.sh`; keep `tests/fixtures/render/*` as frozen
+- [x] Remove `scripts/gen_render_goldens.sh`; keep `tests/fixtures/render/*` as frozen
       fixtures; delete the `compose` target and `front_authentik` cases that only the 1.x
-      installer could produce; update the `tests/test_render.py` docstring.
-- [ ] `tests/test_install.py`: keep what tests the **new** `install.sh`; delete 1.x cases.
+      installer could produce; update the `tests/test_render.py` docstring. — *the goldens were
+      regenerated from the AIO renderer (`HSE_UPDATE_GOLDENS=1` rewrites them); `front_authentik` removed*
+- [x] `tests/test_install.py`: keep what tests the **new** `install.sh`; delete 1.x cases.
 
 ### 1.4 Tests
-- [ ] Full suite, `validate.sh`, `shellcheck` (its file list shrinks), `docker compose config`
-      for every file under `deploy/`.
-- [ ] Add a guard test (`tests/test_no_legacy.py`) listing paths that must not come back
+- [x] Full suite (1003 tests), `validate.sh` (it runs `docker compose config` on every file under
+      `deploy/`), `shellcheck`, `check_i18n.py`, and the AIO build + `scripts/aio-smoke.sh`: image
+      233 MB, idle RAM 71 MB, 71 MB during a backup. — *`scripts/compose-smoke.sh` could not run on the
+      author's machine: an unrelated container holds 3478/udp; CI runs it*
+- [x] Add a guard test (`tests/test_no_legacy.py`) listing paths that must not come back
       (`helper/`, `legacy/`, root `docker-compose.yml`), so a bad merge cannot resurrect them.
 
 ---
