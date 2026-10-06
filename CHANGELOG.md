@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format follows
 ## [2.0.1] - 2026-10-06
 
 ### Fixed
+- Docker tab: the exit node is generated as `TS_ROUTES=0.0.0.0/0,::/0` (plus any subnet routes) instead of
+  `--advertise-exit-node` in `TS_EXTRA_ARGS`. With `TS_AUTH_ONCE=true` the image skips `tailscale up`, the only
+  place `TS_EXTRA_ARGS` applies, so changing the exit node on a container that had already signed in was ignored.
+
+### Fixed
 - Docker tab of Add device: an administrator can generate the single-use auth key the first time. The owner
   picker used to appear only after an error, so the first attempt failed with "There is no Headscale user to
   own the key".

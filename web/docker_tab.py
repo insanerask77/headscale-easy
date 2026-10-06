@@ -19,6 +19,7 @@ from ui import BASE, copy_btn, csrf_input, esc, notice
 HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 MAX_ROUTES = 20
 KEY_DAYS = ("1", "7")  # short on purpose: the container keeps its own state after the first start
+EXIT_ROUTES = ["0.0.0.0/0", "::/0"]
 DEFAULTS = {"hostname": "tailscale-docker", "exit": False, "routes": "", "userspace": False, "dns": True,
             "generate": False, "days": "1", "user_id": ""}
 PLACEHOLDER = "<auth-key>"
@@ -59,10 +60,8 @@ def parse(form: dict) -> tuple[dict, str]:
 
 
 def _ts_args(url: str, v: dict) -> str:
-    args = [f"--login-server={url}"]
-    if v["exit"]:
-        args.append("--advertise-exit-node")
-    return " ".join(args)
+    # The exit node is NOT here: with TS_AUTH_ONCE the image skips `tailscale up`, the only place these args apply.
+    return f"--login-server={url}"
 
 
 def _env(url: str, v: dict, key: str) -> list[str]:
@@ -72,8 +71,10 @@ def _env(url: str, v: dict, key: str) -> list[str]:
            "TS_AUTH_ONCE=true",  # a restart keeps the saved identity instead of logging in again with a spent key
            f"TS_USERSPACE={'true' if v['userspace'] else 'false'}",
            f"TS_ACCEPT_DNS={'true' if v['dns'] else 'false'}"]
-    if v["route_list"]:
-        env.append("TS_ROUTES=" + ",".join(v["route_list"]))
+    # TS_ROUTES is applied with `tailscale set` on every start, so an exit node (0.0.0.0/0,::/0) added later still lands.
+    routes = (EXIT_ROUTES if v["exit"] else []) + v["route_list"]
+    if routes:
+        env.append("TS_ROUTES=" + ",".join(routes))
     env.append("TS_EXTRA_ARGS=" + _ts_args(url, v))
     return env
 
