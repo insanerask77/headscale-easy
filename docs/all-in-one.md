@@ -100,6 +100,12 @@ Precedence is **environment > `/data/config/settings.json` > defaults**.
 | `BACKUP_SCHEDULE` | `0 3 * * *` | When to back up, cron syntax; `off` disables scheduled backups. An invalid value stops the container at start |
 | `BACKUP_KEEP_DAYS` | `14` | Backups older than this are deleted (the newest successful one is always kept) |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | | Sign in with an external OIDC provider |
+| `HSE_OIDC_ALLOWED_DOMAINS`, `HSE_OIDC_ALLOWED_USERS`, `HSE_OIDC_ALLOWED_GROUPS` | | Who may sign in through the provider (comma-separated; empty = everyone the provider lets in). See [Advanced edition](advanced.md#identity-providers) |
+| `PORTAL_ADMIN_GROUPS`, `PORTAL_NETWORK_ADMIN_GROUPS`, `PORTAL_AUDITOR_GROUPS`, `PORTAL_ADMIN_EMAILS` | `vpn-admins,authentik Admins` for admins | Who is what in the console |
+| `OIDC_SCOPE` | `openid profile email` | Scopes asked by the console and Headscale |
+| `HSE_TRUSTED_PROXIES`, `HSE_TRUSTED_PROXIES_ANY` | | The proxy in front, as `/32` addresses: real client IPs. See [Advanced edition](advanced.md#a-proxy-in-front) |
+| `HSE_AUTHENTIK_UPSTREAM`, `AUTHENTIK_URL`, `AUTHENTIK_API_TOKEN` | | An external Authentik served under `/authentik` (`host:port` for Caddy) and its API for the console |
+| `HEADSCALE_PG_RO_USER`, `HEADSCALE_PG_RO_PASS` | | A read-only PostgreSQL role the image creates for the console (it never gets the owner's credentials). See [Advanced edition](advanced.md#postgresql) |
 | `HEADSCALE_DB_TYPE`, `HEADSCALE_PG_*` | `sqlite` | Use an external PostgreSQL |
 
 ## What lives in `/data`

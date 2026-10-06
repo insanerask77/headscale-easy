@@ -363,18 +363,29 @@ needs the AIO to route `/authentik` to the existing Authentik (the issuer URL is
 Headscale user's identity); and the old `install.sh` moves to `legacy/install-1x.sh` instead of being
 rewritten in place.
 
-- [ ] `deploy/compose/docker-compose.yml`: the AIO image + optional profiles:
+- [x] `deploy/compose/docker-compose.yml`: the AIO image + optional profiles:
       `backup-remote` (sidecar), and examples that live outside the main file.
-- [ ] `deploy/examples/`:
+- [x] `deploy/examples/`:
   - `authentik/`: compose + the current blueprint moved from `authentik/`,
     configured as an external OIDC provider (the zero-change path for current
     Authentik users).
   - `pocket-id/`, `keycloak.md`, `google.md`.
   - `postgresql/`: external PostgreSQL + `templates/headscale-pg-readonly.sql`.
   - Front proxies: move `templates/front-*` here as documentation.
-- [ ] `install.sh` shrinks to: install Docker if missing, ask 3–4 questions
+- [x] `install.sh` shrinks to: install Docker if missing, ask 3–4 questions
       (or none, and point to the wizard), write a small `.env`, `docker compose
-      up -d`. Rendering happens inside the image (D6).
+      up -d`. Rendering happens inside the image (D6). (The 1.x installer is
+      `legacy/install-1x.sh`.)
+
+**Status:** ✅ Done (`PHASE4_EXECUTION_PLAN.md`, branch `feat/phase4-integration`, not merged yet). Image 232 MB
+(limit 250) and 71-73 MB RSS idle and during a backup (limit 100), with the PostgreSQL client in. Verified in
+containers: the compose file hardened (no capability) with the backup sidecar, the installer run for real, an AIO
+behind nginx, Traefik and Caddy (real client address, forged headers ignored), a fresh Authentik, Pocket ID and
+Keycloak sign-ins, and PostgreSQL 16, 17 and 18 (the console reads through its read-only role; backup and restore
+with the dump). Beyond the plan: real client addresses behind a proxy, who may sign in and group roles with an
+external provider, and the fixes listed in the execution plan. Left over: a run of a real 1.x Authentik stack
+moved to the new image (phase 5's migration does it), `hse proxy-snippet` (optional), and Google and Nginx Proxy
+Manager were only read.
 
 ### Phase 5 — Migration from 1.x and deprecation · M
 

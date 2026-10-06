@@ -25,6 +25,8 @@ jobs:
             context: web
           - image: headscale-easy-helper
             context: helper
+          - image: headscale-easy-backup
+            context: backup
           - image: headscale-easy-aio
             context: .
             file: aio/Dockerfile

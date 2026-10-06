@@ -25,7 +25,8 @@ warn() { echo -e "${YELLOW}⚠${NC} $1"; }
 fail() { echo -e "${RED}✗${NC} $1"; errors=$((errors + 1)); }
 
 required_files=(
-    install.sh uninstall.sh docker-compose.yml .env.example .gitignore
+    install.sh uninstall.sh legacy/install-1x.sh legacy/uninstall-1x.sh scripts/embed-compose.sh
+    docker-compose.yml .env.example .gitignore
     README.md LICENSE
     templates/headscale-config.yaml.tmpl templates/Caddyfile.tmpl templates/headscale-pg-readonly.sql
     templates/front-caddy.tmpl templates/front-nginx.conf.tmpl
@@ -38,13 +39,14 @@ required_files=(
     helper/Dockerfile helper/helper.py
     backup/Dockerfile backup/backup.sh backup/entrypoint.sh backup/pg-client.sh
     mkdocs.yml docs/requirements.txt docs/index.md docs/index.es.md
+    deploy/compose/docker-compose.yml deploy/compose/.env.example deploy/compose/README.md
 )
 for f in "${required_files[@]}"; do
     [[ -f "$f" ]] || fail "Missing file: $f"
 done
 [[ $errors -eq 0 ]] && ok "All ${#required_files[@]} required files present"
 
-for f in install.sh uninstall.sh scripts/utils.sh scripts/validate.sh scripts/restore.sh; do
+for f in install.sh uninstall.sh legacy/install-1x.sh legacy/uninstall-1x.sh scripts/embed-compose.sh scripts/utils.sh scripts/validate.sh scripts/restore.sh; do
     [[ -x "$f" ]] || fail "Not executable: $f"
     bash -n "$f" 2>/dev/null && ok "Shell syntax: $f" || fail "Shell syntax error: $f"
 done
@@ -60,6 +62,23 @@ if command -v docker &>/dev/null && docker compose version &>/dev/null; then
     if docker compose -f docker-compose.yml config -q 2>/dev/null; then ok "docker-compose.yml is valid"; else fail "docker-compose.yml is invalid"; fi
 else
     warn "Docker Compose not found: Compose check skipped"
+fi
+
+# The advanced edition: every compose file under deploy/ must parse (env_file needs a .env: the example one)
+if command -v docker &>/dev/null && docker compose version &>/dev/null; then
+    while IFS= read -r f; do
+        dir=$(dirname "$f"); made=""
+        if [[ ! -f "$dir/.env" && -f "$dir/.env.example" ]]; then cp "$dir/.env.example" "$dir/.env"; made=1; fi
+        # the examples require their secrets (:?) and ship them empty: give them a value for the check only
+        if HEADSCALE_PG_PASS=validate-only HEADSCALE_PG_RO_PASS=validate-only docker compose -f "$f" --profile '*' config -q 2>/dev/null; then ok "$f is valid"; else fail "$f is invalid"; fi
+        [[ -n "$made" ]] && rm -f "$dir/.env"
+    done < <(find deploy -name 'docker-compose*.yml' | sort)
+fi
+# ...and none of them may mount the Docker socket
+if grep -rn --include='docker-compose*.yml' 'docker\.sock' deploy 2>/dev/null | grep -v '^[^:]*:[0-9]*:[[:space:]]*#' | grep -q .; then
+    fail "deploy/: no compose file may mount the Docker socket"
+else
+    ok "No compose file under deploy/ mounts the Docker socket"
 fi
 
 # Only hs-helper may mount the Docker socket (see SECURITY.md)

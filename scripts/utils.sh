@@ -126,7 +126,7 @@ cmd_restore() {
 }
 
 cmd_config_show() {
-    [[ -f "$ENV_FILE" ]] || { print_error ".env not found: run ./install.sh"; exit 1; }
+    [[ -f "$ENV_FILE" ]] || { print_error ".env not found: run ./legacy/install-1x.sh (1.x install) "; exit 1; }
     sed -E 's/^([A-Z_]*(SECRET|PASSWORD|PASS|KEY|TOKEN)[A-Z_]*=).+/\1***hidden***/' "$ENV_FILE"
 }
 

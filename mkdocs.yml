@@ -69,6 +69,7 @@ plugins:
             AI usage: Uso de IA
             Getting started: Primeros pasos
             All-in-one image (preview): Imagen todo en uno (preview)
+            Advanced edition: Edición avanzada
             Configuration: Configuración
             Operations: Operación
             Project: Proyecto
@@ -85,6 +86,7 @@ nav:
   - Why Headscale Easy?: why.md
   - Getting started: getting-started.md
   - All-in-one image (preview): all-in-one.md
+  - Advanced edition: advanced.md
   - Configuration: configuration.md
   - Operations: operations.md
   - Production and hardening: hardening.md
