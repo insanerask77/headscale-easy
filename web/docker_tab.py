@@ -69,9 +69,10 @@ def _ts_args(url: str, v: dict) -> str:
     return f"--login-server={url}"
 
 
-def _env(url: str, v: dict, key: str) -> list[str]:
-    """KEY=value pairs for the official image's own variables (TS_ROUTES, TS_ACCEPT_DNS, TS_AUTH_ONCE...)."""
-    env = [f"TS_AUTHKEY={key or PLACEHOLDER}", f"TS_HOSTNAME={v['hostname']}",
+def _env(url: str, v: dict, key: str, ref: bool = False) -> list[str]:
+    """KEY=value pairs for the official image's own variables (TS_ROUTES, TS_ACCEPT_DNS, TS_AUTH_ONCE...).
+    With ref, the auth key is a ${TS_AUTHKEY} reference to a .env file instead of the key itself."""
+    env = ["TS_AUTHKEY=${TS_AUTHKEY}" if ref else f"TS_AUTHKEY={key or PLACEHOLDER}", f"TS_HOSTNAME={v['hostname']}",
            "TS_STATE_DIR=/var/lib/tailscale",
            "TS_AUTH_ONCE=true",  # a restart keeps the saved identity instead of logging in again with a spent key
            f"TS_USERSPACE={'true' if v['userspace'] else 'false'}",
@@ -104,13 +105,20 @@ def docker_run(url: str, v: dict, key: str) -> str:
     return " \\\n".join(lines)
 
 
+def env_file(key: str) -> str:
+    """The .env file that sits next to docker-compose.yml and holds the only secret."""
+    value = key or PLACEHOLDER
+    return f"TS_AUTHKEY={value if re.fullmatch(r'[A-Za-z0-9_.<>-]+', value) else shlex.quote(value)}\n"
+
+
 def compose(url: str, v: dict, key: str) -> str:
+    """The compose file never holds the key (it gets pasted into tickets and repos): see env_file()."""
     name = "tailscale-" + v["hostname"]
     j = json.dumps  # a JSON string is a valid, safely quoted YAML scalar
     out = ["services:", "  tailscale:", f"    image: tailscale/tailscale:{v['version']}",
            f"    container_name: {j(name)}", f"    hostname: {j(v['hostname'])}", "    restart: unless-stopped",
            "    environment:"]
-    out += [f"      - {j(e)}" for e in _env(url, v, key)]
+    out += [f"      - {j(e)}" for e in _env(url, v, key, ref=True)]
     out += ["    volumes:", "      - tailscale-state:/var/lib/tailscale"]
     if not v["userspace"]:
         out += ["    devices:", "      - /dev/net/tun:/dev/net/tun", "    cap_add:", "      - NET_ADMIN", "      - NET_RAW"]
@@ -208,8 +216,10 @@ def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: 
     <ol class="steps">
       <li>{esc(_("Set it up:"))}{form}</li>
       <li>{esc(_("Start it with Docker:"))}{_code(docker_run(url, v, key))}</li>
-      <li>{esc(_("Or save this as docker-compose.yml and run docker compose up -d:"))}{_code(compose(url, v, key))}</li>
+      <li>{esc(_("Or save this as docker-compose.yml and run docker compose up -d:"))}{_code(compose(url, v, key))}
+        {esc(_("The auth key is not in that file. Save it next to it as .env:"))}{_code(env_file(key))}</li>
       <li>{_("Without an auth key, leave TS_AUTHKEY out and run {cmd}: it prints a link to sign in.", cmd=f"<code>docker logs {esc(name)}</code>")}</li>
     </ol>
+    <p class="muted small">{esc(_("After the first successful start, delete the TS_AUTHKEY line from .env: the container keeps its own identity. Revoke keys you did not use in Settings → Keys."))}</p>
     {_tips(v)}
     {key_note}"""
