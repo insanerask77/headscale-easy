@@ -22,5 +22,7 @@
   "If the exit node or the routes do not work": "Se o exit node ou as rotas não funcionarem",
   "Approve it: open the machine in Machines and enable the exit node or the routes, unless the policy approves them automatically.": "Aprove-o: abra a máquina em Máquinas e ative o exit node ou as rotas, a menos que a política os aprove automaticamente.",
   "Enable IP forwarding, IPv4 and IPv6, on the host too, then restart the container:": "Ative também o encaminhamento de IP, IPv4 e IPv6, no anfitrião e reinicie o contentor:",
-  "If the host cannot give the container /dev/net/tun, tick “Userspace networking” above: it works everywhere, with lower performance.": "Se o anfitrião não puder dar /dev/net/tun ao contentor, marque «Rede em espaço de utilizador» acima: funciona em qualquer lado, com menos desempenho."
+  "If the host cannot give the container /dev/net/tun, tick “Userspace networking” above: it works everywhere, with lower performance.": "Se o anfitrião não puder dar /dev/net/tun ao contentor, marque «Rede em espaço de utilizador» acima: funciona em qualquer lado, com menos desempenho.",
+  "Already running? Apply a changed option without recreating the container": "Já está em execução? Aplique uma alteração sem recriar o contêiner",
+  "Recreating the container does not withdraw a route or an exit node it already advertised: the saved state wins. This command sets exactly what the form says, and an empty route list or an unticked exit node withdraws it:": "Recriar o contêiner não retira uma rota nem um exit node já anunciados: o estado salvo prevalece. Este comando define exatamente o que o formulário diz; uma lista de rotas vazia ou um exit node desmarcado os retira:"
 }
