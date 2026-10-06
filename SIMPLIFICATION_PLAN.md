@@ -160,11 +160,11 @@ The deciding experiment: if it works, nothing else in the plan needs an IdP.
       (hostname, OS) to show on the confirmation page. Optional; not found in
       the 0.29 API so far.
 - [ ] Check that registering against a Headscale user created via OIDC works
-      (needed for the Authentik migration, phase 5). To verify in phase 5.
+      (only matters for an Authentik migration, which was dropped: see phase 5).
 
 **Status:** ✅ Done (PR #41, merged to `next`). Verified end to end with Headscale
 0.29.4, the console, Caddy and a Tailscale client in containers. The OIDC-user
-check moves to phase 5.
+check is dropped with phase 5.
 
 **Done when** a fresh device runs `tailscale up --login-server`, opens the
 link, signs in to the console (API key for the spike) and joins the right user
@@ -338,7 +338,7 @@ Detailed plan: `PHASE3_EXECUTION_PLAN.md`.
       `console/` and a `meta.json` (`edition: aio`). `scripts/restore.sh` cannot
       restore it (it maps `config/` onto the 1.x project directory and restores
       Docker volumes): it refuses an AIO archive and points to `hse restore`,
-      which in turn refuses a 1.x archive (phase 5 migrates those).
+      which in turn refuses a 1.x archive (there is no 1.x migration, see phase 5).
 - [x] `docker exec <c> hse backup` / `hse restore <file>` subcommands.
 - [x] A **Backups** menu in the console (administrators): last backup, size,
       "Back up now", schedule and retention editable, the list with Download and
@@ -384,32 +384,18 @@ behind nginx, Traefik and Caddy (real client address, forged headers ignored), a
 Keycloak sign-ins, and PostgreSQL 16, 17 and 18 (the console reads through its read-only role; backup and restore
 with the dump). Beyond the plan: real client addresses behind a proxy, who may sign in and group roles with an
 external provider, and the fixes listed in the execution plan. Left over: a run of a real 1.x Authentik stack
-moved to the new image (phase 5's migration does it), `hse proxy-snippet` (optional), and Google and Nginx Proxy
+moved to the new image (dropped with phase 5), `hse proxy-snippet` (optional), and Google and Nginx Proxy
 Manager were only read.
 
-### Phase 5 — Migration from 1.x and deprecation · M
+### Phase 5 — Migration from 1.x and deprecation · dropped
 
-- [ ] `scripts/migrate-to-2.sh`: stop the stack, take a backup with today's
-      tool, copy the volumes (`headscale-data` → `/data/headscale`,
-      `data/web` → `/data/console`, `caddy-data` → `/data/caddy`), convert
-      `.env` → env/`settings.json`, re-render the config keeping the DNS block,
-      `extra_records`, DERP map and key expiry (the policy is already in the
-      database), start the AIO container. Test it on a copy of a real install.
-- [ ] Authentik users, two paths:
-  1. **Keep Authentik** as external OIDC (`deploy/examples/authentik`): no
-     change for users.
-  2. **Move to local accounts**: for each Headscale user with an Authentik
-     `providerId`, create a local account (name/email from Authentik through
-     the existing token, role from its groups) and generate reset links
-     (shown to the admin as a list, or emailed with SMTP). Nodes are untouched;
-     re-authentication after key expiry uses the phase 0 flow.
-- [ ] Bundled PostgreSQL users: keep it as "external PostgreSQL" (point the AIO
-      image at the existing container through the example). No automatic
-      PostgreSQL → SQLite migration (Headscale has no tool for it); document
-      that.
-- [ ] Timeline: the last 1.x release announces the deprecation (README,
-      CHANGELOG, a console banner); 2.0 removes the bundled Authentik,
-      bundled PostgreSQL, `hs-helper` and the split compose.
+**Status:** ❌ Dropped. The product is an MVP and nobody runs 1.x, so 2.0 ships directly and
+there is nothing to migrate: no `migrate-to-2.sh`, no Authentik-to-local-accounts move, no
+deprecation notice, no 1.x support window. Two consequences:
+
+- The 1.x pieces can be removed as soon as 2.0 is cut (phase 6), with no grace period.
+- A bundled-PostgreSQL install keeps no upgrade path; PostgreSQL stays supported as an
+  external server (phase 4), and there is no PostgreSQL → SQLite tool (Headscale has none).
 
 ### Phase 6 — Docs and clean-up · M
 
@@ -431,7 +417,7 @@ Manager were only read.
 ```text
 Phase 0 ──▶ Phase 1 ──▶ Phase 2 ──▶ Phase 2.5 ──▶ Phase 3
                           │
-                          └──▶ Phase 4 ──▶ Phase 5 ──▶ Phase 6
+                          └──▶ Phase 4 ──▶ Phase 6
 ```
 
 - Phase 0 decides D2/D3. If it fails, switch to the Pocket ID fallback and
@@ -449,7 +435,6 @@ Phase 0 ──▶ Phase 1 ──▶ Phase 2 ──▶ Phase 2.5 ──▶ Phase 
 | Headscale changes the registration URL or the API | Pin Headscale (D7); CI test for the phase 0 flow on every bump |
 | The setup wizard is hijacked before the owner gets to it | One-time token from the logs; setup mode only answers the wizard |
 | Several processes in one container | A small supervisor with restarts and health per process; it is the usual pattern for self-hosted all-in-one images |
-| Migration loses data | Backup first, re-render instead of copying files, tested on real installs, documented rollback (start 1.x again from the backup) |
 | Losing "Sign in with Google" from bundled Authentik | Google directly as external OIDC (docs example) |
 
 ## 8. Open questions
