@@ -74,6 +74,8 @@ def _env(url: str, v: dict, key: str) -> list[str]:
            f"TS_ACCEPT_DNS={'true' if v['dns'] else 'false'}"]
     if v["route_list"]:
         env.append("TS_ROUTES=" + ",".join(v["route_list"]))
+    if not v["userspace"]:
+        env.append("TS_DEBUG_FIREWALL_MODE=auto")  # nftables-only hosts (no iptables tables): tailscaled picks the backend that works
     env.append("TS_EXTRA_ARGS=" + _ts_args(url, v))
     return env
 
