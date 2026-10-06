@@ -1314,5 +1314,140 @@ class BackupUploadTest(SupervisorMixin, FakeCase):
         self.assertFalse(os.path.exists(tmp))
 
 
+class EnsureLayoutTest(unittest.TestCase):
+    def test_an_unwritable_backups_directory_warns_instead_of_stopping_the_server(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            real = os.chmod
+
+            def chmod(path, mode, *a, **k):
+                if str(path).endswith("backups"):
+                    raise PermissionError(1, "Operation not permitted", path)
+                return real(path, mode, *a, **k)
+            lines = []
+            with mock.patch.object(sup.os, "chmod", chmod), mock.patch.object(sup, "emit", lines.append):
+                sup.ensure_layout(tmp)
+            self.assertTrue(os.path.isdir(os.path.join(tmp, "console")))  # the rest of the layout was made
+            self.assertEqual(len(lines), 1)
+            self.assertIn("backups will fail", lines[0])
+            self.assertIn("chown", lines[0])
+
+    def test_any_other_directory_failing_is_still_fatal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            def chmod(path, mode, *a, **k):
+                raise PermissionError(1, "Operation not permitted", path)
+            with mock.patch.object(sup.os, "chmod", chmod):
+                with self.assertRaises(PermissionError):
+                    sup.ensure_layout(tmp)
+
+
+class PostgresReadOnlyRoleTest(SupervisorMixin, FakeCase):
+    """The console reads PostgreSQL with a read-only role the image creates itself (psql, as the owner)."""
+    # Run-time values, not literals: a scanner takes a literal next to "password" for a leaked credential
+    OWNER_PW = "o" * 10
+    RO_PW = "r" * 10
+    PG = {"HEADSCALE_DB_TYPE": "postgres", "HEADSCALE_PG_HOST": "db", "HEADSCALE_PG_USER": "headscale",
+          "HEADSCALE_PG_PASS": OWNER_PW, "HEADSCALE_PG_NAME": "hs"}
+    RO = {"HEADSCALE_PG_RO_USER": "headscale_ro", "HEADSCALE_PG_RO_PASS": RO_PW}
+
+    def fake_psql(self, exit_code=0, message=""):
+        self.fakes.write(os.path.join(self.fakes.bin, "psql"), """#!/bin/sh
+echo "$*" > "%(d)s/psql-argv"
+env | grep -E '^(PG|HSE_RO)' | sort > "%(d)s/psql-env"
+[ -n "%(msg)s" ] && echo "%(msg)s" >&2
+exit %(code)d
+""" % {"d": self.fakes.data, "msg": message, "code": exit_code}, 0o755)
+
+    def read(self, name):
+        with open(os.path.join(self.fakes.data, name)) as fh:
+            return fh.read()
+
+    def prepare(self, **env):
+        s = self.make(**dict(self.PG, **env))
+        s.mode = "run"
+        with mock.patch.object(s, "wait_headscale", return_value=True), mock.patch.object(s, "ensure_api_key"):
+            os.makedirs(os.path.join(self.fakes.data, "console"), exist_ok=True)
+            with open(s.paths["api_key"], "w") as fh:
+                fh.write("key")
+            with mock.patch.dict(os.environ, {"PATH": self.fakes.bin + os.pathsep + os.environ["PATH"]}):
+                _argv, console_env = s.console_prepare()
+        return s, console_env
+
+    def test_role_is_created_as_the_owner_and_the_console_gets_it(self):
+        self.fake_psql()
+        s, env = self.prepare(**self.RO)
+        argv = self.read("psql-argv")
+        self.assertIn("ON_ERROR_STOP=1", argv)
+        self.assertTrue(argv.strip().endswith("templates/headscale-pg-readonly.sql"))
+        self.assertNotIn(self.OWNER_PW, argv)  # no password on a command line
+        self.assertNotIn(self.RO_PW, argv)
+        penv = self.read("psql-env")
+        for line in ("PGUSER=headscale", "PGPASSWORD=" + self.OWNER_PW, "PGHOST=db", "PGDATABASE=hs",
+                     "HSE_RO_USER=headscale_ro", "HSE_RO_PASS=" + self.RO_PW):
+            self.assertIn(line, penv)
+        self.assertEqual(env["HEADSCALE_PG_USER"], "headscale_ro")
+        self.assertEqual(env["HEADSCALE_PG_PASSWORD"], self.RO_PW)
+        self.assertTrue(any("read-only role headscale_ro" in l for l in s.lines))
+
+    def test_if_the_role_cannot_be_created_the_console_keeps_the_owner_and_it_is_logged(self):
+        self.fake_psql(1, "ERROR: permission denied to create role")
+        s, env = self.prepare(**self.RO)
+        self.assertEqual(env["HEADSCALE_PG_USER"], "headscale")
+        self.assertEqual(env["HEADSCALE_PG_PASSWORD"], self.OWNER_PW)
+        errors = [l for l in s.lines if "ERROR" in l]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("falls back to the owner", errors[0])
+        self.assertIn("permission denied", errors[0])
+        self.assertNotIn(self.OWNER_PW, errors[0])
+        self.assertNotIn(self.RO_PW, errors[0])
+
+    def test_nothing_runs_without_the_role_settings_or_on_sqlite(self):
+        self.fake_psql()
+        self.prepare()  # PostgreSQL, no read-only role
+        self.assertFalse(os.path.exists(os.path.join(self.fakes.data, "psql-argv")))
+        s = self.make(HEADSCALE_PG_RO_USER="ro", HEADSCALE_PG_RO_PASS="x")  # sqlite
+        s.mode = "run"
+        with mock.patch.object(s, "wait_headscale", return_value=True), mock.patch.object(s, "ensure_api_key"):
+            os.makedirs(os.path.join(self.fakes.data, "console"), exist_ok=True)
+            with open(s.paths["api_key"], "w") as fh:
+                fh.write("key")
+            s.console_prepare()
+        self.assertFalse(os.path.exists(os.path.join(self.fakes.data, "psql-argv")))
+
+    def test_role_name_and_password_go_together_and_are_safe(self):
+        from aio import render
+        base = {"public_url": "http://localhost", "db_type": "postgres", "pg_host": "db", "pg_user": "headscale"}
+        for bad in ({"pg_ro_user": "headscale_ro"}, {"pg_ro_pass": "x"},
+                    {"pg_ro_user": "headscale", "pg_ro_pass": "x"},   # the owner is not a read-only role
+                    {"pg_ro_user": "a b", "pg_ro_pass": "x"}, {"pg_ro_user": "ro;drop", "pg_ro_pass": "x"},
+                    {"pg_ro_user": "1ro", "pg_ro_pass": "x"}, {"pg_ro_user": "r" * 64, "pg_ro_pass": "x"}):
+            with self.assertRaises(ValueError, msg=bad):
+                render.to_vars(dict(base, **bad), "aio")
+        render.to_vars(dict(base, pg_ro_user="headscale_ro", pg_ro_pass="x"), "aio")
+
+
+class RestoreFromConsolePostgresTest(RestoreFromConsoleTest):
+    """A PostgreSQL install restoring a PostgreSQL backup from the console must load the dump."""
+
+    def archive(self, name, db):
+        tree = fx.data_tree("a", postgres=(db == "postgres"))
+        fx.build_aio_archive(os.path.join(self.backups, name), tree)
+
+    def requested_with_postgres(self, name):
+        self.assertTrue(self.ask(name)["ok"])
+        with open(self.request_file(), encoding="utf-8") as fh:
+            return json.load(fh)["with_postgres"]
+
+    def test_the_dump_is_loaded_only_when_both_sides_are_postgres(self):
+        self.archive("headscale-easy-20260201-030000.tar.gz", "postgres")
+        self.archive("headscale-easy-20260202-030000.tar.gz", "sqlite")
+        self.s.load = lambda: {"db_type": "postgres"}
+        self.assertTrue(self.requested_with_postgres("headscale-easy-20260201-030000.tar.gz"))
+        os.unlink(self.request_file())
+        self.assertFalse(self.requested_with_postgres("headscale-easy-20260202-030000.tar.gz"))  # a sqlite archive
+        os.unlink(self.request_file())
+        self.s.load = lambda: {"db_type": "sqlite"}
+        self.assertFalse(self.requested_with_postgres("headscale-easy-20260201-030000.tar.gz"))  # a sqlite install
+
+
 if __name__ == "__main__":
     unittest.main()

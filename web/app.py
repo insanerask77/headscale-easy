@@ -84,6 +84,14 @@ PUBLIC_URL = os.environ["PUBLIC_URL"].rstrip("/")
 OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "")
 OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID", "")
 OIDC_CLIENT_SECRET = os.environ.get("OIDC_CLIENT_SECRET", "")
+# The scopes asked at sign-in (the same OIDC_SCOPE Headscale gets). A provider that only sends the groups
+# claim when asked for it (Pocket ID: "groups") needs it here for PORTAL_*_GROUPS to work.
+def oidc_scope(raw) -> str:
+    """'openid' first and always present, then what was asked for (default: profile email), no repeats."""
+    return " ".join(dict.fromkeys(["openid"] + (raw or "profile email").split()))
+
+
+OIDC_SCOPE = oidc_scope(os.environ.get("OIDC_SCOPE"))
 SSO = bool(OIDC_ISSUER and OIDC_CLIENT_ID)
 # Built-in Authentik (issuer .../authentik/application/o/<app>/): sign out
 # through the blueprint's flow, see logout()
@@ -1038,7 +1046,7 @@ class Handler(BaseHTTPRequestHandler):
             "response_type": "code",
             "client_id": OIDC_CLIENT_ID,
             "redirect_uri": REDIRECT_URI,
-            "scope": "openid profile email",
+            "scope": OIDC_SCOPE,
             "state": state,
             "nonce": secrets.token_urlsafe(24),
             "code_challenge": challenge,
