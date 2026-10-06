@@ -32,6 +32,19 @@ class VersionAgreesTest(unittest.TestCase):
         wrong = "v" + release_info.version_file() + "1"
         self.assertTrue(any("does not match VERSION" in p for p in release_info.check(wrong)))
 
+    def test_a_prerelease_of_the_version_is_accepted(self):
+        version = release_info.version_file()
+        for tag in ("v%s-rc.1" % version, "v%s-beta.2" % version):
+            self.assertFalse(any("does not match" in p or "valid" in p for p in release_info.check(tag)), tag)
+        for bad in ("v%s-" % version, "v%s-rc 1" % version, "v9.9.9-rc.1"):
+            self.assertTrue(any("match" in p or "valid" in p for p in release_info.check(bad)), bad)
+
+    def test_a_prerelease_uses_the_notes_of_its_release(self):
+        out = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "release_info.py"), "notes",
+                              "v%s-rc.1" % release_info.version_file()], capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertTrue(out.stdout.strip())
+
     def test_an_unreleased_changelog_blocks_a_tag_but_not_a_branch(self):
         version = release_info.version_file()
         entries = release_info.changelog_entries()

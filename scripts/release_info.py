@@ -2,7 +2,7 @@
 """One version, one place: the VERSION file. Checks that everything else agrees and derives the image tags.
 
     python3 scripts/release_info.py check            # VERSION = compose.yaml tag = Dockerfile default = CHANGELOG heading
-    python3 scripts/release_info.py check --tag v2.0.0   # a release tag: also equals VERSION, and the CHANGELOG entry is dated
+    python3 scripts/release_info.py check --tag v2.0.0   # a release tag: equals VERSION (or a pre-release of it, v2.0.0-rc.1), and the CHANGELOG entry is dated
     python3 scripts/release_info.py tags v2.0.0      # the image tags a release tag publishes, one per line
     python3 scripts/release_info.py notes v2.0.0     # the CHANGELOG entry of that version (the release notes)
 
@@ -85,8 +85,11 @@ def check(tag=None):
     elif entries[0][0] != version:
         problems.append("the top CHANGELOG.md heading is [%s], VERSION is %s" % (entries[0][0], version))
     if tag:
-        if tag != "v" + version:
-            problems.append("the tag %s does not match VERSION %s (expected v%s)" % (tag, version, version))
+        # v2.0.0 for VERSION 2.0.0, or a pre-release of it (v2.0.0-rc.1): the same release, not yet final
+        if tag != "v" + version and not tag.startswith("v" + version + "-"):
+            problems.append("the tag %s does not match VERSION %s (expected v%s or v%s-rc.N)" % (tag, version, version, version))
+        elif tag != "v" + version and not SEMVER.match(tag[1:]):
+            problems.append("the tag %s is not a valid version tag" % tag)
         if entries and "unreleased" in entries[0][1].lower():
             problems.append("the CHANGELOG.md entry of %s is still 'Unreleased': date it before tagging" % version)
         if not changelog_notes(version):
@@ -112,7 +115,7 @@ def main(argv):
             return 1
         return 0
     if cmd == "notes" and len(argv) == 3:
-        notes = changelog_notes(argv[2].lstrip("v"))
+        notes = changelog_notes(argv[2].lstrip("v").split("-", 1)[0])  # a pre-release uses its release's notes
         if not notes:
             print("release_info: no CHANGELOG.md entry for %s" % argv[2], file=sys.stderr)
             return 1
