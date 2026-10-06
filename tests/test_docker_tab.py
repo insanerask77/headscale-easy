@@ -153,6 +153,13 @@ class Page(Base):
         _s, _h, body = request("GET", f"{B}/add", MEMBER)
         self.assertNotIn('name="user_id"', body)
 
+    def test_admin_sees_the_owner_picker_before_sending_the_form(self):
+        # the first time the tab is opened (GET), not only after an error: generating a key needs an owner
+        with mock.patch.object(hs, "all_users", return_value=[{"id": "9", "name": "bob"}]):
+            _s, _h, body = request("GET", f"{B}/add", ADMIN)
+        self.assertIn('name="user_id"', body)
+        self.assertIn('<option value="9"', body)
+
     def test_auditors_cannot_generate(self):
         self.assertEqual(self.post(AUDITOR, generate="1")[0], 403)
         self.assertEqual(self.api.call_count, 0)

@@ -461,7 +461,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.redirect(f"{BASE}/machines?m=not-found")
                 return self.send(200, pages.machine_page(session, CTX, to_machines([node])[0], flash))
             if path == f"{BASE}/add":
-                return self.send(200, pages.add_page(session, CTX))
+                return self.send(200, pages.add_page(session, CTX, users=hs.all_users() if session.get("admin") else None))
             if path == f"{BASE}/dns":
                 return self.send(200, pages.dns_page(session, dns_ctx() if can_edit_network(session) else CTX,
                                                      hs.dns_config(), to_machines(visible_nodes(session)), flash=flash))
