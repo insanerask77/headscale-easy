@@ -64,7 +64,7 @@ wait_for() {  # wait_for <seconds> <description> <command...>
 is_healthy() { [ "$(docker inspect -f '{{.State.Health.Status}}' "$1" 2>/dev/null)" = healthy ]; }
 
 # summary <line>: add a line to the job summary of GitHub Actions (nothing elsewhere)
-summary() { if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then printf '%s\n' "$*" >> "$GITHUB_STEP_SUMMARY"; fi; return 0; }
+summary() { if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then printf '%s\n' "$@" >> "$GITHUB_STEP_SUMMARY"; fi; return 0; }
 
 # mem_mb <container> -> current RAM in whole MiB, from docker stats
 mem_mb() {

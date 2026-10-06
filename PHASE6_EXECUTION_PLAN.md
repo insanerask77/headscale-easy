@@ -188,19 +188,27 @@ Files that only the split compose, the helper container and the 1.x installer us
 
 ## Block 3: CI, publishing and release (S/M, ~4-5h)
 
-- [ ] `ci.yml`: remove the helper image build and its socket/uid probe, the `web` and `backup`
+**Status:** ✅ Done on `feat/phase6-block3`. Beyond the plan: one name for the all-in-one (image and container `headscale-easy`; the installer, `deploy/compose`, the examples, the smoke test and the docs used two).
+
+- [x] `ci.yml`: remove the helper image build and its socket/uid probe, the `web` and `backup`
       image builds that no longer exist (keep the backup sidecar build), the 1.x installer
       lint paths; keep `aio`, `lint`, `compose-smoke` for `deploy/compose/`.
-- [ ] `docker.yml`: publish only `headscale-easy-aio` (and, for 2.0, the `headscale-easy`
+      — *Block 1 had already removed the helper/web builds; the `image` job (backup sidecar build) is kept on purpose so the required check name does not change.*
+- [x] `docker.yml`: publish only `headscale-easy-aio` (and, for 2.0, the `headscale-easy`
       name pointing at it) and `headscale-easy-backup`; stop publishing `headscale-easy`
       (console) and `-helper`.
-- [ ] `release.yml`: tags `v2.0.0` → `:2.0.0`, `:2.0`, `:2`, `:latest` for the AIO; document
+      — *done as: `headscale-easy` is the primary name and `headscale-easy-aio` the alias (same build, two names); `docker-dev.yml` the same. Checked with a YAML parser only: the alias tags are first seen when the workflow runs on GitHub.*
+- [x] `release.yml`: tags `v2.0.0` → `:2.0.0`, `:2.0`, `:2`, `:latest` for the AIO; document
       the alias and that the old image names stop updating.
-- [ ] `scripts/validate.sh`: file list and checks for what exists; the Docker-socket rule
+      — *`release.yml` only makes the GitHub release; the tags `:2.0.0 :2.0 :2 :latest` come from `docker.yml` (semver tags) and the alias is documented in `docs/all-in-one*.md`. Not run on a real tag.*
+- [x] `scripts/validate.sh`: file list and checks for what exists; the Docker-socket rule
       becomes "no compose file mounts the Docker socket" (stronger than before).
-- [ ] Dependabot / renovate paths for deleted Dockerfiles, if any.
-- [ ] A CI check that fails if the image or idle RAM exceed the limits (already in
+      — *the rule now covers every compose file in the repository and the one `install.sh` embeds; tried with a mount in a comment (passes) and a real one (fails).*
+- [x] Dependabot / renovate paths for deleted Dockerfiles, if any.
+      — *there is no dependabot/renovate configuration in the repository: nothing to change.*
+- [x] A CI check that fails if the image or idle RAM exceed the limits (already in
       `aio-smoke.sh`) and prints the measured numbers to the job summary for the docs.
+      — *`aio-smoke.sh` writes size and RAM to `$GITHUB_STEP_SUMMARY`; the function was run locally, the table is first rendered by GitHub.*
 
 ---
 
