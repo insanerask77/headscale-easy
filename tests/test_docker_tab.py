@@ -53,6 +53,15 @@ class Snippets(unittest.TestCase):
             self.assertIn(part, run)
         self.assertIn("sysctls:", docker_tab.compose(URL, v, ""))
 
+    def test_kernel_exit_node_gets_the_troubleshooting_tips_from_the_docs(self):
+        v, _e = parsed(exit="1")
+        html = docker_tab.panel({"csrf": "tok"}, URL, v)
+        self.assertIn("net.ipv4.ip_forward = 1", html)
+        self.assertIn("net.ipv6.conf.all.forwarding = 1", html)
+        self.assertIn("sysctl -p /etc/sysctl.d/99-tailscale.conf", html)
+        for plain in (parsed(), parsed(userspace="1", exit="1")):  # nothing to forward: no tips
+            self.assertNotIn("ip_forward", docker_tab.panel({"csrf": "tok"}, URL, plain[0]))
+
     def test_userspace_needs_no_device_or_capabilities(self):
         v, _e = parsed(userspace="1", exit="1")
         run = docker_tab.docker_run(URL, v, "")
