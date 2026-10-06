@@ -564,3 +564,31 @@ class OidcAccessTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConsoleTuningTests(unittest.TestCase):
+    """The console knobs reach the console process, and only when set."""
+
+    KNOBS = {"EXPIRY_WARNING_DAYS": "7", "INACTIVE_DAYS": "60", "AUTO_RENAME_LOCALHOST": "false",
+             "RENAME_INTERVAL": "10", "AUDIT_RETENTION_DAYS": "0", "STATUS_UPDATE_CHECK": "false",
+             "SIGNIN_RATE_LIMIT": "5", "SIGNIN_RATE_WINDOW": "300", "PORTAL_API_KEY_LOGIN": "true",
+             "BACKUP_UPLOAD_MAX_MB": "2048"}
+
+    def _settings(self, env):
+        base = {"HSE_PUBLIC_URL": "https://vpn.example.test", "HSE_TLS": "off"}
+        with tempfile.TemporaryDirectory() as tmp:
+            return render.load_settings(env={**base, **env}, path=os.path.join(tmp, "settings.json"))
+
+    def test_set_variables_reach_the_console(self):
+        got = render.console_env(self._settings(self.KNOBS))
+        for name, value in self.KNOBS.items():
+            self.assertEqual(got.get(name), value, name)
+
+    def test_unset_variables_are_left_to_the_console_default(self):
+        got = render.console_env(self._settings({}))
+        for name in self.KNOBS:
+            self.assertNotIn(name, got, name)
+
+    def test_every_tuning_key_is_a_known_setting(self):
+        for key in render.CONSOLE_TUNING:
+            self.assertIn(key, render.SETTINGS)

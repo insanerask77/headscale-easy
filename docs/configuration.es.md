@@ -70,6 +70,22 @@ Todas las variables que lee la imagen. Las marcadas *asistente* también las pre
 | `NOTIFY_URLS` | | Destinos (Slack, Telegram, ntfy, webhook): ver [Operación → Notificaciones](operations.md#notifications) |
 | `NOTIFY_EVENTS` | todos | Qué eventos de dispositivos se envían |
 
+### Ajustes de la consola
+
+Opcionales. Sin valor, la consola usa el valor por defecto indicado.
+
+| Variable | Por defecto | Significado |
+|---|---|---|
+| `EXPIRY_WARNING_DAYS` | `14` | Una máquina "caduca pronto" cuando su clave caduca dentro de estos días |
+| `INACTIVE_DAYS` | `30` | Una máquina se considera inactiva tras estos días desconectada |
+| `AUTO_RENAME_LOCALHOST` | `true` | Renombra las máquinas que se registran como `localhost` |
+| `RENAME_INTERVAL` | `5` | Segundos entre dos pasadas de renombrado (mínimo 1) |
+| `AUDIT_RETENTION_DAYS` | `90` | Días que el registro de actividad conserva los eventos; `0` los guarda siempre |
+| `STATUS_UPDATE_CHECK` | `true` | Busca una versión nueva y la muestra en la página Estado |
+| `SIGNIN_RATE_LIMIT`, `SIGNIN_RATE_WINDOW` | `10`, `600` | Inicios de sesión fallidos permitidos desde una IP dentro de la ventana (segundos) antes de que la consola responda `429` |
+| `PORTAL_API_KEY_LOGIN` | `false` | Acceso de emergencia con la clave de API de Headscale (siempre activo si no hay proveedor) |
+| `BACKUP_UPLOAD_MAX_MB` | `1024` | Mayor copia que acepta la página Copias al subirla |
+
 ### Base de datos
 
 | Variable | Por defecto | Significado |

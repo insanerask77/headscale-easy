@@ -70,6 +70,22 @@ Every variable the image reads. The ones marked *wizard* are also asked by the
 | `NOTIFY_URLS` | | Destinations (Slack, Telegram, ntfy, webhook): see [Operations → Notifications](operations.md#notifications) |
 | `NOTIFY_EVENTS` | all | Which device events are sent |
 
+### Console tuning
+
+Optional. Unset, the console uses the default shown.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `EXPIRY_WARNING_DAYS` | `14` | A machine "expires soon" when its key expires within this many days |
+| `INACTIVE_DAYS` | `30` | A machine counts as inactive after this many days offline |
+| `AUTO_RENAME_LOCALHOST` | `true` | Rename machines that register as `localhost` |
+| `RENAME_INTERVAL` | `5` | Seconds between two rename passes (minimum 1) |
+| `AUDIT_RETENTION_DAYS` | `90` | Days the activity log keeps events; `0` keeps them forever |
+| `STATUS_UPDATE_CHECK` | `true` | Look for a newer release and show it on the Status page |
+| `SIGNIN_RATE_LIMIT`, `SIGNIN_RATE_WINDOW` | `10`, `600` | Failed sign-ins allowed from one IP within the window (seconds) before the console answers `429` |
+| `PORTAL_API_KEY_LOGIN` | `false` | Emergency sign-in with the Headscale API key (always on when no provider is set) |
+| `BACKUP_UPLOAD_MAX_MB` | `1024` | Largest backup the Backups page accepts as an upload |
+
 ### Database
 
 | Variable | Default | Meaning |
