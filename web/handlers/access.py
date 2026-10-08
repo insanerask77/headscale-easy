@@ -16,8 +16,11 @@ import admin_pages
 import audit
 import headscale as hs
 import local_accounts as lac
+import account_tokens
+import accounts_db
 import auth_pages
 import settings_pages
+import totp
 import sessions
 from handlers import shared as sh
 from i18n import _
@@ -250,23 +253,23 @@ class AccessHandlers:
         if use_recovery:
             # Verify recovery code
             recovery_codes = account.get('recovery_codes', '')
-            valid, remaining = lac.verify_recovery_code(recovery_codes, code)
+            valid, remaining = totp.verify_recovery_code(recovery_codes, code)
             if valid:
                 # Update the account with remaining codes
-                with lac._db() as db:
+                with accounts_db._db() as db:
                     db.execute("UPDATE accounts SET recovery_codes = ?, updated = ? WHERE id = ?",
-                             (remaining, lac._now(), account_id))
+                             (remaining, accounts_db._now(), account_id))
                 sh.log.info("Recovery code used for account %s (%s)", account_id, username)
         else:
             # Verify TOTP code
             secret = account.get('totp_secret', '')
             last_step = account.get('totp_last_step')
-            valid, new_step = lac.verify_totp(secret, code, last_step)
+            valid, new_step = totp.verify_totp(secret, code, last_step)
             if valid:
                 # Update last_step to prevent replay
-                with lac._db() as db:
+                with accounts_db._db() as db:
                     db.execute("UPDATE accounts SET totp_last_step = ?, updated = ? WHERE id = ?",
-                             (new_step, lac._now(), account_id))
+                             (new_step, accounts_db._now(), account_id))
 
         if not valid:
             sessions.hit(f"totp:{audit.client_ip(self)}")
@@ -296,7 +299,7 @@ class AccessHandlers:
     def accept_invitation_page(self, token: str):
         """Show the invitation acceptance page (GET /accept/{token})."""
         # Check the token (don't consume it yet)
-        data = lac.check_token(token, kind='invite')
+        data = account_tokens.check_token(token, kind='invite')
         if not data:
             return self.send(400, auth_pages.invitation_page(token, "", "", _("This invitation link is invalid or has expired.")))
 
@@ -305,7 +308,7 @@ class AccessHandlers:
     def accept_invitation(self, token: str, form: dict):
         """Accept an invitation and create account (POST /accept/{token})."""
         # Verify and consume the token
-        data = lac.verify_token(token, kind='invite')
+        data = account_tokens.verify_token(token, kind='invite')
         if not data:
             return self.send(400, auth_pages.invitation_page(token, "", "", _("This invitation link is invalid or has expired.")))
 
@@ -365,7 +368,7 @@ class AccessHandlers:
     def reset_password_page(self, token: str):
         """Show the password reset page (GET /reset/{token})."""
         # Check the token (don't consume it yet)
-        data = lac.check_token(token, kind='reset')
+        data = account_tokens.check_token(token, kind='reset')
         if not data:
             return self.send(400, auth_pages.reset_password_page(token, "", _("This password reset link is invalid or has expired.")))
 
@@ -379,7 +382,7 @@ class AccessHandlers:
     def reset_password(self, token: str, form: dict):
         """Reset password (POST /reset/{token})."""
         # Verify and consume the token
-        data = lac.verify_token(token, kind='reset')
+        data = account_tokens.verify_token(token, kind='reset')
         if not data:
             return self.send(400, auth_pages.reset_password_page(token, "", _("This password reset link is invalid or has expired.")))
 
@@ -620,7 +623,7 @@ def bootstrap_admin() -> None:
     else:
         # Create invitation token and log it
         try:
-            token = lac.create_invitation(email=admin_email, role="admin", expires_hours=168)
+            token = account_tokens.create_invitation(email=admin_email, role="admin", expires_hours=168)
             invite_url = f"{sh.PUBLIC_URL}{BASE}/accept/{token}"
             sh.log.info("=" * 80)
             sh.log.info("Bootstrap invitation created for admin: %s", admin_email)

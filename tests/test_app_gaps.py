@@ -29,6 +29,9 @@ import derp  # noqa: E402
 import headscale as hs  # noqa: E402
 import multipart  # noqa: E402
 import local_accounts as lac  # noqa: E402
+import account_tokens  # noqa: E402
+import accounts_db  # noqa: E402
+import totp  # noqa: E402
 import sessions  # noqa: E402
 
 PASSWORD = "Str0ng-Passw0rd-x"
@@ -82,7 +85,7 @@ class WithAccounts(Base):
 
     def setUp(self):
         super().setUp()
-        lac.configure(":memory:")
+        accounts_db.configure(":memory:")
         p = mock.patch.object(app.time, "sleep", mock.Mock())
         self.sleep = p.start()
         self.addCleanup(p.stop)
@@ -118,7 +121,7 @@ class FormAndSession(Base):
         self.assertEqual(h.form(), {"route": ["a", "b"], "rows[]": ["1", "2"], "x": "1", "blank": ""})
 
     def test_local_session_with_a_malformed_sub_has_no_account(self):
-        lac.configure(":memory:")
+        accounts_db.configure(":memory:")
         data = dict(ADMIN, kind="local", sub="local:abc")
         status, headers, _b = request("GET", B + "/healthz", data)
         self.assertEqual(status, 200)
@@ -129,7 +132,7 @@ class FormAndSession(Base):
         self.assertEqual((got["totp_on"], got["must_change"]), (False, False))
 
     def test_local_session_reflects_the_live_account(self):
-        lac.configure(":memory:")
+        accounts_db.configure(":memory:")
         acc = lac.create_account("zed", "zed@example.com", PASSWORD, role="admin", must_change=True)
         data = dict(ADMIN, kind="local", sub=f"local:{acc}")
         h = app.Handler.__new__(app.Handler)
@@ -231,7 +234,7 @@ class LocalLogin(WithAccounts):
 
     def test_disabled_account_is_403_without_sleeping(self):
         acc = self.account()
-        with lac._db() as db:
+        with accounts_db._db() as db:
             db.execute("UPDATE accounts SET disabled = 1 WHERE id = ?", (acc,))
         status, _h, body = self.login()
         self.assertEqual(status, 403)
@@ -264,7 +267,7 @@ class LocalLogin(WithAccounts):
     def test_admin_with_totp_enrolled_goes_to_the_second_step(self):
         acc = self.account("root", "admin")
         secret, _qr = lac.enroll_totp(acc)
-        lac.confirm_totp(acc, lac.compute_totp(secret))
+        lac.confirm_totp(acc, totp.compute_totp(secret))
         with mock.patch.object(sh, "MFA_REQUIRED", "admins"):
             status, headers, _b = self.login("root")
         self.assertEqual((status, location(headers)), (303, f"{B}/login/totp"))
@@ -296,7 +299,7 @@ class TotpLoginStep(WithAccounts):
         super().setUp()
         self.acc = self.account("root", "admin")
         self.secret, _qr = lac.enroll_totp(self.acc)
-        lac.confirm_totp(self.acc, lac.compute_totp(self.secret))
+        lac.confirm_totp(self.acc, totp.compute_totp(self.secret))
         self.recovery = lac.reset_recovery_codes(self.acc)
         self.pending = app.sign({"account_id": self.acc, "username": "root", "exp": time.time() + 300})
 
@@ -305,7 +308,7 @@ class TotpLoginStep(WithAccounts):
 
     def next_code(self):
         # the confirmation used the current step; replay protection wants a later one
-        return lac.compute_totp(self.secret, int(time.time()) + lac.TOTP_PERIOD)
+        return totp.compute_totp(self.secret, int(time.time()) + totp.TOTP_PERIOD)
 
     def test_page_shows_the_username(self):
         status, _h, body = request("GET", B + "/login/totp", headers={"Cookie": f"hse_totp_pending={self.pending}"})
@@ -356,7 +359,7 @@ class TotpLoginStep(WithAccounts):
 
 class Invitations(WithAccounts):
     def token(self, email="new@example.com", role="member") -> str:
-        return lac.create_invitation(email, role)
+        return account_tokens.create_invitation(email, role)
 
     def test_page_for_a_valid_and_an_invalid_token(self):
         status, _h, body = request("GET", f"{B}/accept/{self.token()}")
@@ -418,7 +421,7 @@ class Invitations(WithAccounts):
 class PasswordReset(WithAccounts):
     def test_page_for_a_valid_and_an_invalid_token(self):
         acc = self.account()
-        status, _h, body = request("GET", f"{B}/reset/{lac.create_reset_token(acc)}")
+        status, _h, body = request("GET", f"{B}/reset/{account_tokens.create_reset_token(acc)}")
         self.assertEqual(status, 200)
         self.assertIn("alice", body)
         status, _h, body = request("GET", f"{B}/reset/nope")
@@ -427,7 +430,7 @@ class PasswordReset(WithAccounts):
 
     def test_reset_changes_the_password_and_signs_in(self):
         acc = self.account()
-        status, headers, _b = request("POST", f"{B}/reset/{lac.create_reset_token(acc)}",
+        status, headers, _b = request("POST", f"{B}/reset/{account_tokens.create_reset_token(acc)}",
                                       form={"password": "An0ther-Passw0rd!", "password2": "An0ther-Passw0rd!"})
         self.assertEqual((status, location(headers)), (303, f"{B}/machines"))
         self.assertTrue(lac.verify_password("An0ther-Passw0rd!", lac.get_account(id=acc)["pw_hash"]))
@@ -438,15 +441,15 @@ class PasswordReset(WithAccounts):
         for form, text in (({}, "Password is required."),
                            ({"password": PASSWORD, "password2": "x"}, "Passwords do not match."),
                            ({"password": "short", "password2": "short"}, None)):
-            status, _h, body = request("POST", f"{B}/reset/{lac.create_reset_token(acc)}", form=form)
+            status, _h, body = request("POST", f"{B}/reset/{account_tokens.create_reset_token(acc)}", form=form)
             self.assertEqual(status, 400, form)
             if text:
                 self.assertIn(text, body)
 
     def test_token_of_a_deleted_account(self):
         acc = self.account()
-        token = lac.create_reset_token(acc)
-        with lac._db() as db:
+        token = account_tokens.create_reset_token(acc)
+        with accounts_db._db() as db:
             db.execute("DELETE FROM accounts WHERE id = ?", (acc,))
         for method in ("GET", "POST"):
             status, _h, body = request(method, f"{B}/reset/{token}", form={"password": PASSWORD, "password2": PASSWORD})
@@ -456,7 +459,7 @@ class PasswordReset(WithAccounts):
 
     def test_reset_token_is_not_an_invitation(self):
         acc = self.account()
-        self.assertEqual(request("GET", f"{B}/accept/{lac.create_reset_token(acc)}")[0], 400)
+        self.assertEqual(request("GET", f"{B}/accept/{account_tokens.create_reset_token(acc)}")[0], 400)
 
 
 # --- account settings (local accounts) --------------------------------------------------------------------------
@@ -478,7 +481,7 @@ class AccountSettings(WithAccounts):
             self.assertIn("local accounts only", body)
 
     def test_session_of_a_deleted_account_is_404(self):
-        with lac._db() as db:
+        with accounts_db._db() as db:
             db.execute("DELETE FROM accounts WHERE id = ?", (self.acc,))
         for path in ("/settings/account/password", "/settings/account/totp/confirm",
                      "/settings/account/totp/disable", "/settings/account/totp/recovery/reset"):
@@ -509,7 +512,7 @@ class AccountSettings(WithAccounts):
 
     def test_must_change_blocks_everything_but_the_password_form(self):
         locked = local_session(self.acc, "member", must_change=True)
-        with lac._db() as db:
+        with accounts_db._db() as db:
             db.execute("UPDATE accounts SET must_change = 1 WHERE id = ?", (self.acc,))
         status, headers, _b = self.post("/keys", locked)
         self.assertEqual((status, location(headers)), (303, f"{B}/settings/account?m=must-change"))
@@ -525,7 +528,7 @@ class AccountSettings(WithAccounts):
         self.assertEqual(location(headers), f"{B}/settings/account/totp/enroll?m=invalid-code")
         status, headers, _b = self.post("/settings/account/totp/recovery/reset")
         self.assertEqual(location(headers), f"{B}/settings/account?m=totp-not-enabled")
-        status, headers, _b = self.post("/settings/account/totp/confirm", code=lac.compute_totp(secret))
+        status, headers, _b = self.post("/settings/account/totp/confirm", code=totp.compute_totp(secret))
         self.assertEqual(location(headers), f"{B}/settings/account?m=totp-enabled")
         self.assertEqual(app.audit.request_event.call_args.args[2], "account.totp_enabled")
         # QUIRK (bug): settings_pages.recovery_codes_page() asks ui.icon() for 'alert-triangle', which does not exist, so
@@ -1494,7 +1497,7 @@ class DerpSave(Base):
 
 class BootstrapAdmin(unittest.TestCase):
     def setUp(self):
-        lac.configure(":memory:")
+        accounts_db.configure(":memory:")
         p = mock.patch.dict(os.environ, {}, clear=False)
         p.start()
         self.addCleanup(p.stop)
@@ -1537,7 +1540,7 @@ class BootstrapAdmin(unittest.TestCase):
         urls = [r for r in logs.output if "/accept/" in r]
         self.assertEqual(len(urls), 1)
         token = urls[0].rsplit("/accept/", 1)[1].strip()
-        data = lac.check_token(token, kind="invite")
+        data = account_tokens.check_token(token, kind="invite")
         self.assertEqual((data["email"], data["role"]), ("boss@example.com", "admin"))
 
 
@@ -1568,7 +1571,7 @@ class SmallHelpers(unittest.TestCase):
         self.assertEqual(member, [{"name": "gw", "ip": "100.64.0.2"}])
 
     def test_my_user_for_local_sessions(self):
-        lac.configure(":memory:")
+        accounts_db.configure(":memory:")
         acc = lac.create_account("alice", "a@example.com", PASSWORD, headscale_user="alice")
         with mock.patch.object(hs, "user_by_name", lambda name: {"name": name}):
             self.assertEqual(app.my_user({"kind": "local", "sub": f"local:{acc}"}), {"name": "alice"})

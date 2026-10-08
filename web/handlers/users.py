@@ -12,6 +12,7 @@ import admin_pages
 import audit
 import headscale as hs
 import local_accounts as lac
+import account_tokens
 import mailer
 import sessions
 import signup
@@ -47,10 +48,10 @@ class UsersHandlers:
         users = hs.all_users()
         signins = {a["headscale_user"]: a for a in lac.list_accounts() if a["headscale_user"]}
         extra = (signup_pages.key_result_box(*new_key) if new_key else "") + \
-            signup_pages.keys_section(session, lac.list_signup_keys(), signup.mode())
+            signup_pages.keys_section(session, account_tokens.list_signup_keys(), signup.mode())
         return self.send(status, admin_pages.users_page(session, sh.CTX, users, hs.all_nodes(), flash, error=error,
                                                         result=result, signins=signins, extra=extra,
-                                                        invites=lac.list_active_invitations(),
+                                                        invites=account_tokens.list_active_invitations(),
                                                         can_mail=mailer.enabled()))
 
     def users_error(self, session: dict, msg: str):
@@ -126,7 +127,7 @@ class UsersHandlers:
         if not account:
             return self.redirect(f"{BASE}/users?m=not-found")
         hours = 24
-        token = lac.create_reset_token(account["id"], expires_hours=hours)
+        token = account_tokens.create_reset_token(account["id"], expires_hours=hours)
         expires = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
         audit.request_event(self, session, "user.reset_link", account["username"], {}, f"user:{user_id}")
         return self.users_view(session, result={
@@ -204,14 +205,14 @@ class UsersHandlers:
             return again(_("Passwords do not match."))
         key_id = None
         if mode == "invite":
-            key_id = lac.use_signup_key(str(form.get("key", "")).strip())
+            key_id = account_tokens.use_signup_key(str(form.get("key", "")).strip())
             if key_id is None:  # wrong, expired, revoked or used up: one message for all
                 audit.request_event(self, None, "signup.rejected", "", {"reason": "key"}, actor="")
                 return again(_("The invitation key is not valid."))
 
         def give_back():
             if key_id is not None:
-                lac.release_signup_key(key_id)
+                account_tokens.release_signup_key(key_id)
 
         if lac.get_account(username=username) or lac.get_account(email=email):
             give_back()
@@ -244,13 +245,13 @@ class UsersHandlers:
         if uses not in signup.KEY_USES or days not in signup.KEY_DAYS:
             return self.users_error(session, _("Choose one of the options."))
         label = str(form.get("label", "")).strip()[:60]
-        key = lac.create_signup_key(label, int(uses), int(days) * 24 if days != "0" else None)
+        key = account_tokens.create_signup_key(label, int(uses), int(days) * 24 if days != "0" else None)
         # Never the key
         audit.request_event(self, session, "signup_key.create", label, {"uses": uses, "days": days})
         return self.users_view(session, new_key=(key, label))
 
     def revoke_signup_key(self, session: dict, key_id: int):
-        if lac.revoke_signup_key(key_id):
+        if account_tokens.revoke_signup_key(key_id):
             audit.request_event(self, session, "signup_key.revoke", str(key_id))
             return self.redirect(f"{BASE}/users?m=signup-key-revoked")
         return self.redirect(f"{BASE}/users?m=not-found")
@@ -288,7 +289,7 @@ class UsersHandlers:
             if role not in ("admin", "network_admin", "auditor", "member"):
                 raise ValueError(f"Invalid role: {role}")
             expires_hours = int(days) * 24
-            token = lac.create_invitation(email, role=role, expires_hours=expires_hours)
+            token = account_tokens.create_invitation(email, role=role, expires_hours=expires_hours)
             link = f"{sh.PUBLIC_URL}{BASE}/accept/{token}"
             expires = (datetime.now(timezone.utc) + timedelta(hours=expires_hours)).isoformat()
             sh.log.info("%s created an invitation (%s, %s, %s days)", who, role, email, days)
@@ -301,7 +302,7 @@ class UsersHandlers:
 
     def revoke_invitation(self, session: dict, pk: str):
         # pk is the token hash
-        if lac.revoke_token_by_hash(pk):
+        if account_tokens.revoke_token_by_hash(pk):
             sh.log.info("%s revoked an invitation", session["username"] or session["name"])
             audit.request_event(self, session, "invite.revoke", "")
             return self.redirect(f"{BASE}/users?m=invite-revoked")

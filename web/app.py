@@ -49,6 +49,7 @@ from handlers.shared import (  # noqa: E402,F401
 from http_base import HttpHelpers  # noqa: E402
 from config import Settings, csv_set, oidc_scope  # noqa: E402,F401
 import local_accounts as lac  # noqa: E402
+import accounts_db  # noqa: E402
 import status as server_status  # noqa: E402
 import status_pages  # noqa: E402
 import backup_pages  # noqa: E402
@@ -458,7 +459,7 @@ def main():
              VERSION, port, sh.PUBLIC_URL, BASE, sh.SSO, sh.API_KEY_LOGIN, ", DEMO MODE" if sh.DEMO else "")
 
     # Initialize local accounts database
-    lac.configure(os.environ.get("ACCOUNTS_DB", "/data/console/accounts.db"))
+    accounts_db.configure(os.environ.get("ACCOUNTS_DB", "/data/console/accounts.db"))
 
     # Bootstrap first admin if no accounts exist
     bootstrap_admin()

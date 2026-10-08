@@ -16,6 +16,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_security import ADMIN, B, Base, MEMBER, app, audit, hs, location, request, sessions  # noqa: E402
 
 import local_accounts as lac  # noqa: E402
+import account_tokens  # noqa: E402
+import accounts_db  # noqa: E402
 import signup  # noqa: E402
 
 PUBLIC = {"Cookie": "hse_signup=tok123"}
@@ -26,7 +28,7 @@ GOOD = {"csrf": "tok123", "username": "newbie", "email": "new@example.com",
 class SignupBase(Base):
     def setUp(self):
         super().setUp()
-        lac.configure(":memory:")
+        accounts_db.configure(":memory:")
         sessions.configure(":memory:")
         sessions._hits.clear()
         self.tmp = tempfile.mkdtemp()
@@ -134,7 +136,7 @@ class InviteSignup(SignupBase):
         return request("POST", f"{B}/signup", form=dict(GOOD, key=key, **change), headers=PUBLIC)
 
     def test_valid_key_works_once(self):
-        key = lac.create_signup_key("friends")
+        key = account_tokens.create_signup_key("friends")
         self.assertEqual(self.go(key)[0], 303)
         status, _, body = self.go(key, username="second", email="s@example.com")
         self.assertEqual(status, 400)
@@ -142,12 +144,12 @@ class InviteSignup(SignupBase):
         self.assertEqual([a["username"] for a in lac.list_accounts()], ["newbie"])
 
     def test_missing_wrong_revoked_expired_give_the_same_error(self):
-        revoked = lac.create_signup_key()
-        lac.revoke_signup_key(lac.list_signup_keys()[0]["id"])
-        expired = lac.create_signup_key(expires_hours=1)
-        with lac._db() as db:
+        revoked = account_tokens.create_signup_key()
+        account_tokens.revoke_signup_key(account_tokens.list_signup_keys()[0]["id"])
+        expired = account_tokens.create_signup_key(expires_hours=1)
+        with accounts_db._db() as db:
             db.execute("UPDATE signup_keys SET expires = '2000-01-01T00:00:00+00:00' WHERE key_hash = ?",
-                       (lac._hash_token(expired),))
+                       (account_tokens._hash_token(expired),))
         bodies = set()
         for key in ("", "hse-wrong", revoked, expired):
             status, _, body = self.go(key)
@@ -158,13 +160,13 @@ class InviteSignup(SignupBase):
         self.assertEqual(self.hs_calls(), [])
 
     def test_a_key_is_given_back_when_the_name_is_taken(self):
-        key = lac.create_signup_key()
+        key = account_tokens.create_signup_key()
         lac.create_account("newbie", "x@example.com", "a-long-password")
         self.assertEqual(self.go(key)[0], 400)
         self.assertEqual(self.go(key, username="free", email="free@example.com")[0], 303)
 
     def test_multi_use_key(self):
-        key = lac.create_signup_key(max_uses=2)
+        key = account_tokens.create_signup_key(max_uses=2)
         codes = [self.go(key, username=f"user{i}", email=f"u{i}@example.com")[0] for i in range(3)]
         self.assertEqual(codes, [303, 303, 400])
 
@@ -175,7 +177,7 @@ class AdminSide(SignupBase):
                            (f"{B}/signup/keys/1/revoke", {}), (f"{B}/users/1/password", {"password": "a-long-password"})):
             self.assertEqual(request("POST", path, MEMBER, dict(form, csrf="tok"))[0], 403, path)
         self.assertEqual(signup.mode(), "off")
-        self.assertEqual(lac.list_signup_keys(), [])
+        self.assertEqual(account_tokens.list_signup_keys(), [])
 
     def test_admin_sets_the_mode(self):
         status, headers, _ = request("POST", f"{B}/settings/signup", ADMIN, {"csrf": "tok", "mode": "invite"})
@@ -194,15 +196,15 @@ class AdminSide(SignupBase):
             self.assertEqual(status, 200)
             key = re.search(r"<code>(hse-[\w-]+)</code>", body).group(1)
             self.assertNotIn(key, request("GET", f"{B}/users", ADMIN)[2])
-        self.assertEqual(lac.list_signup_keys()[0]["max_uses"], 5)
-        self.assertIsNotNone(lac.use_signup_key(key))
+        self.assertEqual(account_tokens.list_signup_keys()[0]["max_uses"], 5)
+        self.assertIsNotNone(account_tokens.use_signup_key(key))
         self.assertNotIn(key, repr(audit.request_event.call_args_list))
 
     def test_revoke_key(self):
-        key = lac.create_signup_key()
-        key_id = lac.list_signup_keys()[0]["id"]
+        key = account_tokens.create_signup_key()
+        key_id = account_tokens.list_signup_keys()[0]["id"]
         request("POST", f"{B}/signup/keys/{key_id}/revoke", ADMIN, {"csrf": "tok"})
-        self.assertIsNone(lac.use_signup_key(key))
+        self.assertIsNone(account_tokens.use_signup_key(key))
 
 
 class CreateUsersWithPasswords(SignupBase):
