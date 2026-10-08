@@ -9,7 +9,10 @@ extend-exclude = ["tests/fixtures"]
 [tool.ruff.lint]
 # Baseline: real errors only (pyflakes, syntax, undefined names). Stricter rule sets are
 # switched on later, once the code they flag has been refactored.
-select = ["E4", "E7", "E9", "F"]
+select = ["E4", "E7", "E9", "F", "B"]
+# B023, B904 and B905 are left off: acting on them (closures, exception chaining, zip lengths) can change
+# behaviour, so they are for a separate change, not for the refactor.
+ignore = ["B023", "B904", "B905"]
 
 [tool.ruff.lint.per-file-ignores]
 # The tests and the supervisor put web/ and aio/ on sys.path before importing, so imports follow code.

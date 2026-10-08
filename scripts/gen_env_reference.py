@@ -37,7 +37,7 @@ def settings():
 
 def variables():
     found = {}
-    for key, (var, default) in settings().items():
+    for var, default in settings().values():
         found[var] = default
     for var in EXTRA:
         found.setdefault(var, None)

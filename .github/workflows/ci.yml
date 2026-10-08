@@ -31,9 +31,10 @@ jobs:
       - name: Ruff
         run: pipx run ruff==0.8.6 check .
 
-      - name: Pyright (report only, baseline 47 errors; enforced in a later phase)
-        continue-on-error: true
-        run: pipx run pyright
+      - name: Pyright (no more errors than the recorded ceiling)
+        run: |
+          pip install pyright
+          python scripts/check_types.py
 
       - name: Python syntax
         run: python -m py_compile web/*.py web/*/*.py aio/*.py scripts/check_i18n.py

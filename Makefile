@@ -31,8 +31,8 @@ lint: ## shellcheck + ruff + Python syntax + i18n coverage
 test: ## Unit tests (Python standard library only)
 	@python3 -m unittest discover -s tests
 
-typecheck: ## pyright report (baseline, not enforced yet)
-	@uvx pyright
+typecheck: ## pyright, no more errors than the recorded ceiling
+	@PYRIGHT="uvx pyright" python3 scripts/check_types.py
 
 i18n: ## Report untranslated UI strings
 	@python3 scripts/check_i18n.py
