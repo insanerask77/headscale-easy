@@ -41,6 +41,9 @@ import app  # noqa: E402
 import audit  # noqa: E402
 import headscale as hs  # noqa: E402
 import local_accounts as lac  # noqa: E402
+import account_tokens  # noqa: E402
+import accounts_db  # noqa: E402
+import totp  # noqa: E402
 import sessions  # noqa: E402
 
 sessions.configure(":memory:")
@@ -107,7 +110,7 @@ class LocalAccountsE2ETest(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
         # Configure local accounts with in-memory database
-        lac.configure(":memory:")
+        accounts_db.configure(":memory:")
 
         # Mock Headscale API
         self.headscale_users = []
@@ -189,7 +192,7 @@ class LocalAccountsE2ETest(unittest.TestCase):
 
         # Step 3: Admin creates invitation for Bob
         bob_email = "bob@example.com"
-        token = lac.create_invitation(email=bob_email, role="member")
+        token = account_tokens.create_invitation(email=bob_email, role="member")
         self.assertIsNotNone(token, "Admin should be able to create invitation")
 
         # Step 4: Bob accepts invitation
@@ -219,7 +222,7 @@ class LocalAccountsE2ETest(unittest.TestCase):
         self.assertIsNotNone(secret, "TOTP enrollment should provide secret")
 
         # Compute a valid TOTP code
-        totp_code = lac.compute_totp(secret)
+        totp_code = totp.compute_totp(secret)
 
         # Confirm TOTP enrollment
         confirmed = lac.confirm_totp(bob_account["id"], totp_code)
@@ -246,8 +249,8 @@ class LocalAccountsE2ETest(unittest.TestCase):
         # Verify that Bob can authenticate with TOTP
         # The setup consumed the current time step (replay protection): use the next one
         import time
-        current_code = lac.compute_totp(bob_account_fresh["totp_secret"], int(time.time()) + 30)
-        valid, _ = lac.verify_totp(
+        current_code = totp.compute_totp(bob_account_fresh["totp_secret"], int(time.time()) + 30)
+        valid, _ = totp.verify_totp(
             bob_account_fresh["totp_secret"],
             current_code,
             bob_account_fresh["totp_last_step"]

@@ -25,7 +25,10 @@ sys.path.insert(0, WEB)
 
 import app  # noqa: E402
 from handlers import shared as sh  # noqa: E402
+import account_tokens  # noqa: E402
+import accounts_db  # noqa: E402
 import audit  # noqa: E402
+import totp  # noqa: E402
 import headscale as hs  # noqa: E402
 import sessions  # noqa: E402
 
@@ -174,7 +177,10 @@ class AdminOnly(Base):
     def test_local_member_cannot_access_admin_invitations(self):
         """Local account members cannot create or manage invitations."""
         import local_accounts as lac
-        lac.configure(":memory:")
+        import totp
+        import account_tokens
+        import accounts_db
+        accounts_db.configure(":memory:")
 
         # Create a local member session
         local_member = dict(MEMBER, kind="local", sub="local:1")
@@ -220,7 +226,9 @@ class MemberOwnership(Base):
     def test_local_member_sees_only_own_user(self):
         """Local account members can only see their own Headscale user."""
         import local_accounts as lac
-        lac.configure(":memory:")
+        import account_tokens
+        import accounts_db
+        accounts_db.configure(":memory:")
 
         # Create two local accounts
         alice_id = lac.create_account("alice", "alice@example.com", "password123",
@@ -370,7 +378,9 @@ class DemoMode(Base):
     def test_demo_blocks_local_account_invitation_creation(self):
         """Demo mode blocks creation of local account invitations."""
         import local_accounts as lac
-        lac.configure(":memory:")
+        import account_tokens
+        import accounts_db
+        accounts_db.configure(":memory:")
 
         # Attempt to create invitation in demo mode - should be blocked
         status, _, body = request("POST", f"{B}/invitations", ADMIN,
@@ -476,7 +486,7 @@ class LocalAccountSignin(Base):
         sessions._hits.clear()
         # Configure local accounts and create a test account
         import local_accounts as la
-        la.configure(":memory:")
+        accounts_db.configure(":memory:")
         # Create member account
         la.create_account("alice", "alice@example.com", "password123", role="member", headscale_user="bob")
         # Create admin account
@@ -555,7 +565,7 @@ class TOTPSignin(unittest.TestCase):
     def setUp(self):
         """Set up local accounts with TOTP."""
         import local_accounts as la
-        la.configure(":memory:")
+        accounts_db.configure(":memory:")
         self.la = la
 
         # Create test accounts
@@ -608,7 +618,7 @@ class TOTPSignin(unittest.TestCase):
         """Sign in with TOTP second factor."""
         # Enroll and confirm TOTP for admin
         secret, _ = self.la.enroll_totp(self.admin_id)
-        code = self.la.compute_totp(secret, int(time.time()))
+        code = totp.compute_totp(secret, int(time.time()))
         self.assertTrue(self.la.confirm_totp(self.admin_id, code))
 
         os.environ["MFA_REQUIRED"] = "admins"
@@ -629,7 +639,7 @@ class TOTPSignin(unittest.TestCase):
         self.assertIsNotNone(totp_cookie)
 
         # Generate a fresh TOTP code
-        fresh_code = self.la.compute_totp(secret, int(time.time()) + 30)  # next step: confirm_totp consumed the current one
+        fresh_code = totp.compute_totp(secret, int(time.time()) + 30)  # next step: confirm_totp consumed the current one
 
         # Verify TOTP
         status2, headers2, body2 = request("POST", f"{B}/login/totp",
@@ -644,7 +654,7 @@ class TOTPSignin(unittest.TestCase):
         """Sign in with wrong TOTP code is rejected."""
         # Enroll and confirm TOTP for admin
         secret, _ = self.la.enroll_totp(self.admin_id)
-        code = self.la.compute_totp(secret, int(time.time()))
+        code = totp.compute_totp(secret, int(time.time()))
         self.assertTrue(self.la.confirm_totp(self.admin_id, code))
 
         os.environ["MFA_REQUIRED"] = "admins"
@@ -672,14 +682,14 @@ class TOTPSignin(unittest.TestCase):
         """Sign in using a recovery code when TOTP is unavailable."""
         # Enroll and confirm TOTP for admin
         secret, _ = self.la.enroll_totp(self.admin_id)
-        code = self.la.compute_totp(secret, int(time.time()))
+        code = totp.compute_totp(secret, int(time.time()))
         self.assertTrue(self.la.confirm_totp(self.admin_id, code))
 
         # Get recovery codes
         account = self.la.get_account(id=self.admin_id)
         recovery_codes_hashed = account['recovery_codes']
         # Generate and verify we can extract one
-        valid, _ = self.la.verify_recovery_code(recovery_codes_hashed, "TESTCODE")
+        valid, _ = totp.verify_recovery_code(recovery_codes_hashed, "TESTCODE")
         self.assertFalse(valid)  # Our test code won't match
 
         # Generate actual recovery codes
@@ -716,7 +726,7 @@ class TOTPSignin(unittest.TestCase):
         """TOTP codes cannot be reused (replay protection)."""
         # Enroll and confirm TOTP for admin
         secret, _ = self.la.enroll_totp(self.admin_id)
-        code = self.la.compute_totp(secret, int(time.time()))
+        code = totp.compute_totp(secret, int(time.time()))
         self.assertTrue(self.la.confirm_totp(self.admin_id, code))
 
         os.environ["MFA_REQUIRED"] = "admins"
@@ -734,7 +744,7 @@ class TOTPSignin(unittest.TestCase):
 
             # Generate a fresh code for first attempt
             if attempt == 0:
-                fresh_code = self.la.compute_totp(secret, int(time.time()) + 30)  # next step: confirm_totp consumed the current one
+                fresh_code = totp.compute_totp(secret, int(time.time()) + 30)  # next step: confirm_totp consumed the current one
                 # First use should succeed
                 status2, headers2, body2 = request("POST", f"{B}/login/totp",
                                                   headers={"Cookie": totp_cookie.split(";")[0]},
@@ -757,7 +767,7 @@ class InvitationAndReset(Base):
         super().setUp()
         # Configure local accounts
         import local_accounts as la
-        la.configure(":memory:")
+        accounts_db.configure(":memory:")
         self.la = la
         # Mock Headscale API responses
         def api_mock(method, path, *args, **kwargs):
@@ -775,7 +785,7 @@ class InvitationAndReset(Base):
     def test_accept_invitation_creates_account(self):
         """Accepting an invitation creates a local account."""
         # Create an invitation
-        token = self.la.create_invitation("newuser@example.com", role='member')
+        token = account_tokens.create_invitation("newuser@example.com", role='member')
 
         # GET the invitation page (should work)
         status1, headers1, body1 = request("GET", f"{B}/accept/{token}")
@@ -803,7 +813,7 @@ class InvitationAndReset(Base):
 
     def test_accept_invitation_creates_headscale_user(self):
         """Accepting an invitation creates a Headscale user."""
-        token = self.la.create_invitation("hsuser@example.com", role='member')
+        token = account_tokens.create_invitation("hsuser@example.com", role='member')
 
         # Accept the invitation
         request("POST", f"{B}/accept/{token}", form={
@@ -819,7 +829,7 @@ class InvitationAndReset(Base):
 
     def test_accept_invitation_token_single_use(self):
         """Invitation tokens can only be used once."""
-        token = self.la.create_invitation("singleuse@example.com", role='member')
+        token = account_tokens.create_invitation("singleuse@example.com", role='member')
 
         # First use: should succeed
         status1, headers1, body1 = request("POST", f"{B}/accept/{token}", form={
@@ -840,7 +850,7 @@ class InvitationAndReset(Base):
 
     def test_accept_invitation_password_mismatch(self):
         """Accepting invitation fails if passwords don't match."""
-        token = self.la.create_invitation("mismatch@example.com", role='member')
+        token = account_tokens.create_invitation("mismatch@example.com", role='member')
 
         status, headers, body = request("POST", f"{B}/accept/{token}", form={
             "username": "testuser",
@@ -857,7 +867,7 @@ class InvitationAndReset(Base):
         account_id = self.la.create_account("resetuser", "reset@example.com", "oldpassword")
 
         # Create a reset token
-        token = self.la.create_reset_token(account_id)
+        token = account_tokens.create_reset_token(account_id)
 
         # GET the reset page
         status1, headers1, body1 = request("GET", f"{B}/reset/{token}")
@@ -882,7 +892,7 @@ class InvitationAndReset(Base):
     def test_reset_password_token_single_use(self):
         """Password reset tokens can only be used once."""
         account_id = self.la.create_account("resetonce", "resetonce@example.com", "password")
-        token = self.la.create_reset_token(account_id)
+        token = account_tokens.create_reset_token(account_id)
 
         # First use: should succeed
         status1, headers1, body1 = request("POST", f"{B}/reset/{token}", form={
@@ -904,12 +914,12 @@ class InvitationAndReset(Base):
         from datetime import datetime, timezone, timedelta
 
         # Create an invitation
-        token = self.la.create_invitation("expired@example.com")
+        token = account_tokens.create_invitation("expired@example.com")
 
         # Manually expire it
-        token_hash = self.la._hash_token(token)
+        token_hash = account_tokens._hash_token(token)
         past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
-        with self.la._db() as db:
+        with accounts_db._db() as db:
             db.execute("UPDATE tokens SET expires = ? WHERE token_hash = ?",
                       (past, token_hash))
 
@@ -942,7 +952,7 @@ class InvitationAndReset(Base):
         self.assertEqual(status, 200)
 
         # Verify invitation was created
-        invitations = self.la.list_active_invitations()
+        invitations = account_tokens.list_active_invitations()
         self.assertEqual(len(invitations), 1)
         self.assertEqual(invitations[0]['email'], 'admin-invite@example.com')
         self.assertEqual(invitations[0]['role'], 'member')
@@ -950,11 +960,11 @@ class InvitationAndReset(Base):
     def test_admin_lists_invitations(self):
         """Admins can list active invitations via API."""
         # Create some invitations
-        self.la.create_invitation("invite1@example.com", role='member')
-        self.la.create_invitation("invite2@example.com", role='admin')
+        account_tokens.create_invitation("invite1@example.com", role='member')
+        account_tokens.create_invitation("invite2@example.com", role='admin')
 
         # Verify invitations are in the database
-        invitations = self.la.list_active_invitations()
+        invitations = account_tokens.list_active_invitations()
         self.assertEqual(len(invitations), 2)
 
         emails = [inv['email'] for inv in invitations]
@@ -964,8 +974,8 @@ class InvitationAndReset(Base):
     def test_admin_revokes_invitation(self):
         """Admins can revoke invitations."""
         # Create an invitation
-        token = self.la.create_invitation("revoke-admin@example.com", role='member')
-        token_hash = self.la._hash_token(token)
+        token = account_tokens.create_invitation("revoke-admin@example.com", role='member')
+        token_hash = account_tokens._hash_token(token)
 
         # Admin revokes it
         admin = dict(ADMIN, kind="local", sub="local:999", role="admin")
@@ -977,7 +987,7 @@ class InvitationAndReset(Base):
         self.assertEqual(status, 303)
 
         # Verify invitation was revoked (can't be used)
-        data = self.la.check_token(token, kind='invite')
+        data = account_tokens.check_token(token, kind='invite')
         self.assertIsNone(data)
 
 
@@ -987,7 +997,7 @@ class SelfServiceAccount(unittest.TestCase):
     def setUp(self):
         """Set up local accounts."""
         import local_accounts as la
-        la.configure(":memory:")
+        accounts_db.configure(":memory:")
         self.la = la
 
         # Create test account
@@ -1260,14 +1270,16 @@ class LocalAccountHeadscaleIntegration(unittest.TestCase):
     def setUp(self):
         """Configure local accounts database before each test."""
         import local_accounts as lac
-        lac.configure(":memory:")
+        import account_tokens
+        import accounts_db
+        accounts_db.configure(":memory:")
         self.lac = lac
 
     @mock.patch.object(hs, "api")
     def test_accept_invitation_creates_headscale_user(self, mock_api):
         """Accepting an invitation creates both a local account AND a Headscale user."""
         # Create invitation
-        token = self.lac.create_invitation(email="alice@example.com", role="member")
+        token = account_tokens.create_invitation(email="alice@example.com", role="member")
 
         # Mock Headscale API to succeed on user creation
         mock_api.return_value = {"user": {"id": "42", "name": "alice"}}
@@ -1387,7 +1399,7 @@ class TwoFactorNudgeTest(unittest.TestCase):
 
     def test_session_reflects_the_account_live(self):
         import local_accounts as la
-        la.configure(":memory:")
+        accounts_db.configure(":memory:")
         account_id = la.create_account("ana", "ana@example.com", "-".join(["test", "pass", "n"]), role="admin")
         data = dict(self.LOCAL, sub=f"local:{account_id}")
         handler = app.Handler.__new__(app.Handler)
@@ -1395,7 +1407,7 @@ class TwoFactorNudgeTest(unittest.TestCase):
                 app.sessions, "validate", lambda _d: True), mock.patch.object(app.Handler, "cookie", lambda *_a: "x"):
             self.assertIs(handler.session()["totp_on"], False)
             secret, _qr = la.enroll_totp(account_id)
-            self.assertTrue(la.confirm_totp(account_id, la.compute_totp(secret)))
+            self.assertTrue(la.confirm_totp(account_id, totp.compute_totp(secret)))
             self.assertIs(handler.session()["totp_on"], True)
 
     def test_the_script_remembers_the_dismissal_per_browser_session(self):
@@ -1417,6 +1429,8 @@ class SetupTakeoverTest(unittest.TestCase):
 
     def test_no_account_is_created_without_the_token(self):
         import local_accounts as lac
+        import account_tokens
+        import accounts_db
         c = self.case.c
         form = {"email": "evil@example.com"}
         form["username"] = "evil"

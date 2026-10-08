@@ -42,6 +42,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "aio"))
 sys.path.insert(0, os.environ.get("HSE_WEB_DIR") or os.path.join(ROOT, "web"))
 
+import account_tokens  # noqa: E402
+import accounts_db  # noqa: E402
 import local_accounts as lac  # noqa: E402
 import cron  # noqa: E402
 import render  # noqa: E402
@@ -846,7 +848,7 @@ class Handler(BaseHTTPRequestHandler):
             first_key = ""
             if data["signup"].get("first_key"):
                 try:  # shown on the next page only; the database keeps just its hash
-                    first_key = lac.create_signup_key(_("First key"), 1, 168)
+                    first_key = account_tokens.create_signup_key(_("First key"), 1, 168)
                 except Exception:  # noqa: BLE001 - setup is done; the admin can create keys in the console
                     log.exception("could not create the first sign-up key")
             page = done_page(data["server"]["public_url"], first_key)
@@ -879,7 +881,7 @@ def make_server(wizard: Wizard, host=HOST, port=PORT) -> ThreadingHTTPServer:
 def main() -> int:
     logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(message)s")
     data_dir = os.environ.get("HSE_DATA_DIR", render.DATA_DIR)
-    lac.configure(os.path.join(data_dir, "console", "accounts.db"))
+    accounts_db.configure(os.path.join(data_dir, "console", "accounts.db"))
     token = ensure_token(data_dir)
     print(banner(token), flush=True)
 

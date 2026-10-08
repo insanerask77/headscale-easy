@@ -24,6 +24,7 @@ from handlers import access, devices, operations, policy as handlers_policy, use
 from handlers import shared as sh  # noqa: E402
 
 import local_accounts as lac  # noqa: E402
+import accounts_db  # noqa: E402
 
 ROLES = ("anon", "member", "admin", "auditor", "netadmin")
 SESSIONS = {
@@ -168,7 +169,7 @@ def permissive_headscale() -> mock.MagicMock:
 class RouteCase(Base):
     @classmethod
     def setUpClass(cls):
-        lac.configure(":memory:")
+        accounts_db.configure(":memory:")
 
     def setUp(self):
         super().setUp()
