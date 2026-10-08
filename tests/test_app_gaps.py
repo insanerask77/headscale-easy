@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.join(ROOT, "tests"))
 
 from test_security import ADMIN, B, BOB, MEMBER, Base, location, request  # noqa: E402  (sets the environment)
 import app  # noqa: E402
+from handlers import shared as sh  # noqa: E402
 import headscale as hs  # noqa: E402
 import local_accounts as lac  # noqa: E402
 import sessions  # noqa: E402
@@ -155,15 +156,15 @@ class StaticFiles(Base):
 
 class LoginPages(Base):
     def test_signed_out_and_signed_up_show_a_message_instead_of_starting_sso(self):
-        with mock.patch.object(app, "SSO", True), mock.patch.object(app, "API_KEY_LOGIN", False):
+        with mock.patch.object(sh, "SSO", True), mock.patch.object(sh, "API_KEY_LOGIN", False):
             for flash, text in (("signed-out", "signed out"), ("signed-up", "Account created")):
                 status, _h, body = request("GET", f"{B}/login?m={flash}")
                 self.assertEqual(status, 200)
                 self.assertIn(text, body)
 
     def test_login_with_only_sso_redirects_to_the_provider(self):
-        with mock.patch.object(app, "SSO", True), mock.patch.object(app, "API_KEY_LOGIN", False), \
-                mock.patch.object(app, "discovery", lambda: {"authorization_endpoint": "https://idp.example/auth"}):
+        with mock.patch.object(sh, "SSO", True), mock.patch.object(sh, "API_KEY_LOGIN", False), \
+                mock.patch.object(sh, "discovery", lambda: {"authorization_endpoint": "https://idp.example/auth"}):
             status, headers, _b = request("GET", B + "/login")
         self.assertEqual(status, 303)
         self.assertTrue(location(headers).startswith("https://idp.example/auth?"))
@@ -186,14 +187,14 @@ class RateLimiting(WithAccounts):
 
     def test_apikey_login_blocked(self):
         self.flood("apikey")
-        with mock.patch.object(app, "API_KEY_LOGIN", True):
+        with mock.patch.object(sh, "API_KEY_LOGIN", True):
             status, headers, _b = request("POST", B + "/login/apikey", form={"api_key": "hskey-api-x"})
         self.assertEqual(status, 429)
         self.assertIn("retry-after", headers)
 
     def test_sso_start_and_callback_blocked(self):
         self.flood("sso")
-        with mock.patch.object(app, "SSO", True):
+        with mock.patch.object(sh, "SSO", True):
             for path in ("/login/sso", "/callback?code=c&state=s"):
                 status, headers, _b = request("GET", B + path)
                 self.assertEqual(status, 429, path)
@@ -253,7 +254,7 @@ class LocalLogin(WithAccounts):
 
     def test_admin_with_mfa_required_but_not_enrolled_gets_a_session_marked_for_enrollment(self):
         self.account("root", "admin")
-        with mock.patch.object(app, "MFA_REQUIRED", "admins"):
+        with mock.patch.object(sh, "MFA_REQUIRED", "admins"):
             status, headers, _b = self.login("root")
         self.assertEqual(status, 303)
         self.assertTrue(app.unsign(cookie_value(headers, "hse_session"))["totp_enrollment_required"])
@@ -262,7 +263,7 @@ class LocalLogin(WithAccounts):
         acc = self.account("root", "admin")
         secret, _qr = lac.enroll_totp(acc)
         lac.confirm_totp(acc, lac.compute_totp(secret))
-        with mock.patch.object(app, "MFA_REQUIRED", "admins"):
+        with mock.patch.object(sh, "MFA_REQUIRED", "admins"):
             status, headers, _b = self.login("root")
         self.assertEqual((status, location(headers)), (303, f"{B}/login/totp"))
         pending = app.unsign(cookie_value(headers, "hse_totp_pending"))
@@ -273,7 +274,7 @@ class LocalLogin(WithAccounts):
         member, admin = {"role": "member"}, {"role": "admin"}
         h = app.Handler.__new__(app.Handler)
         for mode, expected in (("everyone", (True, True)), ("admins", (False, True)), ("optional", (False, False))):
-            with mock.patch.object(app, "MFA_REQUIRED", mode):
+            with mock.patch.object(sh, "MFA_REQUIRED", mode):
                 self.assertEqual((h.totp_required_for(member), h.totp_required_for(admin)), expected, mode)
 
     def test_next_cookie_only_honours_a_register_path(self):
@@ -541,7 +542,7 @@ class SessionsAndLogout(WithAccounts):
     def test_logout_of_an_oidc_session_goes_through_the_provider(self):
         oidc = dict(ADMIN, idt="tokenhint")
         disc = {"end_session_endpoint": "https://idp.example/logout"}
-        with mock.patch.object(app, "SSO", True), mock.patch.object(app, "discovery", lambda: disc):
+        with mock.patch.object(sh, "SSO", True), mock.patch.object(sh, "discovery", lambda: disc):
             status, headers, _b = request("POST", B + "/logout", oidc, {"csrf": "tok"})
         self.assertEqual(status, 303)
         target = urllib.parse.urlparse(location(headers))
@@ -552,7 +553,7 @@ class SessionsAndLogout(WithAccounts):
         self.assertIn("Max-Age=0", set_cookies(headers)["hse_session"])
 
     def test_logout_without_end_session_endpoint_or_for_local_goes_to_signed_out(self):
-        with mock.patch.object(app, "SSO", True), mock.patch.object(app, "discovery", lambda: {}):
+        with mock.patch.object(sh, "SSO", True), mock.patch.object(sh, "discovery", lambda: {}):
             status, headers, _b = request("POST", B + "/logout", ADMIN, {"csrf": "tok"})
         self.assertEqual(location(headers), f"{B}/login?m=signed-out")
         status, headers, _b = request("POST", B + "/logout", dict(ADMIN, kind="local"), {"csrf": "tok"})
@@ -610,7 +611,7 @@ class SessionsAndLogout(WithAccounts):
 
 class ApiKeyLogin(WithAccounts):
     def post(self, key):
-        with mock.patch.object(app, "API_KEY_LOGIN", True):
+        with mock.patch.object(sh, "API_KEY_LOGIN", True):
             return request("POST", B + "/login/apikey", form={"api_key": key})
 
     def test_bad_shapes_are_rejected_without_calling_headscale(self):
@@ -634,7 +635,7 @@ class ApiKeyLogin(WithAccounts):
         self.assertNotIn("secret", session["key"])
 
     def test_the_route_does_not_exist_when_api_key_login_is_off(self):
-        with mock.patch.object(app, "API_KEY_LOGIN", False):
+        with mock.patch.object(sh, "API_KEY_LOGIN", False):
             status, headers, _b = request("POST", B + "/login/apikey", form={"api_key": "hskey-api-x"})
         # QUIRK: falls through to the session check, so it looks like "not signed in", not a 404
         self.assertEqual((status, location(headers)), (303, f"{B}/login"))
@@ -648,7 +649,7 @@ class OidcCallback(WithAccounts):
         tx = app.sign({"state": tx_state, "verifier": "ver", "exp": time.time() + 600})
         headers = {"Cookie": f"hse_oidc={tx}"} if cookie else {}
         http = mock.Mock(side_effect=[{"access_token": "at", "id_token": "idt"}, userinfo or {"sub": "s1"}])
-        with mock.patch.object(app, "SSO", True), mock.patch.object(app, "discovery", lambda: self.DISC), \
+        with mock.patch.object(sh, "SSO", True), mock.patch.object(sh, "discovery", lambda: self.DISC), \
                 mock.patch.object(hs, "http_json", http):
             query = urllib.parse.urlencode(params)
             return request("GET", f"{B}/callback?{query}", headers=headers), http
@@ -691,7 +692,7 @@ class OidcCallback(WithAccounts):
 
     def test_unverified_email_does_not_make_an_admin(self):
         info = {"sub": "s1", "email": "boss@example.com", "email_verified": False}
-        with mock.patch.object(app, "ADMIN_EMAILS", {"boss@example.com"}):
+        with mock.patch.object(sh, "ADMIN_EMAILS", {"boss@example.com"}):
             (_s, headers, _b), _http = self.call({"code": "c", "state": "state1"}, userinfo=info)
         session = app.unsign(cookie_value(headers, "hse_session"))
         self.assertEqual((session["admin"], session["role"]), (False, "member"))
@@ -1130,7 +1131,7 @@ class DnsSave(NoNetwork):
             p.start()
             self.addCleanup(p.stop)
         self.editable = {"dns_editable": True}
-        q = mock.patch.object(app, "dns_ctx", lambda: dict(app.CTX, **self.editable))
+        q = mock.patch.object(sh, "dns_ctx", lambda: dict(app.CTX, **self.editable))
         q.start()
         self.addCleanup(q.stop)
 
@@ -1360,7 +1361,7 @@ class BackupUploadEdges(Base):
         self.assertIn(f"{B}/backups?m=backup-upload-none".encode(), h.wfile.getvalue())  # unparsable length = none
 
     def test_too_large_declared_length(self):
-        with mock.patch.object(app, "BACKUP_UPLOAD_MAX", 10):  # the limit is the maximum plus 1 MiB of form overhead
+        with mock.patch.object(sh, "BACKUP_UPLOAD_MAX", 10):  # the limit is the maximum plus 1 MiB of form overhead
             status, headers, _b = request("POST", B + "/backups/upload", ADMIN, raw=b"x" * ((1 << 20) + 11))
         self.assertEqual(location(headers), f"{B}/backups?m=backup-upload-toolarge")
         self.assertEqual(self.leftovers(), [])
@@ -1529,7 +1530,7 @@ class BootstrapAdmin(unittest.TestCase):
 
     def test_email_only_creates_an_invitation_for_an_admin(self):
         os.environ["HSE_ADMIN_EMAIL"] = "boss@example.com"
-        with self.assertLogs(app.log, level="INFO") as logs:
+        with self.assertLogs(sh.log, level="INFO") as logs:
             app.bootstrap_admin()
         urls = [r for r in logs.output if "/accept/" in r]
         self.assertEqual(len(urls), 1)
@@ -1541,7 +1542,7 @@ class BootstrapAdmin(unittest.TestCase):
 class SmallHelpers(unittest.TestCase):
     def test_csv_and_oidc_scope(self):
         with mock.patch.dict(os.environ, {"X_TEST": " a, b ,,c "}):
-            self.assertEqual(sorted(app._csv("X_TEST")), ["a", "b", "c"])
+            self.assertEqual(sorted(sh._csv("X_TEST")), ["a", "b", "c"])
         self.assertEqual(app.oidc_scope(None).split()[0], "openid")
         self.assertIn("openid", app.oidc_scope("email").split())
 

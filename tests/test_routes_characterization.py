@@ -20,6 +20,7 @@ import unittest
 from unittest import mock
 
 from test_security import ADMIN, BOB, BOB_NODE, MEMBER, B, Base, app, location, request  # sets up env + sys.path
+from handlers import shared as sh  # noqa: E402
 
 import local_accounts as lac  # noqa: E402
 
@@ -172,8 +173,10 @@ class RouteCase(Base):
         super().setUp()
         logging.disable(logging.CRITICAL)
         self.addCleanup(logging.disable, logging.NOTSET)
+        HS = permissive_headscale()
         patches = [
-            mock.patch.object(app, "hs", permissive_headscale()),
+            mock.patch.object(app, "hs", HS),
+            mock.patch.object(sh, "hs", HS),
             # data sources that read files or the supervisor: not part of the routing decision
             mock.patch.object(app.Handler, "derp_view", lambda *a, **k: "derp"),
             mock.patch.object(app.audit, "csv_export", lambda params: "csv"),
@@ -223,7 +226,7 @@ class GetRoutes(RouteCase):
     def test_sso_routes_fall_through_when_sso_is_off(self):
         # QUIRK: /login/sso and /callback are plain unknown paths without SSO: anonymous users are sent to the
         # login page, signed-in users get 404 (the same as any other unknown path).
-        self.assertFalse(app.SSO)
+        self.assertFalse(sh.SSO)
         for path in ("/login/sso", "/callback"):
             self.assertEqual(self.outcome("GET", path, "anon"), "303 ~/login", path)
             self.assertEqual(self.outcome("GET", path, "admin"), "404", path)

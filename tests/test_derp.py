@@ -23,6 +23,7 @@ os.environ.update(HEADSCALE_API_KEY="x", PUBLIC_URL="https://vpn.example.com", S
 sys.path.insert(0, WEB)
 
 import app  # noqa: E402
+from handlers import shared as sh  # noqa: E402
 import derp  # noqa: E402
 import derp_pages  # noqa: E402
 import headscale as hs  # noqa: E402
@@ -297,7 +298,7 @@ class Pages(unittest.TestCase):
         self.assertEqual(read(DERP_FILE), "regions: {}\n")
 
     def test_demo_blocks_it(self):
-        self.assertRegex(f"{B}/derp", app.DEMO_BLOCKED)
+        self.assertRegex(f"{B}/derp", sh.DEMO_BLOCKED)
 
 
 if __name__ == "__main__":

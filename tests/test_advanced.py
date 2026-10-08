@@ -185,7 +185,7 @@ class Blueprint(unittest.TestCase):
 
 class RedirectUris(unittest.TestCase):
     def test_the_consoles_callback_is_what_the_code_uses(self):
-        app = read("web", "app.py")
+        app = read("web", "handlers", "shared.py")
         self.assertIn('REDIRECT_URI = f"{PUBLIC_URL}{BASE}/callback"', app)
         self.assertRegex(read("web", "ui.py"), r'(?m)^BASE = "/console"')
 

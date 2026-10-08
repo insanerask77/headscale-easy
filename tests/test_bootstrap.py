@@ -38,7 +38,7 @@ class BootstrapTests(unittest.TestCase):
             os.environ.pop(key, None)
 
     @patch('app.hs')
-    @patch('app.log')
+    @patch('handlers.shared.log')
     def test_bootstrap_creates_admin_with_password(self, mock_log, mock_hs):
         """bootstrap_admin() creates an admin account when email and password are set."""
         # Import here to avoid issues with mocking
@@ -68,7 +68,7 @@ class BootstrapTests(unittest.TestCase):
         mock_log.info.assert_any_call("✓ Bootstrap: Created admin account '%s' (%s)", 'admin', 'admin@example.com')
 
     @patch('app.lac')
-    @patch('app.log')
+    @patch('handlers.shared.log')
     def test_bootstrap_creates_invitation_without_password(self, mock_log, mock_lac):
         """bootstrap_admin() creates an invitation token when email is set but password is not."""
         # Import here to avoid issues with mocking
@@ -96,7 +96,7 @@ class BootstrapTests(unittest.TestCase):
         self.assertTrue(any('Bootstrap invitation created' in str(call) for call in log_calls))
         self.assertTrue(any('test-token-abc123' in str(call) for call in log_calls))
 
-    @patch('app.log')
+    @patch('handlers.shared.log')
     def test_bootstrap_skips_when_accounts_exist(self, mock_log):
         """bootstrap_admin() does nothing if accounts already exist."""
         # Import here to avoid issues with mocking
@@ -116,7 +116,7 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(len(accounts), 1)
         self.assertEqual(accounts[0]['username'], 'existing')
 
-    @patch('app.log')
+    @patch('handlers.shared.log')
     def test_bootstrap_skips_when_no_email_set(self, mock_log):
         """bootstrap_admin() does nothing if HSE_ADMIN_EMAIL is not set."""
         # Import here to avoid issues with mocking
@@ -136,7 +136,7 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn('Set HSE_ADMIN_EMAIL', str(mock_log.info.call_args))
 
     @patch('app.hs')
-    @patch('app.log')
+    @patch('handlers.shared.log')
     def test_bootstrap_handles_headscale_user_creation_failure(self, mock_log, mock_hs):
         """bootstrap_admin() continues if Headscale user creation fails."""
         # Import here to avoid issues with mocking
@@ -159,7 +159,7 @@ class BootstrapTests(unittest.TestCase):
         mock_log.warning.assert_called_once()
         self.assertIn('Failed to create Headscale user', str(mock_log.warning.call_args))
 
-    @patch('app.log')
+    @patch('handlers.shared.log')
     def test_bootstrap_handles_account_creation_failure(self, mock_log):
         """bootstrap_admin() handles account creation failures gracefully."""
         # Import here to avoid issues with mocking

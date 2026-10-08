@@ -24,6 +24,7 @@ os.environ.update(HEADSCALE_API_KEY="x", PUBLIC_URL="https://vpn.example.com", S
 sys.path.insert(0, WEB)
 
 import app  # noqa: E402
+from handlers import shared as sh  # noqa: E402
 import audit  # noqa: E402
 import headscale as hs  # noqa: E402
 import sessions  # noqa: E402
@@ -100,7 +101,7 @@ class SignedCookies(unittest.TestCase):
         self.assertIsNone(app.unsign(f"{forged}.{mac}"))
 
     def test_wrong_secret_is_rejected(self):
-        with mock.patch.object(app, "SESSION_SECRET", b"other"):
+        with mock.patch.object(sh, "SESSION_SECRET", b"other"):
             cookie = app.sign(ADMIN)
         self.assertIsNone(app.unsign(cookie))
 
@@ -300,7 +301,7 @@ class StaticAndRedirects(Base):
 class OidcAdminByEmail(Base):
     def setUp(self):
         super().setUp()
-        p = mock.patch.object(app, "SSO", True)
+        p = mock.patch.object(sh, "SSO", True)
         p.start()
         self.addCleanup(p.stop)
 
@@ -309,9 +310,9 @@ class OidcAdminByEmail(Base):
         responses = {"token": {"access_token": "at"}, "userinfo": userinfo}
         http = mock.Mock(side_effect=lambda method, url, **kw: responses["token" if url.endswith("/token") else "userinfo"])
         with mock.patch.object(hs, "http_json", http), \
-                mock.patch.object(app, "discovery", lambda: {"token_endpoint": "https://idp/token",
+                mock.patch.object(sh, "discovery", lambda: {"token_endpoint": "https://idp/token",
                                                              "userinfo_endpoint": "https://idp/userinfo"}), \
-                mock.patch.object(app, "ADMIN_EMAILS", {"boss@example.com"}):
+                mock.patch.object(sh, "ADMIN_EMAILS", {"boss@example.com"}):
             status, headers, _ = request("GET", f"{B}/callback?code=c&state=st", headers={"Cookie": f"hse_oidc={tx}"})
         self.assertEqual(status, 303)
         cookie = next(c for c in headers["set-cookie"] if c.startswith("hse_session="))
@@ -338,7 +339,7 @@ class OidcAdminByEmail(Base):
 class DemoMode(Base):
     def setUp(self):
         super().setUp()
-        p = mock.patch.object(app, "DEMO", True)
+        p = mock.patch.object(sh, "DEMO", True)
         p.start()
         self.addCleanup(p.stop)
 
@@ -1390,7 +1391,7 @@ class TwoFactorNudgeTest(unittest.TestCase):
         account_id = la.create_account("ana", "ana@example.com", "-".join(["test", "pass", "n"]), role="admin")
         data = dict(self.LOCAL, sub=f"local:{account_id}")
         handler = app.Handler.__new__(app.Handler)
-        with mock.patch.object(app, "unsign", lambda _c: dict(data)), mock.patch.object(
+        with mock.patch.object(sh, "unsign", lambda _c: dict(data)), mock.patch.object(
                 app.sessions, "validate", lambda _d: True), mock.patch.object(app.Handler, "cookie", lambda *_a: "x"):
             self.assertIs(handler.session()["totp_on"], False)
             secret, _qr = la.enroll_totp(account_id)
