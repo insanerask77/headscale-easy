@@ -510,14 +510,14 @@ class LocalAccountSignin(Base):
         status, _, body = request("POST", f"{B}/login/local", None,
                                  {"username": "alice", "password": "wrongpass"})
         self.assertEqual(status, 401)
-        self.assertIn("wrong username or password", body.lower())
+        self.assertIn("wrong username, email or password", body.lower())
 
     def test_local_signin_unknown_user(self):
         """Local sign-in with unknown username fails."""
         status, _, body = request("POST", f"{B}/login/local", None,
                                  {"username": "nonexistent", "password": "password123"})
         self.assertEqual(status, 401)
-        self.assertIn("wrong username or password", body.lower())
+        self.assertIn("wrong username, email or password", body.lower())
 
     def test_local_signin_disabled_account(self):
         """Local sign-in with disabled account fails."""
