@@ -293,7 +293,7 @@ class DevicesHandlers(HandlerBase):
             "expiration": sh.iso_in(int(days)),
         })["preAuthKey"]
         sh.log.info("%s generated an auth key for %s (reusable=%s, ephemeral=%s, %s d)", session["username"],
-                 user["name"], key.get("reusable"), key.get("ephemeral"), days)
+                 user["name"], form.get("reusable") == "1", form.get("ephemeral") == "1", days)
         audit.request_event(self, session, "authkey.create", user["name"], {"key": key.get("key"), "reusable": key.get("reusable"), "ephemeral": key.get("ephemeral"), "days": int(days)}, f"user:{user['id']}")
         # Shown in this very response: Headscale never returns it again
         self.keys_view(session, "", new_key=key)

@@ -118,7 +118,7 @@ class AccessHandlers(HandlerBase):
             audit.request_event(self, None, "auth.signin_failed", "", {"method": "apikey", "prefix": hs.api_key_prefix(key)}, actor="")
             return self.send(401, admin_pages.login_page(sh.SSO, sh.API_KEY_LOGIN, _("Invalid or expired API key.")))
         sessions.reset(f"apikey:{audit.client_ip(self)}")
-        sh.log.info("sign-in with API key (%s…)", key[:14])
+        sh.log.info("sign-in with API key from %s", self.address_string())
         self.start_session({"kind": "apikey", "sub": "", "username": "", "name": _("Administrator"),
                             "email": "", "groups": [], "admin": True, "role": "admin", "key": hs.api_key_prefix(key)})
 
