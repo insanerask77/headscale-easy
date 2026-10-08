@@ -300,7 +300,7 @@ def login_page(sso: bool, apikey: bool, error: str = "", info: str = "", local: 
     if local:
         local_html = f"""
       <form method="post" action="{BASE}/login/local" class="stack">
-        <label class="field">{esc(_("Username or email"))}<input name="username" type="text" required
+        <label class="field">{esc(_("Username"))}<input name="username" type="text" required
           autocomplete="username" spellcheck="false" autofocus></label>
         <label class="field">{esc(_("Password"))}<input name="password" type="password" required
           autocomplete="current-password"></label>

@@ -1,7 +1,6 @@
 {
   "This action is for local accounts only.": "Esta acción es solo para cuentas locales.",
   "Wrong username or password.": "Usuario o contraseña incorrectos.",
-  "Wrong username, email or password.": "Usuario, correo o contraseña incorrectos.",
   "This account is disabled.": "Esta cuenta está desactivada.",
   "Password is required.": "La contraseña es obligatoria.",
   "Code is required.": "El código es obligatorio.",
