@@ -220,14 +220,14 @@ class LocalLogin(WithAccounts):
     def test_missing_fields(self):
         status, _h, body = self.login("", "")
         self.assertEqual(status, 401)
-        self.assertIn("Username and password are required.", body)
+        self.assertIn("Username or email and password are required.", body)
 
     def test_unknown_user_and_wrong_password_look_the_same_and_sleep(self):
         self.account()
         for args in (("ghost", PASSWORD), ("alice", "wrong")):
             status, _h, body = self.login(*args)
             self.assertEqual(status, 401)
-            self.assertIn("Wrong username or password.", body)
+            self.assertIn("Wrong username, email or password.", body)
         self.assertEqual(self.sleep.call_count, 2)
         reasons = [c.args[4]["reason"] for c in app.audit.request_event.call_args_list]
         self.assertEqual(reasons, ["unknown_user", "wrong_password"])
@@ -248,6 +248,20 @@ class LocalLogin(WithAccounts):
         session = app.unsign(cookie_value(headers, "hse_session"))
         self.assertEqual((session["kind"], session["sub"], session["admin"], session["role"]),
                          ("local", f"local:{acc}", False, "member"))
+
+    def test_member_signs_in_with_the_email_and_the_session_keeps_the_username(self):
+        acc = self.account()
+        for typed in ("alice@example.com", "Alice@Example.com"):
+            status, headers, _b = self.login(typed)
+            self.assertEqual((status, location(headers)), (303, f"{B}/machines"), typed)
+            session = app.unsign(cookie_value(headers, "hse_session"))
+            self.assertEqual((session["sub"], session["username"]), (f"local:{acc}", "alice"))
+
+    def test_unknown_email_is_rejected_like_an_unknown_user(self):
+        self.account()
+        status, _h, body = self.login("ghost@example.com")
+        self.assertEqual(status, 401)
+        self.assertIn("Wrong username, email or password.", body)
 
     def test_session_cookie_is_http_only_and_the_other_cookies_are_cleared(self):
         self.account()

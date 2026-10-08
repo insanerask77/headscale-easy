@@ -1,5 +1,6 @@
 {
   "Username": "Nom d'utilisateur",
+  "Username or email": "Nom d'utilisateur ou e-mail",
   "Email": "Email",
   "Password": "Mot de passe",
   "Confirm password": "Confirmez le mot de passe",
@@ -10,6 +11,7 @@
   "Accept invitation": "Accepter l'invitation",
   "Reset password": "Réinitialiser le mot de passe",
   "Username and password are required.": "Le nom d'utilisateur et le mot de passe sont requis.",
+  "Username or email and password are required.": "Le nom d'utilisateur ou l'e-mail et le mot de passe sont requis.",
   "Passwords do not match.": "Les mots de passe ne correspondent pas.",
   "Username must be 3-32 characters: letters, numbers, - and _": "Le nom d'utilisateur doit contenir 3-32 caractères: lettres, chiffres, - et _",
   "Failed to create user. The username may already exist.": "Échec de la création de l'utilisateur. Le nom d'utilisateur existe peut-être déjà.",

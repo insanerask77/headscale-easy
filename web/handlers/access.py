@@ -123,7 +123,7 @@ class AccessHandlers(HandlerBase):
                             "email": "", "groups": [], "admin": True, "role": "admin", "key": hs.api_key_prefix(key)})
 
     def local_login(self, form: dict):
-        """Sign in with a local account (username + password)."""
+        """Sign in with a local account (username or email + password)."""
         wait = self.rate_limited("local")
         if wait:
             return self.too_many(wait, admin_pages.login_page(
@@ -135,18 +135,22 @@ class AccessHandlers(HandlerBase):
         if not username or not password:
             sessions.hit(f"local:{audit.client_ip(self)}")
             return self.send(401, admin_pages.login_page(
-                sh.SSO, sh.API_KEY_LOGIN, _("Username and password are required.")))
+                sh.SSO, sh.API_KEY_LOGIN, _("Username or email and password are required.")))
 
-        # Get account
+        # Get account: by username, or by email when it looks like one
         account = lac.get_account(username=username)
-        if not account:
+        if not account and "@" in username:
+            account = lac.get_account(email=username)
+        if account:
+            username = account['username']  # the session and the audit log use the real username
+        else:
             sessions.hit(f"local:{audit.client_ip(self)}")
             time.sleep(1)  # slow down enumeration
             sh.log.warning("Local sign-in rejected: unknown user '%s' from %s", username, self.address_string())
             audit.request_event(self, None, "auth.signin_failed", "",
                                {"method": "local", "username": username, "reason": "unknown_user"}, actor="")
             return self.send(401, admin_pages.login_page(
-                sh.SSO, sh.API_KEY_LOGIN, _("Wrong username or password.")))
+                sh.SSO, sh.API_KEY_LOGIN, _("Wrong username, email or password.")))
 
         # Verify password
         if not lac.verify_password(password, account['pw_hash']):
@@ -156,7 +160,7 @@ class AccessHandlers(HandlerBase):
             audit.request_event(self, None, "auth.signin_failed", "",
                                {"method": "local", "username": username, "reason": "wrong_password"}, actor="")
             return self.send(401, admin_pages.login_page(
-                sh.SSO, sh.API_KEY_LOGIN, _("Wrong username or password.")))
+                sh.SSO, sh.API_KEY_LOGIN, _("Wrong username, email or password.")))
 
         # Check if account is disabled
         if account['disabled']:
