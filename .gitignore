@@ -34,3 +34,5 @@ site/
 !advanced/proxy/Caddyfile
 !advanced/oidc/pocket-id/Caddyfile
 !tests/fixtures/render/*/headscale-config.yaml
+.coverage
+.ruff_cache/
