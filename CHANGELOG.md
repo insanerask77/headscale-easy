@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-08
+
+### Changed
+- The web console moved from `/admin` to `/console`. The Caddy route, the setup wizard, the proxy and OIDC
+  examples, the docs and the smoke scripts use the new path. **Update the redirect URI of an OIDC client and
+  any reverse-proxy rule that pointed at `/admin`.** The bootstrap invitation URL no longer repeats the base path.
+- Internal refactor with no change in behaviour: the web console, the setup wizard, the supervisor, the
+  Headscale client and the local accounts are split by responsibility into smaller modules
+  (`web/handlers/`, `web/*_pages.py`, `aio/supervisor.py`, `web/accounts_db.py`, `web/totp.py`, ...), and the
+  page renderers are separated from the expiry and sign-up logic. See `CONTRIBUTING.md` for the new layout.
+- CI enforces a pyright error ceiling and ruff's bugbear rules; `web/handlers` is part of the syntax and
+  translation checks.
+
+### Fixed
+- The route characterization tests no longer close the test runner's standard output.
+
 ## [2.0.2] - 2026-10-06
 
 ### Fixed
