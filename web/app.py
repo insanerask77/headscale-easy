@@ -298,6 +298,9 @@ def iso_in(days: int) -> str:
 # HTTP
 # -----------------------------------------------------------------------------
 
+_NOT_PUBLIC = object()  # what _get_public/_post_public return for a path that needs a session
+
+
 class Handler(HttpHelpers, BaseHTTPRequestHandler):
     server_version = "headscale-easy"
     sys_version = ""
@@ -359,142 +362,12 @@ class Handler(HttpHelpers, BaseHTTPRequestHandler):
         params = dict(urllib.parse.parse_qsl(query))
         flash = params.get("m", "")
         try:
-            if path == f"{BASE}/healthz":
-                return self.send(200, "ok", "text/plain")
-            if path == f"{BASE}/restore-status":
-                return self.restore_status(params.get("id", ""))
-            if path.startswith(f"{BASE}/static/"):
-                return self.static(path[len(f"{BASE}/static/"):])
-            if path == f"{BASE}/login":
-                # After signing out, say so instead of starting a new sign-in
-                if params.get("m") == "signed-out":
-                    return self.send(200, admin_pages.login_page(SSO, API_KEY_LOGIN, info=_("You have signed out.")))
-                if params.get("m") == "signed-up":
-                    return self.send(200, admin_pages.login_page(SSO, API_KEY_LOGIN, info=_("Account created. Sign in.")))
-                if SSO and not API_KEY_LOGIN:
-                    return self.start_sso()
-                return self.send(200, admin_pages.login_page(SSO, API_KEY_LOGIN))
-            if path == f"{BASE}/signup":
-                return self.signup_form()
-            if path == f"{BASE}/login/sso" and SSO:
-                return self.start_sso()
-            if path == f"{BASE}/login/totp":
-                return self.totp_verify_page()
-            if path == f"{BASE}/callback" and SSO:
-                return self.callback(params)
-            # Invitation and password reset (public routes)
-            accept_match = re.fullmatch(rf"{BASE}/accept/([A-Za-z0-9_-]+)", path)
-            if accept_match:
-                return self.accept_invitation_page(accept_match.group(1))
-            reset_match = re.fullmatch(rf"{BASE}/reset/([A-Za-z0-9_-]+)", path)
-            if reset_match:
-                return self.reset_password_page(reset_match.group(1))
-
+            handled = self._get_public(path, params)
+            if handled is not _NOT_PUBLIC:
+                return handled
             if path == f"{BASE}/events":
                 return self.events_stream()
-
-            session = self.session()
-            register = REGISTER_PATH_RE.fullmatch(path)
-            if not session:
-                # Come back to this device's approval page after signing in
-                after = [self.set_cookie("hse_next", sign({"path": path, "exp": time.time() + 600}), 600)] if register else None
-                return self.redirect(f"{BASE}/login", after)
-            admin = session.get("admin")
-            if session.get("must_change") and path not in (f"{BASE}/settings/account", f"{BASE}/logout"):
-                return self.redirect(f"{BASE}/settings/account?m=must-change")
-            if register:
-                return self.register_view(session, register.group(1))
-
-            if path in (BASE, f"{BASE}/"):
-                return self.redirect(f"{BASE}/machines")
-            sees_all = admin or is_auditor(session)
-            if path == f"{BASE}/machines":
-                users = hs.all_users() if sees_all else None
-                has_user = True if sees_all else my_user(session) is not None
-                return self.send(200, pages.machines_page(session, CTX, to_machines(visible_nodes(session)),
-                                                          has_user, flash, users))
-            if path == f"{BASE}/machines.csv":
-                data = pages.machines_csv(to_machines(visible_nodes(session)))
-                return self.send(200, data, "text/csv; charset=utf-8",
-                                 [("Content-Disposition", 'attachment; filename="machines.csv"')])
-            m = re.fullmatch(rf"{BASE}/machines/(\d+)", path)
-            if m:
-                node = node_for(session, m.group(1))
-                if node is None:
-                    return self.redirect(f"{BASE}/machines?m=not-found")
-                return self.send(200, pages.machine_page(session, CTX, to_machines([node])[0], flash))
-            if path == f"{BASE}/add":
-                return self.send(200, pages.add_page(session, CTX, users=hs.all_users() if session.get("admin") else None,
-                                                          exit_nodes=exit_nodes_for(session)))
-            if path == f"{BASE}/dns":
-                return self.send(200, pages.dns_page(session, dns_ctx() if can_edit_network(session) else CTX,
-                                                     hs.dns_config(), to_machines(visible_nodes(session)), flash=flash))
-            if path in (f"{BASE}/settings", f"{BASE}/settings/"):
-                return self.redirect(f"{BASE}/settings/general")
-            if path == f"{BASE}/settings/general":
-                return self.send(200, pages.general_page(session, CTX, flash,
-                                                         key_expiry=hs.key_expiry_days() if admin else None,
-                                                         extra=signup.mode_card(session, signup.mode())
-                                                         if admin else ""))
-            if path == f"{BASE}/settings/keys":
-                return self.keys_view(session, flash, preselect=params.get("user", ""))
-            if path == f"{BASE}/settings/sessions":
-                return self.send(200, pages.sessions_page(
-                    session, CTX, sessions.list_all() if sees_all else sessions.list_for(session), flash))
-            if path == f"{BASE}/settings/account":
-                # Account settings for local accounts
-                if session.get("kind") != "local":
-                    return self.redirect(f"{BASE}/settings/general")
-                account_id = int(session.get("sub", "").split(":")[-1])
-                account = lac.get_account(id=account_id)
-                if not account:
-                    return self.redirect(f"{BASE}/settings/general")
-                return self.send(200, pages.account_settings_page(session, CTX, account, flash))
-            if path == f"{BASE}/settings/account/totp/enroll":
-                # Start TOTP enrollment
-                if session.get("kind") != "local":
-                    return self.redirect(f"{BASE}/settings/general")
-                account_id = int(session.get("sub", "").split(":")[-1])
-                account = lac.get_account(id=account_id)
-                if not account:
-                    return self.redirect(f"{BASE}/settings/general")
-                if account.get('totp_confirmed'):
-                    return self.redirect(f"{BASE}/settings/account?m=totp-already-enabled")
-                # Generate secret and QR code
-                secret, qr_data = lac.enroll_totp(account_id)
-                return self.send(200, pages.totp_enroll_page(session, CTX, secret, qr_data))
-
-            # --- admins only (Access controls: also network admins and auditors;
-            # Users/Logs: also auditors, view only -- see can_edit_network()/is_auditor()) ---
-            if path == f"{BASE}/acl" and not (can_edit_network(session) or is_auditor(session)):
-                return self.fail(403, _("No permission"), _("This section is for admins only."))
-            if path in (f"{BASE}/users", f"{BASE}/logs", f"{BASE}/logs.csv") and not sees_all:
-                return self.fail(403, _("No permission"), _("This section is for admins only."))
-            if path == f"{BASE}/users":
-                return self.users_view(session, flash=flash)
-            if path == f"{BASE}/acl":
-                return self.send(200, admin_pages.acl_page(session, CTX, hs.get_policy(), hs.all_nodes(), hs.all_users(),
-                                                           flash, active=params.get("tab") or "rules"))
-            if path == f"{BASE}/derp":
-                if not sees_all:
-                    return self.fail(403, _("No permission"), _("This section is for admins only."))
-                return self.send(200, self.derp_view(session, flash))
-            if path == f"{BASE}/settings/status":
-                if not sees_all:
-                    return self.fail(403, _("No permission"), _("This section is for admins only."))
-                return self.send(200, status_pages.status_page(session, CTX, server_status.collect(), flash))
-            if path == f"{BASE}/backups":
-                if not session.get("admin"):
-                    return self.fail(403, _("No permission"), _("This section is for admins only."))
-                if flash == "backup-restore-done":  # the page that waited for the restore sends us here
-                    flash = "backup-restore-ok" if (hs.restore_result() or {}).get("ok") else "backup-restore-failed"
-                return self.send(200, backup_pages.backups_page(session, CTX, (hs.control_status() or {}).get("backup"), flash))
-            if path == f"{BASE}/logs":
-                return self.send(200, audit.page(session, CTX, params))
-            if path == f"{BASE}/logs.csv":
-                return self.send(200, audit.csv_export(params), "text/csv; charset=utf-8",
-                                 [("Content-Disposition", 'attachment; filename="activity-log.csv"')])
-            self.fail(404, _("Not found"), _("That page does not exist."))
+            return self._get_signed_in(path, params, flash)
         except urllib.error.HTTPError as exc:
             if exc.code == 401:
                 # The web UI's API key expired (the server was off during the
@@ -507,6 +380,146 @@ class Handler(HttpHelpers, BaseHTTPRequestHandler):
         except Exception:  # noqa: BLE001 - never show tracebacks in the UI
             log.exception("error on GET %s", path)
             self.fail(500, _("Something went wrong"), _("The operation could not be completed. Try again in a few seconds."))
+
+
+    def _get_public(self, path: str, params: dict):
+        """Routes that need no session. Returns _NOT_PUBLIC when the path is not one of them."""
+        if path == f"{BASE}/healthz":
+            return self.send(200, "ok", "text/plain")
+        if path == f"{BASE}/restore-status":
+            return self.restore_status(params.get("id", ""))
+        if path.startswith(f"{BASE}/static/"):
+            return self.static(path[len(f"{BASE}/static/"):])
+        if path == f"{BASE}/login":
+            # After signing out, say so instead of starting a new sign-in
+            if params.get("m") == "signed-out":
+                return self.send(200, admin_pages.login_page(SSO, API_KEY_LOGIN, info=_("You have signed out.")))
+            if params.get("m") == "signed-up":
+                return self.send(200, admin_pages.login_page(SSO, API_KEY_LOGIN, info=_("Account created. Sign in.")))
+            if SSO and not API_KEY_LOGIN:
+                return self.start_sso()
+            return self.send(200, admin_pages.login_page(SSO, API_KEY_LOGIN))
+        if path == f"{BASE}/signup":
+            return self.signup_form()
+        if path == f"{BASE}/login/sso" and SSO:
+            return self.start_sso()
+        if path == f"{BASE}/login/totp":
+            return self.totp_verify_page()
+        if path == f"{BASE}/callback" and SSO:
+            return self.callback(params)
+        # Invitation and password reset (public routes)
+        accept_match = re.fullmatch(rf"{BASE}/accept/([A-Za-z0-9_-]+)", path)
+        if accept_match:
+            return self.accept_invitation_page(accept_match.group(1))
+        reset_match = re.fullmatch(rf"{BASE}/reset/([A-Za-z0-9_-]+)", path)
+        if reset_match:
+            return self.reset_password_page(reset_match.group(1))
+        return _NOT_PUBLIC
+
+    def _get_signed_in(self, path: str, params: dict, flash: str):
+        """Everything behind the sign-in: redirects to /login without a session."""
+        session = self.session()
+        register = REGISTER_PATH_RE.fullmatch(path)
+        if not session:
+            # Come back to this device's approval page after signing in
+            after = [self.set_cookie("hse_next", sign({"path": path, "exp": time.time() + 600}), 600)] if register else None
+            return self.redirect(f"{BASE}/login", after)
+        admin = session.get("admin")
+        if session.get("must_change") and path not in (f"{BASE}/settings/account", f"{BASE}/logout"):
+            return self.redirect(f"{BASE}/settings/account?m=must-change")
+        if register:
+            return self.register_view(session, register.group(1))
+
+        if path in (BASE, f"{BASE}/"):
+            return self.redirect(f"{BASE}/machines")
+        sees_all = admin or is_auditor(session)
+        if path == f"{BASE}/machines":
+            users = hs.all_users() if sees_all else None
+            has_user = True if sees_all else my_user(session) is not None
+            return self.send(200, pages.machines_page(session, CTX, to_machines(visible_nodes(session)),
+                                                      has_user, flash, users))
+        if path == f"{BASE}/machines.csv":
+            data = pages.machines_csv(to_machines(visible_nodes(session)))
+            return self.send(200, data, "text/csv; charset=utf-8",
+                             [("Content-Disposition", 'attachment; filename="machines.csv"')])
+        m = re.fullmatch(rf"{BASE}/machines/(\d+)", path)
+        if m:
+            node = node_for(session, m.group(1))
+            if node is None:
+                return self.redirect(f"{BASE}/machines?m=not-found")
+            return self.send(200, pages.machine_page(session, CTX, to_machines([node])[0], flash))
+        if path == f"{BASE}/add":
+            return self.send(200, pages.add_page(session, CTX, users=hs.all_users() if session.get("admin") else None,
+                                                      exit_nodes=exit_nodes_for(session)))
+        if path == f"{BASE}/dns":
+            return self.send(200, pages.dns_page(session, dns_ctx() if can_edit_network(session) else CTX,
+                                                 hs.dns_config(), to_machines(visible_nodes(session)), flash=flash))
+        if path in (f"{BASE}/settings", f"{BASE}/settings/"):
+            return self.redirect(f"{BASE}/settings/general")
+        if path == f"{BASE}/settings/general":
+            return self.send(200, pages.general_page(session, CTX, flash,
+                                                     key_expiry=hs.key_expiry_days() if admin else None,
+                                                     extra=signup.mode_card(session, signup.mode())
+                                                     if admin else ""))
+        if path == f"{BASE}/settings/keys":
+            return self.keys_view(session, flash, preselect=params.get("user", ""))
+        if path == f"{BASE}/settings/sessions":
+            return self.send(200, pages.sessions_page(
+                session, CTX, sessions.list_all() if sees_all else sessions.list_for(session), flash))
+        if path == f"{BASE}/settings/account":
+            # Account settings for local accounts
+            if session.get("kind") != "local":
+                return self.redirect(f"{BASE}/settings/general")
+            account_id = int(session.get("sub", "").split(":")[-1])
+            account = lac.get_account(id=account_id)
+            if not account:
+                return self.redirect(f"{BASE}/settings/general")
+            return self.send(200, pages.account_settings_page(session, CTX, account, flash))
+        if path == f"{BASE}/settings/account/totp/enroll":
+            # Start TOTP enrollment
+            if session.get("kind") != "local":
+                return self.redirect(f"{BASE}/settings/general")
+            account_id = int(session.get("sub", "").split(":")[-1])
+            account = lac.get_account(id=account_id)
+            if not account:
+                return self.redirect(f"{BASE}/settings/general")
+            if account.get('totp_confirmed'):
+                return self.redirect(f"{BASE}/settings/account?m=totp-already-enabled")
+            # Generate secret and QR code
+            secret, qr_data = lac.enroll_totp(account_id)
+            return self.send(200, pages.totp_enroll_page(session, CTX, secret, qr_data))
+
+        # --- admins only (Access controls: also network admins and auditors;
+        # Users/Logs: also auditors, view only -- see can_edit_network()/is_auditor()) ---
+        if path == f"{BASE}/acl" and not (can_edit_network(session) or is_auditor(session)):
+            return self.fail(403, _("No permission"), _("This section is for admins only."))
+        if path in (f"{BASE}/users", f"{BASE}/logs", f"{BASE}/logs.csv") and not sees_all:
+            return self.fail(403, _("No permission"), _("This section is for admins only."))
+        if path == f"{BASE}/users":
+            return self.users_view(session, flash=flash)
+        if path == f"{BASE}/acl":
+            return self.send(200, admin_pages.acl_page(session, CTX, hs.get_policy(), hs.all_nodes(), hs.all_users(),
+                                                       flash, active=params.get("tab") or "rules"))
+        if path == f"{BASE}/derp":
+            if not sees_all:
+                return self.fail(403, _("No permission"), _("This section is for admins only."))
+            return self.send(200, self.derp_view(session, flash))
+        if path == f"{BASE}/settings/status":
+            if not sees_all:
+                return self.fail(403, _("No permission"), _("This section is for admins only."))
+            return self.send(200, status_pages.status_page(session, CTX, server_status.collect(), flash))
+        if path == f"{BASE}/backups":
+            if not session.get("admin"):
+                return self.fail(403, _("No permission"), _("This section is for admins only."))
+            if flash == "backup-restore-done":  # the page that waited for the restore sends us here
+                flash = "backup-restore-ok" if (hs.restore_result() or {}).get("ok") else "backup-restore-failed"
+            return self.send(200, backup_pages.backups_page(session, CTX, (hs.control_status() or {}).get("backup"), flash))
+        if path == f"{BASE}/logs":
+            return self.send(200, audit.page(session, CTX, params))
+        if path == f"{BASE}/logs.csv":
+            return self.send(200, audit.csv_export(params), "text/csv; charset=utf-8",
+                             [("Content-Disposition", 'attachment; filename="activity-log.csv"')])
+        self.fail(404, _("Not found"), _("That page does not exist."))
 
     def events_stream(self):
         """Server-Sent Events: one message per device change this session may see.
@@ -575,22 +588,9 @@ class Handler(HttpHelpers, BaseHTTPRequestHandler):
         self.set_request_lang()
         path = self.path.partition("?")[0]
         try:
-            if path == f"{BASE}/login/apikey" and API_KEY_LOGIN:
-                return self.apikey_login(self.form())
-            if path == f"{BASE}/login/local":
-                return self.local_login(self.form())
-            if path == f"{BASE}/signup":
-                return self.signup_submit(self.form())
-            if path == f"{BASE}/login/totp":
-                return self.verify_totp_login(self.form())
-            # Invitation and password reset (public routes)
-            accept_match = re.fullmatch(rf"{BASE}/accept/([A-Za-z0-9_-]+)", path)
-            if accept_match:
-                return self.accept_invitation(accept_match.group(1), self.form())
-            reset_match = re.fullmatch(rf"{BASE}/reset/([A-Za-z0-9_-]+)", path)
-            if reset_match:
-                return self.reset_password(reset_match.group(1), self.form())
-
+            handled = self._post_public(path)
+            if handled is not _NOT_PUBLIC:
+                return handled
             session = self.session()
             if not session:
                 return self.redirect(f"{BASE}/login")
@@ -664,62 +664,33 @@ class Handler(HttpHelpers, BaseHTTPRequestHandler):
             # --- admins only ---
             if not session.get("admin"):
                 return self.fail(403, _("No permission"), _("This action is for admins only."))
-            if path == f"{BASE}/machines/register":
-                return self.register_node(session, form)
-            if path == f"{BASE}/machines/remove-inactive":
-                return self.remove_inactive(session, form)
-            m = re.fullmatch(rf"{BASE}/machines/bulk/(expire|remove|tags)", path)
-            if m:
-                return self.bulk_machines(session, form, m.group(1))
-            if path == f"{BASE}/settings/key-expiry":
-                return self.save_key_expiry(session, form)
-            if path == f"{BASE}/derp":
-                return self.save_derp(session, form)
-            if path == f"{BASE}/settings/signup":
-                return self.save_signup_mode(session, form)
-            if path == f"{BASE}/signup/keys":
-                return self.create_signup_key(session, form)
-            m = re.fullmatch(rf"{BASE}/signup/keys/(\d+)/revoke", path)
-            if m:
-                return self.revoke_signup_key(session, int(m.group(1)))
-            m = re.fullmatch(rf"{BASE}/users/(\d+)/password", path)
-            if m:
-                return self.set_user_password(session, m.group(1), form)
-            m = re.fullmatch(rf"{BASE}/users/(\d+)/reset-link", path)
-            if m:
-                return self.create_reset_link(session, m.group(1))
-            if path == f"{BASE}/users/send-link":
-                return self.send_link_mail(session, form)
-            if path == f"{BASE}/settings/notify-test":
-                return self.notify_test(session)
-            if path == f"{BASE}/backups/run":
-                return self.backup_now(session)
-            if path == f"{BASE}/backups/settings":
-                return self.backup_settings(session, form)
-            if path == f"{BASE}/backups/restore":
-                return self.backup_restore(session, form)
-            if path == f"{BASE}/backups/download":
-                return self.backup_download(session, form)
-            if path == f"{BASE}/users":
-                return self.create_user(session, form)
-            m = re.fullmatch(rf"{BASE}/users/(\d+)/(rename|delete)", path)
-            if m:
-                return self.user_action(session, m.group(1), m.group(2), form)
-            if path == f"{BASE}/invitations":
-                return self.create_invitation(session, form)
-            # Revoke invitation: the token hash (64 hex chars)
-            m = re.fullmatch(rf"{BASE}/invitations/([0-9a-f-]{{32,}})/revoke", path)
-            if m:
-                return self.revoke_invitation(session, m.group(1))
-            if path == f"{BASE}/apikeys":
-                return self.create_apikey(session, form)
-            m = re.fullmatch(rf"{BASE}/apikeys/(\d+)/expire", path)
-            if m:
-                return self.expire_apikey(m.group(1), session)
+            for pattern, handler in _ADMIN_POST_ROUTES:
+                m = pattern.fullmatch(path)
+                if m:
+                    return handler(self, session, form, m)
             self.send(404, "Not found", "text/plain")
         except Exception:  # noqa: BLE001
             log.exception("error on POST %s", path)
             self.redirect(f"{BASE}/machines?m=failed")
+
+    def _post_public(self, path: str):
+        """Routes that need no session. Returns _NOT_PUBLIC when the path is not one of them."""
+        if path == f"{BASE}/login/apikey" and API_KEY_LOGIN:
+            return self.apikey_login(self.form())
+        if path == f"{BASE}/login/local":
+            return self.local_login(self.form())
+        if path == f"{BASE}/signup":
+            return self.signup_submit(self.form())
+        if path == f"{BASE}/login/totp":
+            return self.verify_totp_login(self.form())
+        # Invitation and password reset (public routes)
+        accept_match = re.fullmatch(rf"{BASE}/accept/([A-Za-z0-9_-]+)", path)
+        if accept_match:
+            return self.accept_invitation(accept_match.group(1), self.form())
+        reset_match = re.fullmatch(rf"{BASE}/reset/([A-Za-z0-9_-]+)", path)
+        if reset_match:
+            return self.reset_password(reset_match.group(1), self.form())
+        return _NOT_PUBLIC
 
     def derp_view(self, session: dict, flash: str = "", error: str = "", relays: list[dict] | None = None) -> str:
         hostinfos = [d.get("hostinfo") or {} for d in hs.host_details([str(n["id"]) for n in hs.all_nodes()]).values()]
@@ -2458,6 +2429,39 @@ def bootstrap_admin() -> None:
             log.info("=" * 80)
         except Exception as e:
             log.error("Failed to create bootstrap invitation: %s", e)
+
+
+# POST routes that only admins reach, in the order they were matched. Each handler gets (handler, session,
+# form, match); patterns are matched whole.
+def _route(pattern: str):
+    return re.compile(rf"{BASE}{pattern}")
+
+
+_ADMIN_POST_ROUTES = [
+    (_route("/machines/register"), lambda h, s, f, m: h.register_node(s, f)),
+    (_route("/machines/remove-inactive"), lambda h, s, f, m: h.remove_inactive(s, f)),
+    (_route("/machines/bulk/(expire|remove|tags)"), lambda h, s, f, m: h.bulk_machines(s, f, m.group(1))),
+    (_route("/settings/key-expiry"), lambda h, s, f, m: h.save_key_expiry(s, f)),
+    (_route("/derp"), lambda h, s, f, m: h.save_derp(s, f)),
+    (_route("/settings/signup"), lambda h, s, f, m: h.save_signup_mode(s, f)),
+    (_route("/signup/keys"), lambda h, s, f, m: h.create_signup_key(s, f)),
+    (_route(r"/signup/keys/(\d+)/revoke"), lambda h, s, f, m: h.revoke_signup_key(s, int(m.group(1)))),
+    (_route(r"/users/(\d+)/password"), lambda h, s, f, m: h.set_user_password(s, m.group(1), f)),
+    (_route(r"/users/(\d+)/reset-link"), lambda h, s, f, m: h.create_reset_link(s, m.group(1))),
+    (_route("/users/send-link"), lambda h, s, f, m: h.send_link_mail(s, f)),
+    (_route("/settings/notify-test"), lambda h, s, f, m: h.notify_test(s)),
+    (_route("/backups/run"), lambda h, s, f, m: h.backup_now(s)),
+    (_route("/backups/settings"), lambda h, s, f, m: h.backup_settings(s, f)),
+    (_route("/backups/restore"), lambda h, s, f, m: h.backup_restore(s, f)),
+    (_route("/backups/download"), lambda h, s, f, m: h.backup_download(s, f)),
+    (_route("/users"), lambda h, s, f, m: h.create_user(s, f)),
+    (_route(r"/users/(\d+)/(rename|delete)"), lambda h, s, f, m: h.user_action(s, m.group(1), m.group(2), f)),
+    (_route("/invitations"), lambda h, s, f, m: h.create_invitation(s, f)),
+    # Revoke invitation: the token hash (64 hex chars)
+    (_route("/invitations/([0-9a-f-]{32,})/revoke"), lambda h, s, f, m: h.revoke_invitation(s, m.group(1))),
+    (_route("/apikeys"), lambda h, s, f, m: h.create_apikey(s, f)),
+    (_route(r"/apikeys/(\d+)/expire"), lambda h, s, f, m: h.expire_apikey(m.group(1), s)),
+]
 
 
 def main():
