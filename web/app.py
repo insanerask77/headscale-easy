@@ -36,7 +36,6 @@ import time
 import urllib.error
 import urllib.parse
 from datetime import datetime, timedelta, timezone
-from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -44,6 +43,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("headscale-easy")
 
 import admin_pages  # noqa: E402
+import signing  # noqa: E402
+from http_base import HttpHelpers  # noqa: E402
 from config import Settings, csv_set, oidc_scope  # noqa: E402,F401
 import docker_tab  # noqa: E402
 import local_accounts as lac  # noqa: E402
@@ -142,23 +143,11 @@ DEMO_BLOCKED = re.compile(
 # -----------------------------------------------------------------------------
 
 def sign(data: dict) -> str:
-    payload = base64.urlsafe_b64encode(json.dumps(data, separators=(",", ":")).encode()).decode()
-    mac = hmac.new(SESSION_SECRET, payload.encode(), hashlib.sha256).hexdigest()
-    return f"{payload}.{mac}"
+    return signing.sign(data, SESSION_SECRET)
 
 
 def unsign(value: str | None) -> dict | None:
-    if not value or "." not in value:
-        return None
-    payload, mac = value.rsplit(".", 1)
-    expected = hmac.new(SESSION_SECRET, payload.encode(), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(mac, expected):
-        return None
-    try:
-        data = json.loads(base64.urlsafe_b64decode(payload.encode()))
-    except ValueError:
-        return None
-    return data if data.get("exp", 0) >= time.time() else None
+    return signing.unsign(value, SESSION_SECRET)
 
 
 _discovery: dict | None = None
@@ -309,42 +298,13 @@ def iso_in(days: int) -> str:
 # HTTP
 # -----------------------------------------------------------------------------
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(HttpHelpers, BaseHTTPRequestHandler):
     server_version = "headscale-easy"
     sys_version = ""
 
     # --- responses ---
-    def send(self, status: int, body: str | bytes, ctype="text/html; charset=utf-8", headers=None):
-        data = body.encode() if isinstance(body, str) else body
-        self.send_response(status)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "same-origin")
-        if ctype.startswith("text/html"):
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Security-Policy",
-                             "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'; form-action 'self'")
-        for k, v in (headers or []):
-            self.send_header(k, v)
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(data)
-
-    def redirect(self, location: str, headers=None):
-        self.send_response(303)
-        self.send_header("Location", location)
-        self.send_header("Content-Length", "0")
-        for k, v in (headers or []):
-            self.send_header(k, v)
-        self.end_headers()
-
     def fail(self, status: int, title: str, text: str):
         self.send(status, message_page(title, text))
-
-    def cookie(self, name: str) -> str | None:
-        jar = cookies.SimpleCookie(self.headers.get("Cookie", ""))
-        return jar[name].value if name in jar else None
 
     @staticmethod
     def set_cookie(name: str, value: str, max_age: int) -> tuple[str, str]:
@@ -382,14 +342,6 @@ class Handler(BaseHTTPRequestHandler):
     def too_many(self, wait: int, page: str | None = None):
         body = page or message_page(_("Too many attempts"), _("Too many sign-in attempts. Try again in a few minutes."))
         self.send(429, body, headers=[("Retry-After", str(wait))])
-
-    def form(self) -> dict:
-        length = int(self.headers.get("Content-Length") or 0)
-        if length > 262144:
-            return {}
-        data = urllib.parse.parse_qs(self.rfile.read(length).decode(), keep_blank_values=True)
-        # 'route' (checkboxes) and fields named "...[]" (rows) can repeat
-        return {k: (v if k == "route" or k.endswith("[]") else v[0]) for k, v in data.items()}
 
     def log_message(self, fmt, *args):
         log.info("%s %s", self.address_string(), fmt % args)
