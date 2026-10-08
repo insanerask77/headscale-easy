@@ -177,7 +177,7 @@ class LocalAccountsE2ETest(unittest.TestCase):
         self.assertTrue(lac.verify_password("AdminPassword123!", admin["pw_hash"]))
 
         # Step 2: Admin signs in (password only, no 2FA required yet)
-        status, headers, body = request("POST", f"{B}/admin/login/local", form={
+        status, headers, body = request("POST", f"{B}/console/login/local", form={
             "username": admin["username"],
             "password": "AdminPassword123!"
         })
@@ -232,7 +232,7 @@ class LocalAccountsE2ETest(unittest.TestCase):
 
         # Step 6: Bob signs out and signs in with password + TOTP
         # First, sign in with password
-        status, headers, body = request("POST", f"{B}/admin/login/local", form={
+        status, headers, body = request("POST", f"{B}/console/login/local", form={
             "username": "bob",
             "password": "BobPassword123!"
         })

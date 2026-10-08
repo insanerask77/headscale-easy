@@ -45,7 +45,7 @@ En los dispositivos usas las apps oficiales de Tailscale; sólo el servidor es t
 
 -   :material-monitor-dashboard: **Consola estilo Tailscale**
 
-    Máquinas, usuarios, DNS, control de acceso y claves en `/admin`. Tema oscuro
+    Máquinas, usuarios, DNS, control de acceso y claves en `/console`. Tema oscuro
     y claro, funciona en el móvil.
 
 -   :material-account-lock: **Cuentas de usuario reales**

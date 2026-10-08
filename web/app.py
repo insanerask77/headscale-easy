@@ -964,7 +964,7 @@ class Handler(BaseHTTPRequestHandler):
             shutil.copyfileobj(fh, self.wfile, 1 << 20)
 
     def restore_status(self, restore_id: str):
-        """GET /admin/restore-status?id=...: has the restore with that id finished? No session needed (the restore
+        """GET /console/restore-status?id=...: has the restore with that id finished? No session needed (the restore
         restarts the console and may change the session secret); it only says done / ok for an id only the requester has."""
         done = ok = False
         result = hs.restore_result()
@@ -2500,7 +2500,7 @@ def bootstrap_admin() -> None:
         # Create invitation token and log it
         try:
             token = lac.create_invitation(email=admin_email, role="admin", expires_hours=168)
-            invite_url = f"{PUBLIC_URL}{BASE}/admin/accept/{token}"
+            invite_url = f"{PUBLIC_URL}{BASE}/accept/{token}"
             log.info("=" * 80)
             log.info("Bootstrap invitation created for admin: %s", admin_email)
             log.info("Invitation URL (valid for 7 days):")

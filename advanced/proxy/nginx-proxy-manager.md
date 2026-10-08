@@ -1,10 +1,10 @@
 # Nginx Proxy Manager — vpn.example.com (Headscale Easy)
 
 Behind NPM the Headscale Easy image already routes by
-path (`/` → Headscale, `/admin` → web UI), so NPM needs **a single Proxy Host**
+path (`/` → Headscale, `/console` → web UI), so NPM needs **a single Proxy Host**
 that forwards the whole domain.
 
-Final URL: **https://vpn.example.com** (web UI at `https://vpn.example.com/admin`).
+Final URL: **https://vpn.example.com** (web UI at `https://vpn.example.com/console`).
 
 ---
 
@@ -106,7 +106,7 @@ carry. Either:
 
 ```bash
 curl -s https://vpn.example.com/key?v=142          # Headscale's public key
-curl -sI https://vpn.example.com/admin | head -1   # redirect to /admin/login
+curl -sI https://vpn.example.com/console | head -1   # redirect to /console/login
 ```
 
 If the first one fails but `curl http://AIO_HOST:8080/key?v=142` works from the

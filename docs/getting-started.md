@@ -4,10 +4,10 @@
 
 1. **Download:** `mkdir headscale-easy && cd headscale-easy && curl -fsSLO https://raw.githubusercontent.com/insanerask77/headscale-easy/main/compose.yaml`
 2. **Start it:** `docker compose up -d`. One container, version 2.0 pinned in the file.
-3. **Set it up:** open `http://<your-server>/admin/setup` and enter the one-time token (from
+3. **Set it up:** open `http://<your-server>/console/setup` and enter the one-time token (from
    `docker compose logs`): administrator, public address and HTTPS, tailnet name, relay (DERP),
    sign-up and backups.
-4. **Log in:** open `https://<your-domain>/admin`.
+4. **Log in:** open `https://<your-domain>/console`.
 5. **Connect your first device:** `tailscale up --login-server=https://<your-domain>`
    ([details below](#connect-your-first-device)).
 
@@ -65,7 +65,7 @@ backups — is in [Advanced configurations](advanced/index.md). See
 
 ## Connect your first device
 
-Open `https://<your-domain>/admin`, sign in, and click **Add device**: it shows
+Open `https://<your-domain>/console`, sign in, and click **Add device**: it shows
 the steps for each OS. In short:
 
 === "Linux"

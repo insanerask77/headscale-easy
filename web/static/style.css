@@ -760,7 +760,7 @@ details.tip[open] > summary { border-bottom: 1px solid color-mix(in srgb, var(--
 ul.plain:has(> .dns-fixed) { margin: 0.5rem 0; }
 
 /* ---- audit ---- */
-/* Activity log (/admin/logs): server-side filters, dense rows, diffs in a dialog */
+/* Activity log (/console/logs): server-side filters, dense rows, diffs in a dialog */
 .audit tbody tr { cursor: default; }
 .audit td { font-size: 0.875rem; }
 .audit .audit-time { white-space: nowrap; }

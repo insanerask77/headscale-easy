@@ -71,7 +71,7 @@ wait_for() {  # wait_for <seconds> <description> <command...>
 # --- the console's form, driven over HTTP ---------------------------------------
 # ui <hostname> <exit 0|1> <routes> <userspace 0|1> <generate 0|1>  -> the `docker run` snippet on stdout
 ui() {
-    HSE_URL="http://127.0.0.1:$PORT/admin" HSE_PW="$ADMIN_PW" python3 - "$@" <<'PY'
+    HSE_URL="http://127.0.0.1:$PORT/console" HSE_PW="$ADMIN_PW" python3 - "$@" <<'PY'
 import html, http.cookiejar, re, sys, urllib.error, urllib.parse, urllib.request
 host, exit_, routes, userspace, generate = sys.argv[1:6]
 base = __import__("os").environ["HSE_URL"]

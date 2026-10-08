@@ -12,9 +12,9 @@ nothing inside it: invitations, resets and two-factor stay with the console's lo
 
 | URI | Used by |
 |---|---|
-| `https://vpn.example.com/admin/callback` | the console |
+| `https://vpn.example.com/console/callback` | the console |
 | `https://vpn.example.com/oidc/callback` | Headscale |
-| `https://vpn.example.com/admin/` | logout (where the provider lists post-logout URIs) |
+| `https://vpn.example.com/console/` | logout (where the provider lists post-logout URIs) |
 
 Headscale will not start until it can read `<issuer>/.well-known/openid-configuration`: the provider has to be
 reachable **from the container**, at that address, with a certificate the container trusts.
@@ -82,12 +82,12 @@ exist only once Pocket ID is up.
 2. `docker compose -f compose.yaml -f advanced/oidc/pocket-id.yaml up -d proxy pocket-id`
 3. Open `https://id.example.com/setup`, create the administrator and its passkey.
 4. **Administration → OIDC Clients → Add**: name *Headscale Easy*, the two callback URLs above, logout callback
-   `https://vpn.example.com/admin/`, public client off, PKCE on. Copy the id and the secret into `.env` as
+   `https://vpn.example.com/console/`, public client off, PKCE on. Copy the id and the secret into `.env` as
    `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET`.
 5. **Administration → Application configuration**: turn **Emails verified** on, or the console (correctly)
    ignores `PORTAL_ADMIN_EMAILS` and everybody is a member.
 6. `docker compose -f compose.yaml -f advanced/oidc/pocket-id.yaml up -d`, then *Sign in with SSO* at
-   `https://vpn.example.com/admin/`.
+   `https://vpn.example.com/console/`.
 
 Keep Pocket ID closed (**Allow user sign-ups** *Disabled*, the default) so only the people you create or invite
 can sign in. Roles by group need `OIDC_SCOPE=openid profile email groups`; `PORTAL_ADMIN_EMAILS` is the simplest
@@ -103,7 +103,7 @@ create a client:
 | Client type / ID | OpenID Connect / `headscale` |
 | Client authentication | **On** (a confidential client), Standard flow only |
 | Valid redirect URIs | the two callbacks above |
-| Valid post logout redirect URIs | `https://vpn.example.com/admin/` |
+| Valid post logout redirect URIs | `https://vpn.example.com/console/` |
 | PKCE method | `S256` (Advanced settings) |
 
 Roles by group: create a group `vpn-admins`, and in the client's dedicated scope add a **Group Membership** mapper
@@ -142,7 +142,7 @@ put Google behind a provider that decides who gets in (Authentik's blueprint has
 
 - **Pocket ID overlay** (`advanced/oidc/pocket-id.yaml`, Pocket ID `v1`): with a test Caddyfile in plain HTTP
   (there is no public domain here), the Caddy, Pocket ID and the image start and become healthy; Pocket ID answers
-  its discovery document through the Caddy, the image answers `/key` and redirects `/admin` to its sign-in page
+  its discovery document through the Caddy, the image answers `/key` and redirects `/console` to its sign-in page
   through the Caddy, and the image publishes only UDP 3478.
 - `scripts/validate.sh` runs `docker compose config` on the Authentik and Pocket ID overlays and on the
   combinations with the proxy, PostgreSQL and remote backups.

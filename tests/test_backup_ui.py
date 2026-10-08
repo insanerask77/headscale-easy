@@ -111,8 +111,8 @@ class Restore(WithBackupDir):
         status, _h, body, call = self.post()
         self.assertEqual(status, 200)
         call.assert_called_once_with(NAME)
-        self.assertIn('data-await-restore="/admin/backups?m=backup-restore-done"', body)
-        self.assertIn('data-probe="/admin/restore-status?id=1791209576.5"', body)
+        self.assertIn('data-await-restore="/console/backups?m=backup-restore-done"', body)
+        self.assertIn('data-probe="/console/restore-status?id=1791209576.5"', body)
         self.assertNotIn("<script>", body)
         event = app.audit.request_event.call_args.args
         self.assertEqual((event[2], event[3]), ("backup.restore", NAME))
@@ -141,7 +141,7 @@ class Restore(WithBackupDir):
         from backup_pages import restoring_page
         html = restoring_page('1"><script>alert(1)</script>')
         self.assertNotIn("<script>alert", html)
-        self.assertIn('data-probe="/admin/restore-status?id="', html)
+        self.assertIn('data-probe="/console/restore-status?id="', html)
 
     def test_restore_status_says_done_only_for_its_own_id(self):
         def ask(result, rid):
@@ -221,7 +221,7 @@ class Upload(WithBackupDir):
                                                    ("file", b"data", "a.tar.gz")])
         self.assertEqual(status, 200)
         restore.assert_called_once_with("headscale-easy-uploaded-20261005-120000.tar.gz")
-        self.assertIn('data-await-restore="/admin/backups?m=backup-restore-done"', body)
+        self.assertIn('data-await-restore="/console/backups?m=backup-restore-done"', body)
         self.assertEqual([c.args[2] for c in app.audit.request_event.call_args_list], ["backup.upload", "backup.restore"])
 
     def test_restore_needs_the_typed_confirmation_and_the_file_is_not_kept(self):

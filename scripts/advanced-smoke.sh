@@ -99,7 +99,7 @@ ENV
     grep -q 'headscale/headscale.sql' <<<"$members" || fail "the backup has no headscale.sql"
     docker exec headscale-easy headscale users destroy --name smoke-pg --force -c /data/config/config.yaml >/dev/null 2>&1 || fail "could not delete the marker user"
     docker exec headscale-easy hse restore "$arch" --yes --with-postgres >/dev/null 2>&1 || fail "hse restore --with-postgres failed on PostgreSQL $PGV"
-    healthz() { [ "$(http_code "http://localhost:$PORT/admin/healthz")" = 200 ]; }
+    healthz() { [ "$(http_code "http://localhost:$PORT/console/healthz")" = 200 ]; }
     wait_for 90 "the console did not come back after the restore" healthz
     marker() { local out; out=$(docker exec headscale-easy headscale users list -o json -c /data/config/config.yaml); grep -q smoke-pg <<<"$out"; }
     wait_for 60 "the marker user did not come back after the restore" marker
@@ -153,10 +153,10 @@ docker run -d --name "$PROXY_NAME" --network host -v "$WORK/nginx/default.conf:/
 reached() { [ "$(http_code -k "https://localhost:$TLS_PORT/key?v=142")" = 200 ]; }
 wait_for 30 "nginx does not reach Headscale (GET /key)" reached
 echo "GET /key through the proxy: 200"
-location=$(curl -sk -o /dev/null -w '%{redirect_url}' "https://localhost:$TLS_PORT/admin")
-case "$location" in */admin/login*) echo "GET /admin: redirects to the sign-in page" ;; *) fail "GET /admin did not redirect to the sign-in page ($location)" ;; esac
+location=$(curl -sk -o /dev/null -w '%{redirect_url}' "https://localhost:$TLS_PORT/console")
+case "$location" in */console/login*) echo "GET /console: redirects to the sign-in page" ;; *) fail "GET /console did not redirect to the sign-in page ($location)" ;; esac
 cookie=$(curl -sk -D - -o /dev/null --data-urlencode "username=admin" --data-urlencode "password=$PASSWORD" \
-    -H "X-Forwarded-For: 6.6.6.6" -H "X-Real-IP: 7.7.7.7" "https://localhost:$TLS_PORT/admin/login/local" | tr -d '\r' | grep -i '^set-cookie:')
+    -H "X-Forwarded-For: 6.6.6.6" -H "X-Real-IP: 7.7.7.7" "https://localhost:$TLS_PORT/console/login/local" | tr -d '\r' | grep -i '^set-cookie:')
 grep -qi 'secure' <<<"$cookie" || fail "the session cookie is not Secure: $cookie"
 echo "the session cookie is Secure"
 ips=$(docker exec headscale-easy python3 -c "

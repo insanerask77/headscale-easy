@@ -320,7 +320,7 @@ use a resolvable address.
 
 **`redirect_uri` errors after changing the domain.** Register the new redirect
 URIs in your provider: `https://<domain>/oidc/callback` and
-`https://<domain>/admin/callback`.
+`https://<domain>/console/callback`.
 
 **Clients say `x509: certificate signed by unknown authority`.** You are using
 `HSE_TLS=internal`: install Caddy's root certificate (`/data/caddy/pki/`) on the
@@ -340,7 +340,7 @@ means the browser came back without the cookie set when sign-in started: check
 that you open the console with the exact `HSE_PUBLIC_URL` (same host and scheme —
 `http` vs `https` matters) and that the browser accepts cookies. After more than
 10 failed sign-ins in 10 minutes the console answers `429` for a while. With an
-external provider, the redirect URI `https://<domain>/admin/callback` must be
+external provider, the redirect URI `https://<domain>/console/callback` must be
 registered, and admins need a verified e-mail in `PORTAL_ADMIN_EMAILS` or a group
 in `PORTAL_ADMIN_GROUPS`. If nobody can sign in, start the container with
 `HSE_ADMIN_EMAIL` and `HSE_ADMIN_PASSWORD` to create an administrator, or use the

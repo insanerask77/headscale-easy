@@ -126,9 +126,9 @@ class WizardTestBase(unittest.TestCase):
 
     def unlock(self, client=None):
         c = client or self.c
-        status, _h, html = c.request("/admin/setup")
+        status, _h, html = c.request("/console/setup")
         self.assertEqual(status, 200)
-        status, headers, _b = c.request("/admin/setup", {"token": self.token, "csrf": c.csrf(html)})
+        status, headers, _b = c.request("/console/setup", {"token": self.token, "csrf": c.csrf(html)})
         self.assertEqual(status, 303, _b[:200])
         return c
 
@@ -142,52 +142,52 @@ class TokenAndRoutingTest(WizardTestBase):
 
     def test_steps_without_token_are_forbidden(self):
         for step in wizard.STEPS:
-            self.assertEqual(self.c.request("/admin/setup/" + step)[0], 403, step)
-            self.assertEqual(self.c.request("/admin/setup/" + step, {"x": "1"})[0], 403, step)
+            self.assertEqual(self.c.request("/console/setup/" + step)[0], 403, step)
+            self.assertEqual(self.c.request("/console/setup/" + step, {"x": "1"})[0], 403, step)
 
     def test_wrong_token_is_403(self):
-        _s, _h, html = self.c.request("/admin/setup")
-        status, _h, _b = self.c.request("/admin/setup", {"token": "nope", "csrf": self.c.csrf(html)})
+        _s, _h, html = self.c.request("/console/setup")
+        status, _h, _b = self.c.request("/console/setup", {"token": "nope", "csrf": self.c.csrf(html)})
         self.assertEqual(status, 403)
-        self.assertEqual(self.c.request("/admin/setup/language")[0], 403)
+        self.assertEqual(self.c.request("/console/setup/language")[0], 403)
 
     def test_token_attempts_are_rate_limited(self):
-        _s, _h, html = self.c.request("/admin/setup")
+        _s, _h, html = self.c.request("/console/setup")
         csrf = self.c.csrf(html)
-        codes = [self.c.request("/admin/setup", {"token": "bad%d" % i, "csrf": csrf})[0] for i in range(6)]
+        codes = [self.c.request("/console/setup", {"token": "bad%d" % i, "csrf": csrf})[0] for i in range(6)]
         self.assertEqual(codes[:5], [403] * 5)
         self.assertEqual(codes[5], 429)
         # even the right token waits
-        self.assertEqual(self.c.request("/admin/setup", {"token": self.token, "csrf": csrf})[0], 429)
+        self.assertEqual(self.c.request("/console/setup", {"token": self.token, "csrf": csrf})[0], 429)
 
     def test_csrf_is_enforced_on_every_post(self):
         self.unlock()
         for step in ("language", "server", "admin", "signup", "network", "derp", "backups", "finish"):
-            self.assertEqual(self.c.request("/admin/setup/" + step, {"x": "1"})[0], 403, step)
-            self.assertEqual(self.c.request("/admin/setup/" + step, {"csrf": "wrong"})[0], 403, step)
-        status, _h, _b = self.c.request("/admin/setup", {"token": self.token})
+            self.assertEqual(self.c.request("/console/setup/" + step, {"x": "1"})[0], 403, step)
+            self.assertEqual(self.c.request("/console/setup/" + step, {"csrf": "wrong"})[0], 403, step)
+        status, _h, _b = self.c.request("/console/setup", {"token": self.token})
         self.assertEqual(status, 403)
 
     def test_everything_else_redirects_to_setup(self):
-        for path in ("/", "/admin", "/admin/machines", "/admin/login", "/healthz", "/admin/setupfoo", "/api/v1/node"):
+        for path in ("/", "/console", "/console/machines", "/console/login", "/healthz", "/console/setupfoo", "/api/v1/node"):
             status, headers, _b = self.c.request(path)
-            self.assertEqual((status, headers["Location"]), (302, "/admin/setup"), path)
+            self.assertEqual((status, headers["Location"]), (302, "/console/setup"), path)
 
     def test_static_files_are_served_and_confined(self):
-        self.assertEqual(self.c.request("/admin/static/style.css")[0], 200)
-        self.assertEqual(self.c.request("/admin/static/../app.py")[0], 404)
-        self.assertEqual(self.c.request("/admin/static/%2e%2e/app.py")[0], 404)
+        self.assertEqual(self.c.request("/console/static/style.css")[0], 200)
+        self.assertEqual(self.c.request("/console/static/../app.py")[0], 404)
+        self.assertEqual(self.c.request("/console/static/%2e%2e/app.py")[0], 404)
 
     def test_steps_cannot_be_skipped(self):
         self.unlock()
-        status, headers, _b = self.c.request("/admin/setup/finish")
-        self.assertEqual((status, headers["Location"]), (303, "/admin/setup/language"))
-        status, headers, _b = self.c.request("/admin/setup/network")
-        self.assertEqual(headers["Location"], "/admin/setup/language")
-        self.assertEqual(self.c.request("/admin/setup/totp")[0], 404)  # two-factor is not a wizard step
+        status, headers, _b = self.c.request("/console/setup/finish")
+        self.assertEqual((status, headers["Location"]), (303, "/console/setup/language"))
+        status, headers, _b = self.c.request("/console/setup/network")
+        self.assertEqual(headers["Location"], "/console/setup/language")
+        self.assertEqual(self.c.request("/console/setup/totp")[0], 404)  # two-factor is not a wizard step
 
     def test_session_cookie_flags(self):
-        _s, headers, _b = self.c.request("/admin/setup")
+        _s, headers, _b = self.c.request("/console/setup")
         cookie = headers["Set-Cookie"]
         self.assertIn("HttpOnly", cookie)
         self.assertIn("SameSite=Strict", cookie)
@@ -282,27 +282,27 @@ class ValidationTest(unittest.TestCase):
 class FullFlowTest(WizardTestBase):
     def go_to_network(self, tls="off", url="http://localhost:8080"):
         c = self.unlock()
-        self.assertEqual(c.post("/admin/setup/language", {"lang": "es"})[0], 303)
-        self.assertEqual(c.post("/admin/setup/server", {"public_url": url, "tls": tls, "acme_email": ""})[0], 303)
-        status, headers, _b = c.post("/admin/setup/admin", admin_form("Admin@Example.com", PW1, PW1))
-        self.assertEqual((status, headers["Location"]), (303, "/admin/setup/signup"))
-        self.assertEqual(c.post("/admin/setup/signup", {"mode": "off"})[0], 303)
+        self.assertEqual(c.post("/console/setup/language", {"lang": "es"})[0], 303)
+        self.assertEqual(c.post("/console/setup/server", {"public_url": url, "tls": tls, "acme_email": ""})[0], 303)
+        status, headers, _b = c.post("/console/setup/admin", admin_form("Admin@Example.com", PW1, PW1))
+        self.assertEqual((status, headers["Location"]), (303, "/console/setup/signup"))
+        self.assertEqual(c.post("/console/setup/signup", {"mode": "off"})[0], 303)
         return c
 
     def test_backups_step_off_and_invalid(self):
         c = self.go_to_network()
-        c.post("/admin/setup/network", {"tailnet_name": "acme", "isolation": "1"})
-        c.post("/admin/setup/derp", {"derp_mode": "embedded"})
+        c.post("/console/setup/network", {"tailnet_name": "acme", "isolation": "1"})
+        c.post("/console/setup/derp", {"derp_mode": "embedded"})
         for bad in ("0 3 * *", "0 3 * * $(x)", "99 3 * * *"):
-            status, _h, html = c.post("/admin/setup/backups", {"backup_schedule": bad, "backup_keep_days": "14"})
+            status, _h, html = c.post("/console/setup/backups", {"backup_schedule": bad, "backup_keep_days": "14"})
             self.assertEqual(status, 400, bad)
             self.assertIn('class="notice error"', html)
             self.assertIn('name="backup_schedule"', html)  # the step is shown again
-        self.assertEqual(c.post("/admin/setup/backups", {"backup_enabled": "off", "backup_schedule": "0 3 * * *",
+        self.assertEqual(c.post("/console/setup/backups", {"backup_enabled": "off", "backup_schedule": "0 3 * * *",
                                                          "backup_keep_days": "14"})[0], 303)
-        _s, _h, review = c.request("/admin/setup/finish")
+        _s, _h, review = c.request("/console/setup/finish")
         self.assertIn("<dt>Copias de seguridad</dt><dd>Desactivada</dd>", review)  # the flow runs in Spanish
-        status, _h, done = c.post("/admin/setup/finish", {}, page=review)
+        status, _h, done = c.post("/console/setup/finish", {}, page=review)
         self.assertEqual(status, 200, done[:300])
         saved = json.load(open(os.path.join(self.data, "config", "settings.json")))
         self.assertEqual(saved["backup_schedule"], "off")
@@ -310,17 +310,17 @@ class FullFlowTest(WizardTestBase):
     def test_full_flow(self):
         c = self.go_to_network()
         self.assertIn("es", [ck.value for ck in c.jar if ck.name == "hse_lang"])
-        self.assertEqual(c.post("/admin/setup/network", {"tailnet_name": "acme", "isolation": "1"})[0], 303)
-        self.assertEqual(c.post("/admin/setup/derp", {"derp_mode": "embedded"})[0], 303)
-        self.assertEqual(c.post("/admin/setup/backups", {"backup_schedule": "30 2 * * *", "backup_keep_days": "7"})[0], 303)
-        _s, _h, review = c.request("/admin/setup/finish")
+        self.assertEqual(c.post("/console/setup/network", {"tailnet_name": "acme", "isolation": "1"})[0], 303)
+        self.assertEqual(c.post("/console/setup/derp", {"derp_mode": "embedded"})[0], 303)
+        self.assertEqual(c.post("/console/setup/backups", {"backup_schedule": "30 2 * * *", "backup_keep_days": "7"})[0], 303)
+        _s, _h, review = c.request("/console/setup/finish")
         self.assertIn("admin@example.com", review)
-        status, _h, done = c.post("/admin/setup/finish", {}, page=review)
+        status, _h, done = c.post("/console/setup/finish", {}, page=review)
         self.assertEqual(status, 200, done[:500])
-        self.assertIn('href="http://localhost:8080/admin/login"', done)
+        self.assertIn('href="http://localhost:8080/console/login"', done)
         # the page waits for the console and then goes to the sign-in page (app.js, CSP allows only our scripts)
-        self.assertIn('data-await-console="http://localhost:8080/admin/login"', done)
-        self.assertIn('data-probe="/admin/healthz"', done)
+        self.assertIn('data-await-console="http://localhost:8080/console/login"', done)
+        self.assertIn('data-probe="/console/healthz"', done)
         self.assertIn("data-await-waiting", done)
         self.assertNotIn("<script>", done)
         self.assertTrue(self.exited.wait(5), "the wizard did not ask to exit")
@@ -357,14 +357,14 @@ class FullFlowTest(WizardTestBase):
         render.to_vars(loaded)
         # the token is gone: nobody can start over
         c2 = Client(self.server.server_address[1])
-        _s, _h, html = c2.request("/admin/setup")
-        self.assertEqual(c2.request("/admin/setup", {"token": self.token, "csrf": c2.csrf(html)})[0], 403)
+        _s, _h, html = c2.request("/console/setup")
+        self.assertEqual(c2.request("/console/setup", {"token": self.token, "csrf": c2.csrf(html)})[0], 403)
 
     def finish_all(self, c, isolation="1"):
-        c.post("/admin/setup/network", {"tailnet_name": "acme", **({"isolation": "1"} if isolation else {})})
-        c.post("/admin/setup/derp", {"derp_mode": "embedded"})
-        c.post("/admin/setup/backups", {"backup_schedule": "0 3 * * *", "backup_keep_days": "14"})
-        return c.post("/admin/setup/finish", {})
+        c.post("/console/setup/network", {"tailnet_name": "acme", **({"isolation": "1"} if isolation else {})})
+        c.post("/console/setup/derp", {"derp_mode": "embedded"})
+        c.post("/console/setup/backups", {"backup_schedule": "0 3 * * *", "backup_keep_days": "14"})
+        return c.post("/console/setup/finish", {})
 
     def test_isolation_off_skips_the_policy_and_existing_policy_is_kept(self):
         c = self.go_to_network()
@@ -391,7 +391,7 @@ class FullFlowTest(WizardTestBase):
 
     def test_invite_mode_with_a_first_key_shown_once(self):
         c = self.go_to_network()
-        self.assertEqual(c.post("/admin/setup/signup", {"mode": "invite", "first_key": "1"})[0], 303)
+        self.assertEqual(c.post("/console/setup/signup", {"mode": "invite", "first_key": "1"})[0], 303)
         status, _h, done = self.finish_all(c)
         self.assertEqual(status, 200)
         key = re.search(r"<code>(hse-[\w-]+)</code>", done).group(1)
@@ -403,7 +403,7 @@ class FullFlowTest(WizardTestBase):
 
     def test_invite_mode_without_a_first_key(self):
         c = self.go_to_network()
-        c.post("/admin/setup/signup", {"mode": "invite"})
+        c.post("/console/setup/signup", {"mode": "invite"})
         self.assertNotIn("hse-", self.finish_all(c)[2])
         self.assertEqual(lac.list_signup_keys(), [])
 
@@ -428,7 +428,7 @@ class FullFlowTest(WizardTestBase):
                          "settings.json is the last thing written")
         self.assertTrue(os.path.exists(wizard.token_path(self.data)))
         os.unlink(os.path.join(self.state, "break"))
-        status, _h, html = c.post("/admin/setup/finish", {})  # retry
+        status, _h, html = c.post("/console/setup/finish", {})  # retry
         self.assertEqual(status, 200, html[:400])
         self.assertEqual(open(os.path.join(self.state, "users")).read().split(), ["admin"])
         self.assertEqual(len(lac.list_accounts()), 1)
@@ -437,51 +437,51 @@ class FullFlowTest(WizardTestBase):
     def test_resuming_reuses_the_account(self):
         c = self.go_to_network()
         c2 = self.unlock(Client(self.server.server_address[1]))  # a new browser session, e.g. wizard restarted
-        c2.post("/admin/setup/language", {"lang": "en"})
-        c2.post("/admin/setup/server", {"public_url": "http://localhost:8080", "tls": "off", "acme_email": ""})
-        status, headers, _b = c2.post("/admin/setup/admin", admin_form("admin@example.com", PW2, PW2))
-        self.assertEqual((status, headers["Location"]), (303, "/admin/setup/signup"))
+        c2.post("/console/setup/language", {"lang": "en"})
+        c2.post("/console/setup/server", {"public_url": "http://localhost:8080", "tls": "off", "acme_email": ""})
+        status, headers, _b = c2.post("/console/setup/admin", admin_form("admin@example.com", PW2, PW2))
+        self.assertEqual((status, headers["Location"]), (303, "/console/setup/signup"))
         self.assertEqual(len(lac.list_accounts()), 1)
         self.assertTrue(lac.verify_password(PW2, lac.get_account(email="admin@example.com")["pw_hash"]))
 
     def test_pages_use_the_console_components(self):
         c = self.unlock()
-        pages = [c.request("/admin/setup/language")[2]]
-        c.post("/admin/setup/language", {"lang": "en"})
-        pages.append(c.request("/admin/setup/server")[2])
-        c.post("/admin/setup/server", {"public_url": "http://localhost", "tls": "off", "acme_email": ""})
-        pages.append(c.request("/admin/setup/admin")[2])
-        pages.append(c.request("/admin/setup")[2])  # (redirects: still the card markup is checked below)
+        pages = [c.request("/console/setup/language")[2]]
+        c.post("/console/setup/language", {"lang": "en"})
+        pages.append(c.request("/console/setup/server")[2])
+        c.post("/console/setup/server", {"public_url": "http://localhost", "tls": "off", "acme_email": ""})
+        pages.append(c.request("/console/setup/admin")[2])
+        pages.append(c.request("/console/setup")[2])  # (redirects: still the card markup is checked below)
         for html in pages[:3]:
             self.assertIn('class="card narrow center login setup"', html)
             self.assertIn("btn wide primary", html)
             self.assertIn('class="field"', html)
             self.assertIn('class="setup-steps"', html)
             self.assertNotIn("login-container", html)  # that class has no CSS
-        token_page = Client(self.server.server_address[1]).request("/admin/setup")[2]
+        token_page = Client(self.server.server_address[1]).request("/console/setup")[2]
         self.assertIn('class="card narrow center login setup"', token_page)
 
     def test_invalid_input_keeps_the_step(self):
         c = self.unlock()
-        c.post("/admin/setup/language", {"lang": "en"})
-        status, _h, html = c.post("/admin/setup/server", {"public_url": "not a url", "tls": "off", "acme_email": ""})
+        c.post("/console/setup/language", {"lang": "en"})
+        status, _h, html = c.post("/console/setup/server", {"public_url": "not a url", "tls": "off", "acme_email": ""})
         self.assertEqual(status, 400)
         self.assertIn("http(s)://host[:port]", html)
-        status, _h, html = c.post("/admin/setup/server", {"public_url": "http://x.com", "tls": "auto", "acme_email": ""})
+        status, _h, html = c.post("/console/setup/server", {"public_url": "http://x.com", "tls": "auto", "acme_email": ""})
         self.assertEqual(status, 400)
-        c.post("/admin/setup/server", {"public_url": "http://localhost", "tls": "off", "acme_email": ""})
-        status, _h, html = c.post("/admin/setup/admin", admin_form("bad", PW1, PW1))
+        c.post("/console/setup/server", {"public_url": "http://localhost", "tls": "off", "acme_email": ""})
+        status, _h, html = c.post("/console/setup/admin", admin_form("bad", PW1, PW1))
         self.assertEqual(status, 400)
-        status, _h, html = c.post("/admin/setup/admin", admin_form("a@b.com", PW1, PW3))
+        status, _h, html = c.post("/console/setup/admin", admin_form("a@b.com", PW1, PW3))
         self.assertEqual(status, 400)
-        status, _h, html = c.post("/admin/setup/admin", admin_form("a@b.com", PW_SHORT, PW_SHORT))
+        status, _h, html = c.post("/console/setup/admin", admin_form("a@b.com", PW_SHORT, PW_SHORT))
         self.assertEqual(status, 400)
         self.assertEqual(lac.list_accounts(), [])
 
     def test_html_is_escaped(self):
         c = self.unlock()
-        c.post("/admin/setup/language", {"lang": "en"})
-        _s, _h, html = c.post("/admin/setup/server", {"public_url": '"><script>alert(1)</script>', "tls": "off",
+        c.post("/console/setup/language", {"lang": "en"})
+        _s, _h, html = c.post("/console/setup/server", {"public_url": '"><script>alert(1)</script>', "tls": "off",
                                                        "acme_email": ""})
         self.assertNotIn("<script>alert(1)", html)
 

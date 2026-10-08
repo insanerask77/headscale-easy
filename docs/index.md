@@ -44,7 +44,7 @@ official Tailscale apps on every device; only the server is yours.
 
 -   :material-monitor-dashboard: **Tailscale-style console**
 
-    Machines, users, DNS, access controls and keys at `/admin`. Dark and light
+    Machines, users, DNS, access controls and keys at `/console`. Dark and light
     themes, works on phones.
 
 -   :material-account-lock: **Real user accounts**

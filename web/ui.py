@@ -15,7 +15,7 @@ from pathlib import Path
 from i18n import LANGUAGES, _, get_lang, ngettext
 from version import DOCS_URL, PROJECT_URL, SPONSOR_URL, VERSION
 
-BASE = "/admin"
+BASE = "/console"
 
 # Public demo instance (DEMO_MODE=true): a banner on every page, and app.py
 # refuses the actions listed in DEMO_BLOCKED

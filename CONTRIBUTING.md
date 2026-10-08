@@ -72,7 +72,7 @@ docker run --rm -p 8080:80 -e HSE_PUBLIC_URL=http://localhost:8080 -e HSE_TLS=of
   -e HSE_ADMIN_EMAIL=me@example.com -e HSE_ADMIN_PASSWORD='a long password' hse-aio:dev
 ```
 
-Then open `http://localhost:8080/admin`. To work on the console without a rebuild
+Then open `http://localhost:8080/console`. To work on the console without a rebuild
 each time, mount the sources over the image:
 `-v "$PWD/web:/app/web:ro"` and restart the container. To see the first-run wizard,
 leave out `HSE_PUBLIC_URL` and read the token from `docker logs`.

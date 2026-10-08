@@ -14,7 +14,7 @@
 #   - Groups 'headscale-users' (can join the tailnet) and 'vpn-admins' (administrators in
 #     the console: PORTAL_ADMIN_GROUPS)
 #   - One OIDC provider with its application, 'headscale': the tailnet ('tailscale up') and
-#     the console. It accepts the console's redirect URIs (/admin/callback and /admin/),
+#     the console. It accepts the console's redirect URIs (/console/callback and /console/),
 #     because the all-in-one image signs in to both with the same OIDC client
 #   - The "Headscale Easy" sign-in flow and theme
 #   - With GOOGLE_CLIENT_ID set: "Sign in with Google"
@@ -207,10 +207,10 @@ entries:
         # all-in-one image: the console signs in through THIS provider too (one OIDC client for
         # Headscale and the console, OIDC_CLIENT_ID), so its callback and its logout page belong here
         - matching_mode: strict
-          url: !Format ["%s/admin/callback", !Context public_url]
+          url: !Format ["%s/console/callback", !Context public_url]
           redirect_uri_type: authorization
         - matching_mode: strict
-          url: !Format ["%s/admin/", !Context public_url]
+          url: !Format ["%s/console/", !Context public_url]
           redirect_uri_type: logout
 
   - model: authentik_core.application
