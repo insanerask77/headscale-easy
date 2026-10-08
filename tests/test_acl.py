@@ -16,6 +16,7 @@ sys.path.insert(0, WEB)
 import acl_pages  # noqa: E402
 import admin_pages  # noqa: E402
 import app  # noqa: E402
+from handlers import policy as hpol  # noqa: E402
 import policy  # noqa: E402
 from i18n import set_lang  # noqa: E402
 
@@ -244,105 +245,105 @@ class FormTests(unittest.TestCase):
         set_lang("en")
 
     def test_rule_from_form(self):
-        rule, error = app.acl_rule_from_form({"src": "alice@, tag:admin", "dst": "tag:nas", "port": "445", "proto": "tcp"})
+        rule, error = hpol.acl_rule_from_form({"src": "alice@, tag:admin", "dst": "tag:nas", "port": "445", "proto": "tcp"})
         self.assertEqual(error, "")
         self.assertEqual(rule, {"action": "accept", "src": ["alice@", "tag:admin"], "dst": ["tag:nas:445"], "proto": "tcp"})
 
     def test_rule_defaults_port_to_star(self):
-        rule, error = app.acl_rule_from_form({"src": "*", "dst": "tag:nas"})
+        rule, error = hpol.acl_rule_from_form({"src": "*", "dst": "tag:nas"})
         self.assertEqual(error, "")
         self.assertEqual(rule["dst"], ["tag:nas:*"])
         self.assertNotIn("proto", rule)
 
     def test_rule_requires_source_and_destination(self):
-        _, error = app.acl_rule_from_form({"src": "", "dst": "tag:nas"})
+        _, error = hpol.acl_rule_from_form({"src": "", "dst": "tag:nas"})
         self.assertIn("source", error)
-        _, error = app.acl_rule_from_form({"src": "alice@", "dst": ""})
+        _, error = hpol.acl_rule_from_form({"src": "alice@", "dst": ""})
         self.assertIn("destination", error)
 
     def test_rule_rejects_bad_port_and_tag(self):
-        _, error = app.acl_rule_from_form({"src": "alice@", "dst": "tag:nas", "port": "not-a-port"})
+        _, error = hpol.acl_rule_from_form({"src": "alice@", "dst": "tag:nas", "port": "not-a-port"})
         self.assertIn("port", error)
-        _, error = app.acl_rule_from_form({"src": "tag:Bad Name", "dst": "tag:nas"})
+        _, error = hpol.acl_rule_from_form({"src": "tag:Bad Name", "dst": "tag:nas"})
         self.assertIn("tag", error)
 
     def test_group_from_form_adds_prefix(self):
-        name, members, error = app.acl_group_from_form({"name": "staff", "members": "alice@, bob@"})
+        name, members, error = hpol.acl_group_from_form({"name": "staff", "members": "alice@, bob@"})
         self.assertEqual((name, members, error), ("group:staff", ["alice@", "bob@"], ""))
 
     def test_group_from_form_rejects_empty_members(self):
-        _, _, error = app.acl_group_from_form({"name": "staff", "members": ""})
+        _, _, error = hpol.acl_group_from_form({"name": "staff", "members": ""})
         self.assertIn("member", error)
 
     def test_tag_owner_from_form(self):
-        name, owners, error = app.acl_tag_owner_from_form({"name": "tag:nas", "owners": "group:staff"})
+        name, owners, error = hpol.acl_tag_owner_from_form({"name": "tag:nas", "owners": "group:staff"})
         self.assertEqual((name, owners, error), ("tag:nas", ["group:staff"], ""))
 
     def test_tag_owner_requires_prefix(self):
-        _, _, error = app.acl_tag_owner_from_form({"name": "nas", "owners": "alice@"})
+        _, _, error = hpol.acl_tag_owner_from_form({"name": "nas", "owners": "alice@"})
         self.assertIn("tag:", error)
 
     def test_auto_route_from_form(self):
-        cidr, approvers, error = app.acl_auto_route_from_form({"cidr": "10.0.0.0/24", "approvers": "tag:router, alice@"})
+        cidr, approvers, error = hpol.acl_auto_route_from_form({"cidr": "10.0.0.0/24", "approvers": "tag:router, alice@"})
         self.assertEqual((cidr, approvers, error), ("10.0.0.0/24", ["tag:router", "alice@"], ""))
 
     def test_auto_route_accepts_a_bare_ip_as_a_slash_32(self):
-        cidr, _, error = app.acl_auto_route_from_form({"cidr": "10.0.0.5", "approvers": "tag:router"})
+        cidr, _, error = hpol.acl_auto_route_from_form({"cidr": "10.0.0.5", "approvers": "tag:router"})
         self.assertEqual((cidr, error), ("10.0.0.5", ""))
 
     def test_auto_route_rejects_bad_cidr_and_tag_and_empty_approvers(self):
-        _, _, error = app.acl_auto_route_from_form({"cidr": "not-a-cidr", "approvers": "tag:router"})
+        _, _, error = hpol.acl_auto_route_from_form({"cidr": "not-a-cidr", "approvers": "tag:router"})
         self.assertIn("subnet", error)
-        _, _, error = app.acl_auto_route_from_form({"cidr": "10.0.0.0/24", "approvers": ""})
+        _, _, error = hpol.acl_auto_route_from_form({"cidr": "10.0.0.0/24", "approvers": ""})
         self.assertIn("approver", error)
-        _, _, error = app.acl_auto_route_from_form({"cidr": "10.0.0.0/24", "approvers": "tag:Bad Name"})
+        _, _, error = hpol.acl_auto_route_from_form({"cidr": "10.0.0.0/24", "approvers": "tag:Bad Name"})
         self.assertIn("tag", error)
 
     def test_auto_exit_node_from_form(self):
-        approvers, error = app.acl_auto_exit_node_from_form({"approvers": "tag:exit, group:admins"})
+        approvers, error = hpol.acl_auto_exit_node_from_form({"approvers": "tag:exit, group:admins"})
         self.assertEqual((approvers, error), (["tag:exit", "group:admins"], ""))
 
     def test_auto_exit_node_empty_list_is_valid(self):
-        approvers, error = app.acl_auto_exit_node_from_form({"approvers": ""})
+        approvers, error = hpol.acl_auto_exit_node_from_form({"approvers": ""})
         self.assertEqual((approvers, error), ([], ""))
 
     def test_auto_exit_node_rejects_bad_tag(self):
-        _, error = app.acl_auto_exit_node_from_form({"approvers": "tag:Bad Name"})
+        _, error = hpol.acl_auto_exit_node_from_form({"approvers": "tag:Bad Name"})
         self.assertIn("tag", error)
 
     def test_ssh_rule_from_form(self):
-        rule, error = app.ssh_rule_from_form({"src": "group:sre", "dst": "tag:prod", "users": "root",
+        rule, error = hpol.ssh_rule_from_form({"src": "group:sre", "dst": "tag:prod", "users": "root",
                                               "action": "check", "check_period": "12h"})
         self.assertEqual(error, "")
         self.assertEqual(rule, {"action": "check", "src": ["group:sre"], "dst": ["tag:prod"], "users": ["root"],
                                 "checkPeriod": "12h"})
 
     def test_ssh_rule_defaults_to_accept_and_drops_check_period(self):
-        rule, error = app.ssh_rule_from_form({"src": "*", "dst": "autogroup:self", "users": "autogroup:nonroot"})
+        rule, error = hpol.ssh_rule_from_form({"src": "*", "dst": "autogroup:self", "users": "autogroup:nonroot"})
         self.assertEqual(error, "")
         self.assertEqual(rule["action"], "accept")
         self.assertNotIn("checkPeriod", rule)
 
     def test_ssh_rule_check_period_ignored_without_check_action(self):
-        rule, error = app.ssh_rule_from_form({"src": "*", "dst": "*", "users": "root", "check_period": "12h"})
+        rule, error = hpol.ssh_rule_from_form({"src": "*", "dst": "*", "users": "root", "check_period": "12h"})
         self.assertEqual(error, "")
         self.assertNotIn("checkPeriod", rule)
 
     def test_ssh_rule_requires_fields(self):
-        _, error = app.ssh_rule_from_form({"src": "", "dst": "*", "users": "root"})
+        _, error = hpol.ssh_rule_from_form({"src": "", "dst": "*", "users": "root"})
         self.assertIn("source", error)
-        _, error = app.ssh_rule_from_form({"src": "*", "dst": "", "users": "root"})
+        _, error = hpol.ssh_rule_from_form({"src": "*", "dst": "", "users": "root"})
         self.assertIn("destination", error)
-        _, error = app.ssh_rule_from_form({"src": "*", "dst": "*", "users": ""})
+        _, error = hpol.ssh_rule_from_form({"src": "*", "dst": "*", "users": ""})
         self.assertIn("host user", error)
 
     def test_ssh_rule_rejects_bad_period_and_action_and_tag(self):
-        _, error = app.ssh_rule_from_form({"src": "*", "dst": "*", "users": "root", "action": "check",
+        _, error = hpol.ssh_rule_from_form({"src": "*", "dst": "*", "users": "root", "action": "check",
                                            "check_period": "not-a-period"})
         self.assertIn("re-authentication", error)
-        _, error = app.ssh_rule_from_form({"src": "*", "dst": "*", "users": "root", "action": "bogus"})
+        _, error = hpol.ssh_rule_from_form({"src": "*", "dst": "*", "users": "root", "action": "bogus"})
         self.assertIn("access", error)
-        _, error = app.ssh_rule_from_form({"src": "tag:Bad Name", "dst": "*", "users": "root"})
+        _, error = hpol.ssh_rule_from_form({"src": "tag:Bad Name", "dst": "*", "users": "root"})
         self.assertIn("tag", error)
 
 

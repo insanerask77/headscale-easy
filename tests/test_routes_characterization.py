@@ -20,7 +20,7 @@ import unittest
 from unittest import mock
 
 from test_security import ADMIN, BOB, BOB_NODE, MEMBER, B, Base, app, location, request  # sets up env + sys.path
-from handlers import access as handlers_access  # noqa: E402
+from handlers import access, devices, operations, policy as handlers_policy, users  # noqa: E402
 from handlers import shared as sh  # noqa: E402
 
 import local_accounts as lac  # noqa: E402
@@ -176,9 +176,8 @@ class RouteCase(Base):
         self.addCleanup(logging.disable, logging.NOTSET)
         HS = permissive_headscale()
         patches = [
-            mock.patch.object(app, "hs", HS),
-            mock.patch.object(sh, "hs", HS),
-            mock.patch.object(handlers_access, "hs", HS),
+            # every module imports headscale as `hs` on its own, so the fake goes into each of them
+            *(mock.patch.object(module, "hs", HS) for module in (app, sh, access, devices, operations, handlers_policy, users)),
             # data sources that read files or the supervisor: not part of the routing decision
             mock.patch.object(app.Handler, "derp_view", lambda *a, **k: "derp"),
             mock.patch.object(app.audit, "csv_export", lambda params: "csv"),

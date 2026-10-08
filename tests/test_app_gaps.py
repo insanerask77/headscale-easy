@@ -25,7 +25,9 @@ sys.path.insert(0, os.path.join(ROOT, "tests"))
 from test_security import ADMIN, B, BOB, MEMBER, Base, location, request  # noqa: E402  (sets the environment)
 import app  # noqa: E402
 from handlers import shared as sh  # noqa: E402
+import derp  # noqa: E402
 import headscale as hs  # noqa: E402
+import multipart  # noqa: E402
 import local_accounts as lac  # noqa: E402
 import sessions  # noqa: E402
 
@@ -1401,7 +1403,7 @@ class BackupUploadEdges(Base):
         self.assertEqual(self.leftovers(), [])
 
     def test_disk_error_while_storing(self):
-        with mock.patch.object(app.multipart, "read_form", side_effect=OSError("no space left")):
+        with mock.patch.object(multipart, "read_form", side_effect=OSError("no space left")):
             status, headers, _b = self.post([("csrf", "tok"), ("file", b"data", "a.tar.gz")])
         self.assertEqual(location(headers), f"{B}/backups?m=backup-upload-error")
 
@@ -1464,25 +1466,25 @@ class DerpSave(Base):
         return request("POST", B + "/derp", ADMIN, dict({"csrf": "tok"}, **form))
 
     def test_not_editable(self):
-        with mock.patch.object(app.derp, "editable", lambda: "The DERP map is managed elsewhere."), \
-                mock.patch.object(app.derp, "relays", lambda: []), mock.patch.object(app.derp, "regions", lambda: []), \
-                mock.patch.object(app.derp, "embedded_region", lambda: None):
+        with mock.patch.object(derp, "editable", lambda: "The DERP map is managed elsewhere."), \
+                mock.patch.object(derp, "relays", lambda: []), mock.patch.object(derp, "regions", lambda: []), \
+                mock.patch.object(derp, "embedded_region", lambda: None):
             status, _h, body = self.post()
         self.assertEqual(status, 400)
         self.assertIn("managed elsewhere", body)
 
     def test_headscale_refusing_the_map(self):
-        with mock.patch.object(app.derp, "editable", lambda: ""), mock.patch.object(app.derp, "relays", lambda: []), \
-                mock.patch.object(app.derp, "apply", lambda relays: (False, "restart failed")), \
-                mock.patch.object(app.derp, "regions", lambda: []), \
-                mock.patch.object(app.derp, "embedded_region", lambda: None):
+        with mock.patch.object(derp, "editable", lambda: ""), mock.patch.object(derp, "relays", lambda: []), \
+                mock.patch.object(derp, "apply", lambda relays: (False, "restart failed")), \
+                mock.patch.object(derp, "regions", lambda: []), \
+                mock.patch.object(derp, "embedded_region", lambda: None):
             status, _h, body = self.post()
         self.assertEqual(status, 400)
         self.assertIn("restart failed", body)
 
     def test_saved(self):
-        with mock.patch.object(app.derp, "editable", lambda: ""), mock.patch.object(app.derp, "relays", lambda: []), \
-                mock.patch.object(app.derp, "apply", lambda relays: (True, "")):
+        with mock.patch.object(derp, "editable", lambda: ""), mock.patch.object(derp, "relays", lambda: []), \
+                mock.patch.object(derp, "apply", lambda relays: (True, "")):
             status, headers, _b = self.post()
         self.assertEqual(location(headers), f"{B}/derp?m=derp-saved")
         self.assertEqual(app.audit.request_event.call_args.args[2], "derp.save")
