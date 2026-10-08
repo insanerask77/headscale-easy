@@ -20,6 +20,7 @@ os.environ.update(HEADSCALE_API_KEY="x", PUBLIC_URL="https://vpn.example.com", S
 sys.path.insert(0, WEB)
 
 import app  # noqa: E402
+from handlers import policy as hpol  # noqa: E402
 import headscale as hs  # noqa: E402
 import pages  # noqa: E402
 from i18n import set_lang  # noqa: E402
@@ -138,7 +139,7 @@ class DnsTests(unittest.TestCase):
         for cfg in (FULL, dict(FULL, override_local_dns=False, split={}, extra_records=[], search_domains=[]),
                     dict(FULL, magic_dns=False)):
             page = pages.dns_page(SESSION_ADMIN, CTX_EDIT, cfg, [])
-            new, err = app.dns_cfg_from_form(submitted(page), cfg)
+            new, err = hpol.dns_cfg_from_form(submitted(page), cfg)
             self.assertEqual(err, "")
             self.assertEqual(new, cfg)
             write_config(new)
@@ -151,7 +152,7 @@ class DnsTests(unittest.TestCase):
                 "split_domain[]": ["corp.lan", "corp.lan", "", "lab.lan"],
                 "split_ns[]": ["10.0.0.53", "10.0.0.54", "", "10.1.0.1"],
                 "rec_name[]": ["NAS.example.com", ""], "rec_value[]": ["100.64.0.9", ""]}
-        cfg, err = app.dns_cfg_from_form(form, FULL)
+        cfg, err = hpol.dns_cfg_from_form(form, FULL)
         self.assertEqual(err, "")
         self.assertFalse(cfg["override_local_dns"])
         self.assertEqual(cfg["nameservers"], ["9.9.9.9", "1.1.1.1"])
@@ -163,7 +164,7 @@ class DnsTests(unittest.TestCase):
         self.assertEqual(hs.dns_config(), cfg)
 
     def test_empty_lists_and_override(self):
-        cfg, err = app.dns_cfg_from_form({"section": "settings"}, FULL)
+        cfg, err = hpol.dns_cfg_from_form({"section": "settings"}, FULL)
         self.assertEqual(err, "")
         self.assertTrue(cfg["override_local_dns"])  # checkbox absent = use local off = override
         self.assertEqual((cfg["nameservers"], cfg["split"], cfg["extra_records"], cfg["search_domains"]),
@@ -172,7 +173,7 @@ class DnsTests(unittest.TestCase):
         self.assertEqual(hs.dns_config(), cfg)
 
     def test_single_value_not_list(self):
-        cfg, err = app.dns_cfg_from_form({"section": "settings", "ns[]": "8.8.8.8", "use_local_dns": "1"}, FULL)
+        cfg, err = hpol.dns_cfg_from_form({"section": "settings", "ns[]": "8.8.8.8", "use_local_dns": "1"}, FULL)
         self.assertEqual(cfg["nameservers"], ["8.8.8.8"])
 
     def test_errors_keep_draft(self):
@@ -185,7 +186,7 @@ class DnsTests(unittest.TestCase):
             ({"rec_name[]": ["bad_name"], "rec_value[]": ["100.64.0.1"]}, "Invalid domain"),
         ]
         for extra, msg in cases:
-            cfg, err = app.dns_cfg_from_form(dict({"section": "settings"}, **extra), FULL)
+            cfg, err = hpol.dns_cfg_from_form(dict({"section": "settings"}, **extra), FULL)
             self.assertIn(msg, err, extra)
             # The draft renders with what was typed
             page = pages.dns_page(SESSION_ADMIN, CTX_EDIT, cfg, [], error=err)
@@ -193,12 +194,12 @@ class DnsTests(unittest.TestCase):
                 self.assertIn(f'value="{v}"', page)
 
     def test_rename_and_magic_keep_the_rest(self):
-        cfg, err = app.dns_cfg_from_form({"section": "rename", "base_domain": " New.TS.net. "}, FULL)
+        cfg, err = hpol.dns_cfg_from_form({"section": "rename", "base_domain": " New.TS.net. "}, FULL)
         self.assertEqual(err, "")
         self.assertEqual(cfg, dict(FULL, base_domain="new.ts.net"))
-        cfg, _ = app.dns_cfg_from_form({"section": "magic", "magic_dns": "0"}, FULL)
+        cfg, _ = hpol.dns_cfg_from_form({"section": "magic", "magic_dns": "0"}, FULL)
         self.assertEqual(cfg, dict(FULL, magic_dns=False))
-        cfg, _ = app.dns_cfg_from_form({"section": "magic", "magic_dns": "1"}, dict(FULL, magic_dns=False))
+        cfg, _ = hpol.dns_cfg_from_form({"section": "magic", "magic_dns": "1"}, dict(FULL, magic_dns=False))
         self.assertEqual(cfg, FULL)
         # The page's own dialog / enable forms submit these fields
         page = pages.dns_page(SESSION_ADMIN, CTX_EDIT, FULL, [])
