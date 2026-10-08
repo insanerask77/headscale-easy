@@ -21,28 +21,40 @@ compose.yaml            The simple install: one service, the pinned image
 advanced/               Advanced configurations: compose overlays (PostgreSQL, a proxy in front, remote backups, sign-in providers)
 aio/                    The all-in-one image: Dockerfile, supervisor, config renderer, wizard, backups, `hse`
   supervisor.py         Starts and restarts Headscale, Caddy and the console; the console's socket protocol
+  processes.py          One supervised child process: restart with backoff, output, helpers to run commands
+  backup_control.py     The supervisor's backup side: control requests, schedule, running a backup
   render.py             Renders Headscale's config.yaml, the Caddyfile and the DERP map from the settings
-  wizard.py             The first-run setup wizard
+  render_checks.py      Validation of the settings the renderer reads
+  wizard.py             The first-run setup wizard (server, sessions, steps)
+  wizard_checks.py, wizard_pages.py   Its form validation and its HTML
   backup.py, restore.py, cron.py   Built-in backups and their schedule
   hse                   Control CLI: health, reload, backup, backups, restore
 templates/              Files the renderer fills in (Headscale config, Caddyfile, PostgreSQL read-only role)
 web/                    The web console (runs inside the image)
-  app.py                HTTP server, routing, sessions, OIDC
-  headscale.py          Headscale REST API client, DNS config, supervisor client
-  local_accounts.py     Local accounts: passwords, TOTP, invitations, reset links, sign-up keys
-  machines_pages.py     Machines, device approval, Add device pages
-  dns_pages.py          DNS page
-  keys_pages.py         Keys page (pre-auth and API keys)
-  settings_pages.py     General, sessions, account and two-factor setup pages
-  auth_pages.py         Pages shown before sign-in: two-factor check, invitation, password reset
-  admin_pages.py        Users, access controls (raw HuJSON tab), sign-in page
-  acl_pages.py          Access controls: Rules, Groups & tags, Test access tabs
+  app.py                The HTTP server: Handler (sessions, dispatch), routing tables, start-up
+  config.py             Settings read from the environment (Settings.from_env)
+  http_base.py, signing.py   Response/request helpers and signed cookies
+  handlers/             What each request does, one mixin of Handler per area
+    shared.py             Settings aliases, role rules and lookups shared by the handlers
+    access.py             Sign-in (OIDC, API key, local accounts), two-factor, invitations, password reset
+    devices.py            Machines, pre-auth keys, device registration, live events
+    users.py              Users, invitations, sign-up, API keys
+    policy.py             Access controls, DNS, DERP, key expiry
+    operations.py         Backups, restore, notifications
+  headscale.py          Headscale REST API client, DNS config, supervisor client (contract in ports.py)
+  dns_block.py          The managed DNS block of config.yaml (text only)
+  local_accounts.py     Local accounts: passwords, roles, two-factor setup
+  accounts_db.py, totp.py, account_tokens.py   Their database, one-time codes, invitation/reset/sign-up tokens
+  sessions.py, apikey.py, audit.py, notify.py, naming.py, expiry.py, signup.py, derp.py, status.py   Logic (no HTML)
+  *_pages.py            HTML of each area: machines, keys, dns, settings, auth, acl, admin, audit, backup, derp,
+                        status, expiry, signup
   policy.py             HuJSON parsing/splicing and the access simulator
   ui.py                 Layout, sidebar, icons, shared helpers
   i18n.py, locales/     Translations
   static/               CSS, JS, font, favicon
 backup/                 The `backup-remote` sidecar image (S3, B2, SFTP, rsync)
-scripts/                aio-smoke.sh, compose-smoke.sh, advanced-smoke.sh, validate.sh, check_i18n.py
+scripts/                aio-smoke.sh, compose-smoke.sh, advanced-smoke.sh, validate.sh, check_i18n.py, check_types.py
+pyproject.toml          ruff, pytest, pyright and coverage settings
 tests/                  Unit tests (Python standard library only)
 docs/, mkdocs.yml       Documentation site (GitHub Pages), screenshots
 ```
@@ -84,7 +96,8 @@ leave out `HSE_PUBLIC_URL` and read the token from `docker logs`.
 Before opening a pull request:
 
 ```bash
-make lint        # shellcheck, Python syntax, translation coverage
+make lint        # shellcheck, ruff, Python syntax, translation coverage
+make typecheck   # pyright: no more errors than the recorded ceiling (scripts/check_types.py)
 make test        # unit tests
 make validate    # project structure, compose files, the environment-variable reference
 ```
