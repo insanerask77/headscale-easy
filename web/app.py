@@ -29,7 +29,7 @@ import signal
 import time
 import urllib.error
 import urllib.parse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import ThreadingHTTPServer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("headscale-easy")
@@ -46,7 +46,6 @@ from handlers.shared import (  # noqa: E402,F401
     CTX, PUBLIC_URL, bulk_tags_from_form, can_edit_network, exit_nodes_for, is_auditor, iso_in, lines, my_user,
     node_for, role_of, sign, to_machines, unsign, visible_nodes,
 )
-from http_base import HttpHelpers  # noqa: E402
 from config import Settings, csv_set, oidc_scope  # noqa: E402,F401
 import local_accounts as lac  # noqa: E402
 import accounts_db  # noqa: E402
@@ -78,8 +77,7 @@ from version import VERSION  # noqa: E402
 _NOT_PUBLIC = object()  # what _get_public/_post_public return for a path that needs a session
 
 
-class Handler(AccessHandlers, DevicesHandlers, UsersHandlers, PolicyHandlers, OperationsHandlers,
-              HttpHelpers, BaseHTTPRequestHandler):
+class Handler(AccessHandlers, DevicesHandlers, UsersHandlers, PolicyHandlers, OperationsHandlers):
     server_version = "headscale-easy"
     sys_version = ""
 

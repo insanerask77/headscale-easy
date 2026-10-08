@@ -5,6 +5,7 @@ from __future__ import annotations
 import hmac
 import re
 import secrets
+import urllib.error
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 
@@ -18,11 +19,12 @@ import sessions
 import signup
 import signup_pages
 from handlers import shared as sh
+from handlers.base import HandlerBase
 from i18n import _
 from ui import BASE
 
 
-class UsersHandlers:
+class UsersHandlers(HandlerBase):
     def create_apikey(self, session: dict, form: dict):
         days = str(form.get("days", "90"))
         days = days if days in sh.APIKEY_DAYS else "90"

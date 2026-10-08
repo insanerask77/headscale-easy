@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import urllib.parse
 from http import cookies
+from http.server import BaseHTTPRequestHandler
 
 
-class HttpHelpers:
+class HttpHelpers(BaseHTTPRequestHandler):
     """Mixin for ``BaseHTTPRequestHandler``: sending responses and reading the cookie jar and form body."""
 
     # --- responses ---

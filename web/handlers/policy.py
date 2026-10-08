@@ -16,6 +16,7 @@ import dns_pages
 import settings_pages
 import policy
 from handlers import shared as sh
+from handlers.base import HandlerBase
 from i18n import _
 from ui import BASE
 
@@ -212,7 +213,7 @@ def _key_expiry_days(form: dict) -> int | None:
     return int(raw)
 
 
-class PolicyHandlers:
+class PolicyHandlers(HandlerBase):
     def derp_view(self, session: dict, flash: str = "", error: str = "", relays: list[dict] | None = None) -> str:
         hostinfos = [d.get("hostinfo") or {} for d in hs.host_details([str(n["id"]) for n in hs.all_nodes()]).values()]
         rows = derp.status(hostinfos, derp.regions())

@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 from datetime import datetime
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import cron
@@ -34,6 +35,29 @@ BACKUP_TIMEOUT = 3600.0  # a backup that runs longer than this is killed
 
 
 class BackupControl:
+    """Backup side of the supervisor (mixed into ``supervisor.Supervisor``, which owns the state used here)."""
+
+    if TYPE_CHECKING:
+        # Defined by Supervisor; declared here for type checkers only.
+        data_dir: str
+        run_dir: str
+        env: Any
+        sink: Any
+        paths: dict
+        mode: str | None
+        stopping: threading.Event
+        restore_requested: threading.Event
+        restore_delay: float
+        clock: Any
+        sched_tick: float
+        catchup_delay: float
+        _op_lock: threading.Lock
+        _backup_lock: threading.Lock
+        _sched_wake: threading.Event
+
+        def log(self, msg: str) -> None: ...
+        def load(self) -> dict: ...
+
     def be_backup(self):
         """POST /backup: start a manual backup and answer at once; the console polls /status."""
         start = getattr(self, "start_backup", None)

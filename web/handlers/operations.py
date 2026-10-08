@@ -17,11 +17,12 @@ import multipart
 import notify
 import status as server_status
 from handlers import shared as sh
+from handlers.base import HandlerBase
 from i18n import _
 from ui import BASE
 
 
-class OperationsHandlers:
+class OperationsHandlers(HandlerBase):
     def backup_now(self, session: dict):
         """Status page > Back up now (admins only): asks the all-in-one supervisor for a manual backup."""
         if not session.get("admin"):

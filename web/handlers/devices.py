@@ -15,10 +15,11 @@ import keys_pages
 import machines_pages
 import sessions
 from handlers import shared as sh
+from handlers.base import HandlerBase
 from i18n import _
 from ui import BASE
 
-class DevicesHandlers:
+class DevicesHandlers(HandlerBase):
     def events_stream(self):
         """Server-Sent Events: one message per device change this session may see.
         The page re-fetches its own (already filtered) HTML when one arrives."""

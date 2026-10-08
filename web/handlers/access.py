@@ -23,11 +23,12 @@ import settings_pages
 import totp
 import sessions
 from handlers import shared as sh
+from handlers.base import HandlerBase
 from i18n import _
 from ui import BASE
 
 
-class AccessHandlers:
+class AccessHandlers(HandlerBase):
     # --- sign in ---
     def start_sso(self):
         wait = self.rate_limited("sso")
