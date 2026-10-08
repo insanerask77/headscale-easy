@@ -28,7 +28,7 @@ ALLOWED = [
      "an entry that is not dated yet blocks a release tag: that is how the release check works"),
     (r"^(docs/getting-started(\.es)?\.md|web/machines_pages\.py)$", r"tailscale\.com/install\.sh",
      "Tailscale's own client install script"),
-    (r"^(web/local_accounts\.py|tests/test_local_accounts\.py)$", r"(?i)migrat", "database schema migrations"),
+    (r"^(web/(local_accounts|accounts_db)\.py|tests/test_local_accounts\.py)$", r"(?i)migrat", "database schema migrations"),
     (r"^docs/advanced/postgres(\.es)?\.md$", r"(?i)migrates its tables", "Headscale creates its own tables"),
     (r"^(web/pgwire\.py|docs/configuration(\.es)?\.md|tests/test_postgresql\.py)$", r"(?i)legacy",
      "PostgreSQL's legacy MD5 password method, refused"),
