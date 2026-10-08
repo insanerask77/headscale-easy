@@ -50,7 +50,7 @@ for f in scripts/validate.sh scripts/aio-smoke.sh scripts/compose-smoke.sh; do
 done
 
 if command -v python3 &>/dev/null; then
-    if python3 -m py_compile web/*.py aio/*.py scripts/*.py 2>/dev/null; then ok "Python syntax: web/*.py aio/*.py scripts/*.py"; else fail "Python syntax error in web/ or aio/"; fi
+    if python3 -m py_compile web/*.py web/*/*.py aio/*.py scripts/*.py 2>/dev/null; then ok "Python syntax: web/*.py aio/*.py scripts/*.py"; else fail "Python syntax error in web/ or aio/"; fi
     if python3 scripts/check_i18n.py >/dev/null; then ok "Translations complete"; else fail "Missing translations: python3 scripts/check_i18n.py"; fi
     if python3 scripts/gen_env_reference.py; then ok "Environment-variable reference documents every variable"; else fail "Undocumented variables: python3 scripts/gen_env_reference.py"; fi
     if python3 scripts/release_info.py check >/dev/null; then ok "VERSION, compose.yaml, aio/Dockerfile and CHANGELOG.md agree"; else fail "The version differs between files: python3 scripts/release_info.py check"; fi

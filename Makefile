@@ -25,7 +25,7 @@ validate: ## Check the project structure and configuration
 lint: ## shellcheck + ruff + Python syntax + i18n coverage
 	@uvx ruff check .
 	@shellcheck -S warning scripts/*.sh backup/*.sh
-	@python3 -m py_compile web/*.py aio/*.py
+	@python3 -m py_compile web/*.py web/*/*.py aio/*.py
 	@python3 scripts/check_i18n.py
 
 test: ## Unit tests (Python standard library only)
