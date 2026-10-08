@@ -30,7 +30,11 @@ web/                    The web console (runs inside the image)
   app.py                HTTP server, routing, sessions, OIDC
   headscale.py          Headscale REST API client, DNS config, supervisor client
   local_accounts.py     Local accounts: passwords, TOTP, invitations, reset links, sign-up keys
-  pages.py              Machines, device, DNS, keys, settings pages
+  machines_pages.py     Machines, device approval, Add device pages
+  dns_pages.py          DNS page
+  keys_pages.py         Keys page (pre-auth and API keys)
+  settings_pages.py     General, sessions, account and two-factor setup pages
+  auth_pages.py         Pages shown before sign-in: two-factor check, invitation, password reset
   admin_pages.py        Users, access controls (raw HuJSON tab), sign-in page
   acl_pages.py          Access controls: Rules, Groups & tags, Test access tabs
   policy.py             HuJSON parsing/splicing and the access simulator

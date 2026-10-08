@@ -12,7 +12,8 @@ import audit
 import derp
 import derp_pages
 import headscale as hs
-import pages
+import dns_pages
+import settings_pages
 import policy
 from handlers import shared as sh
 from i18n import _
@@ -240,7 +241,7 @@ class PolicyHandlers:
         days = _key_expiry_days(form)
 
         def again(error: str):
-            return self.send(200, pages.general_page(session, sh.CTX, key_expiry=hs.key_expiry_days(), error=error))
+            return self.send(200, settings_pages.general_page(session, sh.CTX, key_expiry=hs.key_expiry_days(), error=error))
 
         if days is None:
             return again(_("Enter a number of days between 1 and {max}.", max=hs.KEY_EXPIRY_MAX_DAYS))
@@ -390,7 +391,7 @@ class PolicyHandlers:
 
         def again(error: str):
             # Show what the admin typed again so it is not lost
-            return self.send(400, pages.dns_page(session, ctx, cfg or current, sh.to_machines(sh.visible_nodes(session)),
+            return self.send(400, dns_pages.dns_page(session, ctx, cfg or current, sh.to_machines(sh.visible_nodes(session)),
                                                  error=error))
 
         if not ctx.get("dns_editable"):

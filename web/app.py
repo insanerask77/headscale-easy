@@ -60,9 +60,12 @@ import audit  # noqa: E402
 import audit_pages  # noqa: E402
 import naming  # noqa: E402
 import notify  # noqa: E402
-import pages  # noqa: E402
+import dns_pages  # noqa: E402
+import machines_pages  # noqa: E402
+import settings_pages  # noqa: E402
 import sessions  # noqa: E402
 import signup  # noqa: E402
+import signup_pages  # noqa: E402
 from i18n import LANGUAGES, _, pick_lang, set_lang  # noqa: E402
 from ui import BASE, message_page  # noqa: E402
 from version import VERSION  # noqa: E402
@@ -210,10 +213,10 @@ class Handler(AccessHandlers, DevicesHandlers, UsersHandlers, PolicyHandlers, Op
         if path == f"{BASE}/machines":
             users = hs.all_users() if sees_all else None
             has_user = True if sees_all else sh.my_user(session) is not None
-            return self.send(200, pages.machines_page(session, sh.CTX, sh.to_machines(sh.visible_nodes(session)),
+            return self.send(200, machines_pages.machines_page(session, sh.CTX, sh.to_machines(sh.visible_nodes(session)),
                                                       has_user, flash, users))
         if path == f"{BASE}/machines.csv":
-            data = pages.machines_csv(sh.to_machines(sh.visible_nodes(session)))
+            data = machines_pages.machines_csv(sh.to_machines(sh.visible_nodes(session)))
             return self.send(200, data, "text/csv; charset=utf-8",
                              [("Content-Disposition", 'attachment; filename="machines.csv"')])
         m = re.fullmatch(rf"{BASE}/machines/(\d+)", path)
@@ -221,24 +224,24 @@ class Handler(AccessHandlers, DevicesHandlers, UsersHandlers, PolicyHandlers, Op
             node = sh.node_for(session, m.group(1))
             if node is None:
                 return self.redirect(f"{BASE}/machines?m=not-found")
-            return self.send(200, pages.machine_page(session, sh.CTX, sh.to_machines([node])[0], flash))
+            return self.send(200, machines_pages.machine_page(session, sh.CTX, sh.to_machines([node])[0], flash))
         if path == f"{BASE}/add":
-            return self.send(200, pages.add_page(session, sh.CTX, users=hs.all_users() if session.get("admin") else None,
+            return self.send(200, machines_pages.add_page(session, sh.CTX, users=hs.all_users() if session.get("admin") else None,
                                                       exit_nodes=sh.exit_nodes_for(session)))
         if path == f"{BASE}/dns":
-            return self.send(200, pages.dns_page(session, sh.dns_ctx() if sh.can_edit_network(session) else sh.CTX,
+            return self.send(200, dns_pages.dns_page(session, sh.dns_ctx() if sh.can_edit_network(session) else sh.CTX,
                                                  hs.dns_config(), sh.to_machines(sh.visible_nodes(session)), flash=flash))
         if path in (f"{BASE}/settings", f"{BASE}/settings/"):
             return self.redirect(f"{BASE}/settings/general")
         if path == f"{BASE}/settings/general":
-            return self.send(200, pages.general_page(session, sh.CTX, flash,
+            return self.send(200, settings_pages.general_page(session, sh.CTX, flash,
                                                      key_expiry=hs.key_expiry_days() if admin else None,
-                                                     extra=signup.mode_card(session, signup.mode())
+                                                     extra=signup_pages.mode_card(session, signup.mode())
                                                      if admin else ""))
         if path == f"{BASE}/settings/keys":
             return self.keys_view(session, flash, preselect=params.get("user", ""))
         if path == f"{BASE}/settings/sessions":
-            return self.send(200, pages.sessions_page(
+            return self.send(200, settings_pages.sessions_page(
                 session, sh.CTX, sessions.list_all() if sees_all else sessions.list_for(session), flash))
         if path == f"{BASE}/settings/account":
             # Account settings for local accounts
@@ -248,7 +251,7 @@ class Handler(AccessHandlers, DevicesHandlers, UsersHandlers, PolicyHandlers, Op
             account = lac.get_account(id=account_id)
             if not account:
                 return self.redirect(f"{BASE}/settings/general")
-            return self.send(200, pages.account_settings_page(session, sh.CTX, account, flash))
+            return self.send(200, settings_pages.account_settings_page(session, sh.CTX, account, flash))
         if path == f"{BASE}/settings/account/totp/enroll":
             # Start TOTP enrollment
             if session.get("kind") != "local":
@@ -261,7 +264,7 @@ class Handler(AccessHandlers, DevicesHandlers, UsersHandlers, PolicyHandlers, Op
                 return self.redirect(f"{BASE}/settings/account?m=totp-already-enabled")
             # Generate secret and QR code
             secret, qr_data = lac.enroll_totp(account_id)
-            return self.send(200, pages.totp_enroll_page(session, sh.CTX, secret, qr_data))
+            return self.send(200, settings_pages.totp_enroll_page(session, sh.CTX, secret, qr_data))
 
         # --- admins only (Access controls: also network admins and auditors;
         # Users/Logs: also auditors, view only -- see can_edit_network()/is_auditor()) ---

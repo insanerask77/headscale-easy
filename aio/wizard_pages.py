@@ -6,7 +6,7 @@ import datetime
 
 import cron
 import render
-import signup
+import signup_pages
 from i18n import LANGUAGES, _
 from ui import BASE, LOGO, bare_page, esc, notice
 from wizard_checks import TLS_MODES
@@ -115,7 +115,7 @@ def network_page(sess: dict, v: dict, error: str | None = None) -> str:
 
 
 def signup_page(sess: dict, v: dict, error: str | None = None) -> str:
-    inner = (signup.mode_radios(v.get("signup_mode") or "off") +
+    inner = (signup_pages.mode_radios(v.get("signup_mode") or "off") +
              f'<label class="check"><input type="checkbox" name="first_key" value="1"{" checked" if v.get("first_key") else ""}>'
              f'<span>{esc(_("With an invitation key: create a first key (single use, valid for 7 days) and show it when setup ends"))}</span></label>')
     return _card(_("Sign-up"), _("Let people create their own account from the sign-in page."), inner, sess,
@@ -171,7 +171,7 @@ def finish_page(sess: dict, data: dict, error: str | None = None) -> str:
     s = data["server"]
     rows = [(_("Public URL"), s["public_url"]), (_("HTTPS certificates"), s["tls"]),
             (_("Administrator"), data["admin"]["email"]), (_("Tailnet name"), data["network"]["tailnet_name"]),
-            (_("Sign-up"), signup.mode_label(data["signup"]["signup_mode"])),
+            (_("Sign-up"), signup_pages.mode_label(data["signup"]["signup_mode"])),
             (_("Relays (DERP)"), data["derp"]["derp_mode"]),
             (_("Backups"), _("Disabled") if data["backups"]["backup_schedule"] == "off"
              else data["backups"]["backup_schedule"])]
