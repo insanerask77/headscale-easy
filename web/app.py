@@ -44,6 +44,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("headscale-easy")
 
 import admin_pages  # noqa: E402
+from config import Settings, csv_set, oidc_scope  # noqa: E402,F401
 import docker_tab  # noqa: E402
 import local_accounts as lac  # noqa: E402
 import derp  # noqa: E402
@@ -76,43 +77,38 @@ from version import VERSION  # noqa: E402
 
 
 def _csv(name: str, default: str = "") -> set[str]:
-    return {x.strip() for x in os.environ.get(name, default).split(",") if x.strip()}
+    return csv_set(os.environ, name, default)
 
 
-PUBLIC_URL = os.environ["PUBLIC_URL"].rstrip("/")
-OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "")
-OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID", "")
-OIDC_CLIENT_SECRET = os.environ.get("OIDC_CLIENT_SECRET", "")
+SETTINGS = Settings.from_env(os.environ)
+# Module-level names kept for the code (and the tests) that read or patch them.
+PUBLIC_URL = SETTINGS.public_url
+OIDC_ISSUER = SETTINGS.oidc_issuer
+OIDC_CLIENT_ID = SETTINGS.oidc_client_id
+OIDC_CLIENT_SECRET = SETTINGS.oidc_client_secret
 # The scopes asked at sign-in (the same OIDC_SCOPE Headscale gets). A provider that only sends the groups
 # claim when asked for it (Pocket ID: "groups") needs it here for PORTAL_*_GROUPS to work.
-def oidc_scope(raw) -> str:
-    """'openid' first and always present, then what was asked for (default: profile email), no repeats."""
-    return " ".join(dict.fromkeys(["openid"] + (raw or "profile email").split()))
-
-
-OIDC_SCOPE = oidc_scope(os.environ.get("OIDC_SCOPE"))
-SSO = bool(OIDC_ISSUER and OIDC_CLIENT_ID)
-API_KEY_LOGIN = os.environ.get("PORTAL_API_KEY_LOGIN", "false").lower() == "true" or not SSO
-ADMIN_GROUPS = _csv("PORTAL_ADMIN_GROUPS", "vpn-admins")
-ADMIN_EMAILS = {e.lower() for e in _csv("PORTAL_ADMIN_EMAILS")}
+OIDC_SCOPE = SETTINGS.oidc_scope
+SSO = SETTINGS.sso
+API_KEY_LOGIN = SETTINGS.api_key_login
+ADMIN_GROUPS = set(SETTINGS.admin_groups)
+ADMIN_EMAILS = set(SETTINGS.admin_emails)
 # Two narrower roles, opt-in only (empty unless configured): a network admin
 # edits the ACL policy and DNS; an auditor sees everything an admin sees but
 # can never change anything. Both are provider-group based only -- unlike
 # ADMIN_GROUPS there is no sensible default group name to grant them from.
-NETWORK_ADMIN_GROUPS = _csv("PORTAL_NETWORK_ADMIN_GROUPS")
-AUDITOR_GROUPS = _csv("PORTAL_AUDITOR_GROUPS")
-SESSION_SECRET = os.environ["SESSION_SECRET"].encode()
-TAILNET_NAME = os.environ.get("TAILNET_NAME", "")
+NETWORK_ADMIN_GROUPS = set(SETTINGS.network_admin_groups)
+AUDITOR_GROUPS = set(SETTINGS.auditor_groups)
+SESSION_SECRET = SETTINGS.session_secret
+TAILNET_NAME = SETTINGS.tailnet_name
 # MFA requirement for local accounts: admins, everyone, or optional
-MFA_REQUIRED = os.environ.get("MFA_REQUIRED", "admins")
-if MFA_REQUIRED not in ("admins", "everyone", "optional"):
-    MFA_REQUIRED = "admins"
+MFA_REQUIRED = SETTINGS.mfa_required
 
-SECURE_COOKIES = PUBLIC_URL.startswith("https://")
+SECURE_COOKIES = SETTINGS.secure_cookies
 SESSION_TTL = 8 * 3600
 STATIC_DIR = Path(__file__).parent / "static"
 REDIRECT_URI = f"{PUBLIC_URL}{BASE}/callback"
-SERVER_HOST = urllib.parse.urlparse(PUBLIC_URL).hostname or ""
+SERVER_HOST = SETTINGS.server_host
 CTX = {"public_url": PUBLIC_URL, "tailnet": TAILNET_NAME, "server_host": SERVER_HOST}
 # The sign-in page shows its "Create an account" link when sign-up is on (local accounts only)
 HUB = live.Hub(lambda: hs.all_nodes())  # one poller for every open stream
