@@ -43,6 +43,11 @@ log = logging.getLogger("headscale-easy")
 
 import admin_pages  # noqa: E402
 from handlers import shared as sh  # noqa: E402
+from handlers.access import AccessHandlers  # noqa: E402
+from handlers.devices import DevicesHandlers  # noqa: E402
+from handlers.operations import OperationsHandlers  # noqa: E402
+from handlers.policy import PolicyHandlers  # noqa: E402
+from handlers.users import UsersHandlers  # noqa: E402
 # Names the tests (and other callers) reach as app.X. Values that tests patch live in `sh` only.
 from handlers.shared import (  # noqa: E402,F401
     CTX, PUBLIC_URL, bulk_tags_from_form, can_edit_network, exit_nodes_for, is_auditor, iso_in, lines, my_user,
@@ -83,7 +88,8 @@ from version import VERSION  # noqa: E402
 _NOT_PUBLIC = object()  # what _get_public/_post_public return for a path that needs a session
 
 
-class Handler(HttpHelpers, BaseHTTPRequestHandler):
+class Handler(AccessHandlers, DevicesHandlers, UsersHandlers, PolicyHandlers, OperationsHandlers,
+              HttpHelpers, BaseHTTPRequestHandler):
     server_version = "headscale-easy"
     sys_version = ""
 
