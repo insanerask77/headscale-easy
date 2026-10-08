@@ -1,0 +1,6 @@
+version: 2
+
+secret:
+  ignored_paths:
+    # throwaway passwords used as test inputs, not credentials
+    - tests/test_app_gaps.py
