@@ -26,7 +26,7 @@ ALLOWED = [
     (r"^tests/test_no_trace\.py$", r".", "this file lists the forbidden terms"),
     (r"^(CHANGELOG\.md|scripts/release_info\.py|tests/test_release\.py)$", r"(?i)unreleased",
      "an entry that is not dated yet blocks a release tag: that is how the release check works"),
-    (r"^(docs/getting-started(\.es)?\.md|web/pages\.py)$", r"tailscale\.com/install\.sh",
+    (r"^(docs/getting-started(\.es)?\.md|web/machines_pages\.py)$", r"tailscale\.com/install\.sh",
      "Tailscale's own client install script"),
     (r"^(web/local_accounts\.py|tests/test_local_accounts\.py)$", r"(?i)migrat", "database schema migrations"),
     (r"^docs/advanced/postgres(\.es)?\.md$", r"(?i)migrates its tables", "Headscale creates its own tables"),
