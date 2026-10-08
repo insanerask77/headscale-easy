@@ -37,7 +37,7 @@ class BootstrapTests(unittest.TestCase):
         for key in ('HSE_ADMIN_EMAIL', 'HSE_ADMIN_PASSWORD'):
             os.environ.pop(key, None)
 
-    @patch('app.hs')
+    @patch('handlers.access.hs')
     @patch('handlers.shared.log')
     def test_bootstrap_creates_admin_with_password(self, mock_log, mock_hs):
         """bootstrap_admin() creates an admin account when email and password are set."""
@@ -67,7 +67,7 @@ class BootstrapTests(unittest.TestCase):
         # Check log message
         mock_log.info.assert_any_call("✓ Bootstrap: Created admin account '%s' (%s)", 'admin', 'admin@example.com')
 
-    @patch('app.lac')
+    @patch('handlers.access.lac')
     @patch('handlers.shared.log')
     def test_bootstrap_creates_invitation_without_password(self, mock_log, mock_lac):
         """bootstrap_admin() creates an invitation token when email is set but password is not."""
@@ -135,7 +135,7 @@ class BootstrapTests(unittest.TestCase):
         mock_log.info.assert_called_once()
         self.assertIn('Set HSE_ADMIN_EMAIL', str(mock_log.info.call_args))
 
-    @patch('app.hs')
+    @patch('handlers.access.hs')
     @patch('handlers.shared.log')
     def test_bootstrap_handles_headscale_user_creation_failure(self, mock_log, mock_hs):
         """bootstrap_admin() continues if Headscale user creation fails."""
