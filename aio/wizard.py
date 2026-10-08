@@ -3,7 +3,7 @@
 Started by the supervisor instead of the console while there is no
 /data/config/settings.json and no HSE_PUBLIC_URL. Listens on 127.0.0.1:8000
 behind the setup-mode Caddy (plain HTTP on :80) and answers only
-/admin/setup* and /admin/static/*; everything else redirects to /admin/setup.
+/console/setup* and /console/static/*; everything else redirects to /console/setup.
 
     token -> language -> server URL + TLS -> admin account -> sign-up mode ->
     tailnet + isolation -> relays (DERP) -> backups -> finish
@@ -217,7 +217,7 @@ def banner(token: str) -> str:
         bar,
         "  HEADSCALE EASY: FIRST-RUN SETUP",
         "",
-        "  Open  http://<this-host>/admin/setup  in a browser and enter",
+        "  Open  http://<this-host>/console/setup  in a browser and enter",
         "  this one-time token:",
         "",
         "      " + token,

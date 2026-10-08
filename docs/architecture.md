@@ -10,7 +10,7 @@ container**.
 ```text
                ┌──────────────── headscale-easy (one container) ────────────────┐
  :80/:443 ───▶ │ caddy ──┬─ /       ──▶ headscale  (official binary, child proc)  │
- :3478/udp ──▶ │         └─ /admin  ──▶ console    (Python, standard library)    │
+ :3478/udp ──▶ │         └─ /console  ──▶ console    (Python, standard library)    │
                │                                                                 │
                │ supervisor: starts, restarts and stops the three, runs          │
                │ configtest and backups                                          │
@@ -23,8 +23,8 @@ container**.
 | Component | What it does | What it does **not** do |
 |---|---|---|
 | **Headscale** | The coordination server: node registration, keys, IP addresses, ACL enforcement, MagicDNS, the embedded DERP relay and STUN | — it is the part that does the real work |
-| **Console** | Web console at `/admin`: machines, users, keys, routes, DNS, access controls, backups, activity log. Local accounts with password and two-factor, invitations and sign-up. Talks to Headscale's REST API | Does not touch WireGuard traffic or replace any Headscale logic; if it stops, the tailnet keeps working |
-| **Caddy** | Single entry point: HTTPS (Let's Encrypt, internal CA or none), routes `/` to Headscale and `/admin` to the console | — |
+| **Console** | Web console at `/console`: machines, users, keys, routes, DNS, access controls, backups, activity log. Local accounts with password and two-factor, invitations and sign-up. Talks to Headscale's REST API | Does not touch WireGuard traffic or replace any Headscale logic; if it stops, the tailnet keeps working |
+| **Caddy** | Single entry point: HTTPS (Let's Encrypt, internal CA or none), routes `/` to Headscale and `/console` to the console | — |
 | **Supervisor** | PID 1's child (under `tini`). Starts the three processes, restarts a crashed one with backoff, forwards signals, validates the config (`headscale configtest`) and restarts Headscale when the console asks, and runs the scheduled backups. Serves a small Unix-socket protocol to the console | Answers a fixed set of requests (validate the config, restart Headscale, report status): the console cannot ask it to run anything else |
 | **Setup wizard** | First-run web wizard served instead of the console until setup is done | Not running once the server is configured |
 | **`hse`** | Command-line control: `health`, `reload`, `backup`, `backups`, `restore` | — |
@@ -51,7 +51,7 @@ Pocket ID, Google), an external PostgreSQL, a reverse proxy in front, and the
   person is the same user in both. Admins come from the account's role, a group
   or a list of e-mails.
 - **Everything on one domain:** Headscale at the root (Tailscale clients
-  expect that), the console at `/admin` (the same path as Tailscale's own
+  expect that), the console at `/console` (the same path as Tailscale's own
   console).
 - **The container runs as uid 1000, with no added capability.** The three
   processes share it, so a flaw in one reaches the others: the

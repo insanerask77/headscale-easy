@@ -77,7 +77,7 @@ includes its own console. See the [detailed comparison](https://insanerask77.git
 
 ## ✨ Features
 
-- 🖥️ **Tailscale-style web console** at `/admin`: machines, users, DNS, access
+- 🖥️ **Tailscale-style web console** at `/console`: machines, users, DNS, access
   controls, keys. Dark and light themes, works on phones.
 - 👤 **Real user accounts** built in: passwords, optional **two-factor (TOTP)**,
   invitations, password-reset links and sign-up — or plug in your own OIDC
@@ -140,11 +140,11 @@ docker compose up -d
 That is the whole install: one container, version 2.0 pinned in `compose.yaml`.
 Then:
 
-1. **Open the setup wizard** at `http://<your-server>/admin/setup` and enter the
+1. **Open the setup wizard** at `http://<your-server>/console/setup` and enter the
    one-time token (`docker compose logs`). Create the administrator, name the
    tailnet, set the public address and HTTPS (Let's Encrypt needs a domain and
    ports 80/443 open), choose the relay (DERP), sign-up mode and backups.
-2. **Sign in** at `https://your-domain/admin`.
+2. **Sign in** at `https://your-domain/console`.
 3. **Connect your first device** with the official Tailscale app.
 
 Prefer to answer in advance? Copy [`.env.example`](.env.example) to `.env` (public
@@ -190,7 +190,7 @@ the variables for a headless start.
 ```
                ┌──────────────── headscale-easy (one container) ────────────────┐
 :80/:443 ────▶ │ caddy ──┬─ /       ──▶ headscale (official binary, child proc)  │
-:3478/udp ───▶ │         └─ /admin  ──▶ console (Python)                         │
+:3478/udp ───▶ │         └─ /console  ──▶ console (Python)                         │
                │ supervisor: starts and restarts the three, configtest, backups  │
                │ /data: headscale/ caddy/ console/ config/ backups/              │
                └─────────────────────────────────────────────────────────────────┘

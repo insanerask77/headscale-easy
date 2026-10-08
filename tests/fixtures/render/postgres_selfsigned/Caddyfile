@@ -26,10 +26,10 @@
 
     # Device sign-in without OIDC: approve it in the web UI
     @register path_regexp register ^/register/([A-Za-z0-9_:-]+)$
-    redir @register /admin/register/{re.register.1} 302
+    redir @register /console/register/{re.register.1} 302
 
-    # Headscale Easy web UI at /admin (the same path as Tailscale's console)
-    handle /admin* {
+    # Headscale Easy web UI at /console (the same path as Tailscale's console)
+    handle /console* {
         reverse_proxy 127.0.0.1:8000 {
             header_up X-Real-IP {remote_host}
         }

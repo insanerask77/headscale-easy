@@ -201,7 +201,7 @@ se configura allí. El acceso de emergencia con API key no tiene segundo factor.
 Registra un cliente con **dos** redirect URI:
 
 - `https://<tu-dominio>/oidc/callback` (Headscale)
-- `https://<tu-dominio>/admin/callback` (consola)
+- `https://<tu-dominio>/console/callback` (consola)
 
 La consola y Headscale comparten el cliente para que la identidad (`sub`) de una persona
 coincida en ambos. Hay ejemplos paso a paso para Authentik, Pocket ID, Keycloak y Google

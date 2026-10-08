@@ -267,8 +267,8 @@ class StaticAndRedirects(Base):
         self.assertEqual(request("GET", f"{B}/static/style.css")[0], 200)
 
     def test_language_switch_stays_on_the_console(self):
-        for referer in ("https://evil.example/admin/users", "https://vpn.example.com.evil.example/admin/x",
-                        "https://vpn.example.com/../evil", "//evil.example/admin"):
+        for referer in ("https://evil.example/console/users", "https://vpn.example.com.evil.example/console/x",
+                        "https://vpn.example.com/../evil", "//evil.example/console"):
             _, headers, _ = request("POST", f"{B}/settings/language", MEMBER, {"csrf": "tok", "lang": "es"},
                                     {"Referer": referer})
             self.assertTrue(location(headers).startswith(f"{B}/"), (referer, location(headers)))
@@ -489,7 +489,7 @@ class LocalAccountSignin(Base):
         status, headers, _ = request("POST", f"{B}/login/local", None,
                                     {"username": "alice", "password": "password123"})
         self.assertEqual(status, 303)
-        # Should redirect to /admin/machines
+        # Should redirect to /console/machines
         self.assertEqual(location(headers), f"{B}/machines")
         # Session cookie should be set
         self.assertIn("set-cookie", headers)
@@ -1154,7 +1154,7 @@ class SelfServiceAccount(unittest.TestCase):
         self.assertIn("Member", body)
 
         # Should have password change form
-        self.assertIn('action="/admin/settings/account/password"', body)
+        self.assertIn('action="/console/settings/account/password"', body)
         self.assertIn('name="old_password"', body)
         self.assertIn('name="new_password"', body)
 
@@ -1168,7 +1168,7 @@ class SignInModes(unittest.TestCase):
         html = admin_pages.login_page(sso=False, apikey=False, local=True)
 
         # Should contain local sign-in form
-        self.assertIn('action="/admin/login/local"', html)
+        self.assertIn('action="/console/login/local"', html)
         self.assertIn('name="username"', html)
         self.assertIn('name="password"', html)
 
@@ -1185,13 +1185,13 @@ class SignInModes(unittest.TestCase):
         html = admin_pages.login_page(sso=True, apikey=False, local=True)
 
         # Should contain local sign-in form
-        self.assertIn('action="/admin/login/local"', html)
+        self.assertIn('action="/console/login/local"', html)
         self.assertIn('name="username"', html)
         self.assertIn('name="password"', html)
 
         # Should contain SSO button
         self.assertIn('Sign in with SSO', html)
-        self.assertIn('href="/admin/login/sso"', html)
+        self.assertIn('href="/console/login/sso"', html)
 
         # Should contain separator
         self.assertIn('<div class="sep">', html)
@@ -1205,7 +1205,7 @@ class SignInModes(unittest.TestCase):
         html = admin_pages.login_page(sso=False, apikey=True, local=False)
 
         # Should NOT contain local sign-in form
-        self.assertNotIn('action="/admin/login/local"', html)
+        self.assertNotIn('action="/console/login/local"', html)
 
         # Should NOT contain SSO button
         self.assertNotIn('Sign in with SSO', html)
@@ -1213,7 +1213,7 @@ class SignInModes(unittest.TestCase):
         # Should contain API key form
         self.assertIn('Headscale API key', html)
         self.assertIn('name="api_key"', html)
-        self.assertIn('action="/admin/login/apikey"', html)
+        self.assertIn('action="/console/login/apikey"', html)
 
     def test_signin_mode_all_three(self):
         """Login page with all modes shows all options."""
@@ -1221,7 +1221,7 @@ class SignInModes(unittest.TestCase):
         html = admin_pages.login_page(sso=True, apikey=True, local=True)
 
         # Should contain local sign-in form
-        self.assertIn('action="/admin/login/local"', html)
+        self.assertIn('action="/console/login/local"', html)
         self.assertIn('name="username"', html)
 
         # Should contain SSO button
@@ -1240,11 +1240,11 @@ class SignInModes(unittest.TestCase):
         html = admin_pages.login_page(sso=True, apikey=False, local=False)
 
         # Should NOT contain local sign-in form
-        self.assertNotIn('action="/admin/login/local"', html)
+        self.assertNotIn('action="/console/login/local"', html)
 
         # Should contain SSO button
         self.assertIn('Sign in with SSO', html)
-        self.assertIn('href="/admin/login/sso"', html)
+        self.assertIn('href="/console/login/sso"', html)
 
         # Should NOT contain API key form
         self.assertNotIn('Headscale API key', html)
@@ -1421,24 +1421,24 @@ class SetupTakeoverTest(unittest.TestCase):
         form["username"] = "evil"
         form["password"] = form["password2"] = "-".join(["test", "pass", "x"])
         for step, data in (("admin", form), ("finish", {}), ("network", {"tailnet_name": "x"})):
-            self.assertEqual(c.request("/admin/setup/" + step, data)[0], 403)
+            self.assertEqual(c.request("/console/setup/" + step, data)[0], 403)
         # even with a valid CSRF token taken from the (public) token page
-        _s, _h, html = c.request("/admin/setup")
+        _s, _h, html = c.request("/console/setup")
         csrf = c.csrf(html)
-        self.assertEqual(c.request("/admin/setup/admin", dict(form, csrf=csrf))[0], 403)
+        self.assertEqual(c.request("/console/setup/admin", dict(form, csrf=csrf))[0], 403)
         self.assertEqual(lac.list_accounts(), [])
         self.assertFalse(os.path.exists(os.path.join(self.case.data, "config", "settings.json")))
 
     def test_a_session_does_not_authorise_another_client(self):
         self.case.unlock()
         other = type(self.case.c)(self.case.server.server_address[1])
-        self.assertEqual(other.request("/admin/setup/language")[0], 403)
-        self.assertEqual(other.request("/admin/setup/language", headers={"Cookie": "hse_setup=guess"})[0], 403)
+        self.assertEqual(other.request("/console/setup/language")[0], 403)
+        self.assertEqual(other.request("/console/setup/language", headers={"Cookie": "hse_setup=guess"})[0], 403)
 
     def test_csrf_token_of_another_session_is_refused(self):
         a, b = self.case.unlock(), type(self.case.c)(self.case.server.server_address[1])
-        _s, _h, html_b = b.request("/admin/setup")
-        self.assertEqual(a.request("/admin/setup/language", {"lang": "en", "csrf": b.csrf(html_b)})[0], 403)
+        _s, _h, html_b = b.request("/console/setup")
+        self.assertEqual(a.request("/console/setup/language", {"lang": "en", "csrf": b.csrf(html_b)})[0], 403)
 
     def test_the_token_is_compared_in_constant_time(self):
         import inspect
@@ -1447,30 +1447,30 @@ class SetupTakeoverTest(unittest.TestCase):
 
     def test_the_wizard_does_not_serve_the_console(self):
         c = self.case.c
-        for path in ("/admin/machines", "/admin/login", "/admin/keys", "/admin/settings", "/api/v1/node",
-                     "/admin/healthz"):
+        for path in ("/console/machines", "/console/login", "/console/keys", "/console/settings", "/api/v1/node",
+                     "/console/healthz"):
             status, headers, _b = c.request(path)
-            self.assertEqual((status, headers["Location"]), (302, "/admin/setup"), path)
+            self.assertEqual((status, headers["Location"]), (302, "/console/setup"), path)
 
     def test_wrong_tokens_never_unlock_and_the_limit_applies_to_all_clients(self):
         first = self.case.c
         second = type(first)(self.case.server.server_address[1])
         for client in (first, second):
-            _s, _h, html = client.request("/admin/setup")
+            _s, _h, html = client.request("/console/setup")
             for i in range(3):
-                client.request("/admin/setup", {"token": "wrong%d" % i, "csrf": client.csrf(html)})
-        _s, _h, html = first.request("/admin/setup")
-        self.assertEqual(first.request("/admin/setup", {"token": self.case.token, "csrf": first.csrf(html)})[0], 429)
+                client.request("/console/setup", {"token": "wrong%d" % i, "csrf": client.csrf(html)})
+        _s, _h, html = first.request("/console/setup")
+        self.assertEqual(first.request("/console/setup", {"token": self.case.token, "csrf": first.csrf(html)})[0], 429)
 
     def test_the_token_stops_working_when_setup_is_over(self):
         os.unlink(os.path.join(self.case.data, "config", "setup-token"))
         c = self.case.c
-        _s, _h, html = c.request("/admin/setup")
-        self.assertEqual(c.request("/admin/setup", {"token": self.case.token, "csrf": c.csrf(html)})[0], 403)
-        self.assertEqual(c.request("/admin/setup", {"token": "", "csrf": c.csrf(html)})[0], 403)
+        _s, _h, html = c.request("/console/setup")
+        self.assertEqual(c.request("/console/setup", {"token": self.case.token, "csrf": c.csrf(html)})[0], 403)
+        self.assertEqual(c.request("/console/setup", {"token": "", "csrf": c.csrf(html)})[0], 403)
 
     def test_responses_are_not_cacheable_and_framing_is_denied(self):
-        _s, headers, _b = self.case.c.request("/admin/setup")
+        _s, headers, _b = self.case.c.request("/console/setup")
         self.assertEqual(headers["Cache-Control"], "no-store")
         self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
 

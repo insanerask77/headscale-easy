@@ -7,7 +7,7 @@
 #   systemctl reload caddy
 #
 # Behind it the Headscale Easy image already routes by path (/ -> Headscale,
-# /admin -> web UI), so forwarding the whole domain is enough.
+# /console -> web UI), so forwarding the whole domain is enough.
 #
 # Replace: vpn.example.com, AIO_HOST:8080 (the host and the HSE_HTTP_PORT you
 # published). In the image's .env:

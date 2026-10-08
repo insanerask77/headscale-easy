@@ -26,8 +26,8 @@ ${AUTHENTIK_ROUTE}
 
 ${REGISTER_ROUTE}
 
-    # Headscale Easy web UI at /admin (the same path as Tailscale's console)
-    handle /admin* {
+    # Headscale Easy web UI at /console (the same path as Tailscale's console)
+    handle /console* {
         reverse_proxy headscale-easy:8000 {
             header_up X-Real-IP {remote_host}
         }

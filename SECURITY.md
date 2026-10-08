@@ -45,12 +45,12 @@ With the default installation, one domain serves everything through the containe
 | Headscale control plane | Internet | `https://<domain>/` (TCP 443, 80 for redirects and Let's Encrypt) | Tailscale node keys; registration through the console's sign-in, an external OIDC provider or auth keys |
 | Headscale REST API | Internet, through Caddy | `https://<domain>/api/v1/…` | Headscale API key (Bearer) |
 | Embedded DERP relay | Internet | `https://<domain>/derp`, **UDP 3478** (STUN) | Tailscale node keys |
-| Headscale Easy console | Internet | `https://<domain>/admin` | Local account (password, optional two-factor), an external OIDC provider, or a Headscale API key |
+| Headscale Easy console | Internet | `https://<domain>/console` | Local account (password, optional two-factor), an external OIDC provider, or a Headscale API key |
 | External Authentik (optional) | Internet | `https://<domain>/authentik/…`, only if you set `HSE_AUTHENTIK_UPSTREAM` | Its own sign-in |
 | Headscale gRPC, metrics, the console's own port | Inside the container only | — | — |
 
 Only TCP 80/443 and UDP 3478 are published (only 80 behind your own proxy). If the
-console does not need to be public, restrict `/admin` to your LAN or tailnet in a
+console does not need to be public, restrict `/console` to your LAN or tailnet in a
 proxy in front — see the
 [hardening guide](https://insanerask77.github.io/headscale-easy/hardening/#restrict-the-console).
 

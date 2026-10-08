@@ -616,7 +616,7 @@ def render_caddyfile(v, data_dir=None):
         register = "\n".join([
             "    # Device sign-in without OIDC: approve it in the web UI",
             "    @register path_regexp register ^/register/([A-Za-z0-9_:-]+)$",
-            "    redir @register /admin/register/{re.register.1} 302",
+            "    redir @register /console/register/{re.register.1} 302",
         ])
     else:
         register = "    # /register/<id>: Headscale sends the device to the OIDC provider"

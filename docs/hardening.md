@@ -106,7 +106,7 @@ front](advanced/proxy.md)), or reach the console through the tailnet
 only. For nginx:
 
 ```nginx
-location /admin {
+location /console {
     allow 192.168.0.0/16;   # your LAN
     allow 100.64.0.0/10;    # your tailnet
     deny all;
@@ -115,12 +115,12 @@ location /admin {
 }
 ```
 
-In Nginx Proxy Manager use an *Access List* on a custom location `/admin`; in
-Traefik an `ipAllowList` middleware on a router for `PathPrefix(/admin)`.
+In Nginx Proxy Manager use an *Access List* on a custom location `/console`; in
+Traefik an `ipAllowList` middleware on a router for `PathPrefix(/console)`.
 
-!!! warning "Do not restrict `/oidc`, `/authentik` or `/admin/register`"
+!!! warning "Do not restrict `/oidc`, `/authentik` or `/console/register`"
     New devices sign in through them from a browser **before** they are on
-    the tailnet. Restricting them breaks enrolment. (`/admin/register/<id>` is the
+    the tailnet. Restricting them breaks enrolment. (`/console/register/<id>` is the
     page a new device opens to be approved.)
 
 Headscale's own REST API (`/api/v1/…`) is served on the same domain. The console
@@ -202,8 +202,8 @@ need, and include them in your privacy notice if others use your server.
 |---|---|---|
 | TCP 443 `/` | Control plane for Tailscale clients | No |
 | TCP 443 `/oidc`, `/authentik` | Device and user sign-in with an external provider | No, if you use one |
-| TCP 443 `/admin/register` | A new device opens it to be approved | No |
-| TCP 443 `/admin` | Web console | Yes — restrict to LAN / tailnet in a proxy in front |
+| TCP 443 `/console/register` | A new device opens it to be approved | No |
+| TCP 443 `/console` | Web console | Yes — restrict to LAN / tailnet in a proxy in front |
 | TCP 443 `/api/v1` | Headscale REST API | Yes, if nothing remote uses it |
 | TCP 80 | Let's Encrypt and redirect to HTTPS | With a proxy in front, your proxy handles it |
 | UDP 3478 | STUN for the embedded DERP relay | Only if you use Tailscale's DERP servers instead |

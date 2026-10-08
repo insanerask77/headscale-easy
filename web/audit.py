@@ -605,7 +605,7 @@ def start() -> None:
 
 
 # -----------------------------------------------------------------------------
-# Page: /admin/logs (admins only; app.py checks the role)
+# Page: /console/logs (admins only; app.py checks the role)
 # -----------------------------------------------------------------------------
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")

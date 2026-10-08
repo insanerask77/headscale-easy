@@ -4,7 +4,7 @@
 #   docker compose up -d
 #   docker compose logs headscale-easy      # prints the one-time setup token
 #
-# Then open http://<this server>/admin/setup and follow the wizard. Everything is optional:
+# Then open http://<this server>/console/setup and follow the wizard. Everything is optional:
 # copy .env.example to .env only if you want to answer in advance (public URL, HTTPS, admin).
 #
 # Headscale, Caddy (HTTPS) and the web console run in this one container. Options such as an

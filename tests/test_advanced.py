@@ -160,8 +160,8 @@ class Blueprint(unittest.TestCase):
         block = text[text.index("    id: provider\n"):text.index("    id: app\n")]
         self.assertIn("name: headscale", block)
         self.assertIn('url: !Format ["%s/oidc/callback", !Context public_url]', block)
-        self.assertIn('url: !Format ["%s/admin/callback", !Context public_url]', block)
-        self.assertIn('url: !Format ["%s/admin/", !Context public_url]', block)
+        self.assertIn('url: !Format ["%s/console/callback", !Context public_url]', block)
+        self.assertIn('url: !Format ["%s/console/", !Context public_url]', block)
         self.assertEqual(block.count("redirect_uri_type: authorization"), 2)
         self.assertEqual(block.count("redirect_uri_type: logout"), 1)
 
@@ -187,15 +187,15 @@ class RedirectUris(unittest.TestCase):
     def test_the_consoles_callback_is_what_the_code_uses(self):
         app = read("web", "app.py")
         self.assertIn('REDIRECT_URI = f"{PUBLIC_URL}{BASE}/callback"', app)
-        self.assertRegex(read("web", "ui.py"), r'(?m)^BASE = "/admin"')
+        self.assertRegex(read("web", "ui.py"), r'(?m)^BASE = "/console"')
 
     def test_the_documents_give_exactly_those_two_addresses(self):
-        wanted = {"/admin/callback", "/oidc/callback"}
+        wanted = {"/console/callback", "/oidc/callback"}
         for doc in (("advanced", "oidc", "README.md"), ("docs", "advanced", "oidc.md"), ("docs", "advanced", "oidc.es.md")):
             text = read(*doc)
-            found = set(re.findall(r"https?://[^\s`'\"|]*?(/(?:admin|oidc)/callback)", text))
+            found = set(re.findall(r"https?://[^\s`'\"|]*?(/(?:console|oidc)/callback)", text))
             self.assertEqual(found, wanted, "/".join(doc))
-            self.assertNotIn("/admin/oidc/callback", text, "/".join(doc))
+            self.assertNotIn("/console/oidc/callback", text, "/".join(doc))
 
 
 class RenderedConfigurations(unittest.TestCase):

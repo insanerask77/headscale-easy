@@ -2,7 +2,7 @@
 
 Si nginx, Traefik, Caddy o Nginx Proxy Manager (NPM) ya se ocupa del HTTPS en tu host, deja que siga haciéndolo:
 la imagen habla HTTP plano detrás. Un host de proxy, un upstream (todo el dominio): la imagen enruta `/` a
-Headscale y `/admin` a la consola por sí sola.
+Headscale y `/console` a la consola por sí sola.
 
 ```bash
 docker compose -f compose.yaml -f advanced/proxy.yaml up -d
@@ -60,7 +60,7 @@ Cambia `vpn.example.com` y la dirección del upstream (`AIO_HOST:8080`) por las 
 
 ```bash
 curl -s  https://vpn.example.com/key?v=142          # la clave pública de Headscale (JSON)
-curl -sI https://vpn.example.com/admin | head -1    # una redirección a /admin/login
+curl -sI https://vpn.example.com/console | head -1    # una redirección a /console/login
 ```
 
 La cookie de sesión debe llevar `Secure`. Después inicia sesión y, en **Registros**, mira la dirección de tu propio
@@ -70,7 +70,7 @@ acceso: debe ser la tuya, no la del proxy.
 
 `scripts/advanced-smoke.sh proxy`: la imagen con `advanced/proxy.yaml` detrás de un **nginx** real con
 `advanced/proxy/nginx.conf` (solo cambiados el dominio, el upstream y un certificado de usar y tirar). A través del
-proxy: `GET /key` responde 200, `GET /admin` redirige a la página de acceso, la cookie de sesión es `Secure` y el
+proxy: `GET /key` responde 200, `GET /console` redirige a la página de acceso, la cookie de sesión es `Secure` y el
 registro de actividad muestra la dirección real del cliente mientras un `X-Forwarded-For` y un `X-Real-IP`
 falsificados en la misma petición se ignoran. El contenedor publica HTTP solo en `127.0.0.1` y no el 443.
 

@@ -2,7 +2,7 @@
 
 Local accounts need nothing. To also let people sign in through Authentik, Pocket ID, Keycloak or Google, set
 `OIDC_ISSUER`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` in `.env`, and register two redirect URIs with the
-provider: `https://<domain>/admin/callback` (console) and `https://<domain>/oidc/callback` (Headscale).
+provider: `https://<domain>/console/callback` (console) and `https://<domain>/oidc/callback` (Headscale).
 
 | Provider | How |
 |---|---|

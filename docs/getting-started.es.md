@@ -4,10 +4,10 @@
 
 1. **Descarga:** `mkdir headscale-easy && cd headscale-easy && curl -fsSLO https://raw.githubusercontent.com/insanerask77/headscale-easy/main/compose.yaml`
 2. **Arráncalo:** `docker compose up -d`. Un contenedor, con la versión 2.0 fijada en el archivo.
-3. **Configúralo:** abre `http://<tu-servidor>/admin/setup` y escribe el token de un solo uso (de
+3. **Configúralo:** abre `http://<tu-servidor>/console/setup` y escribe el token de un solo uso (de
    `docker compose logs`): administrador, dirección pública y HTTPS, nombre de la tailnet, relay
    (DERP), registro y copias.
-4. **Entra:** abre `https://<tu-dominio>/admin`.
+4. **Entra:** abre `https://<tu-dominio>/console`.
 5. **Conecta tu primer dispositivo:** `tailscale up --login-server=https://<tu-dominio>`.
 
 Esto te da un servidor que funciona. Antes de fiarte de él, o de exponerlo a otras personas,
@@ -63,7 +63,7 @@ Todo lo demás (un proveedor de identidad, un proxy delante, PostgreSQL, copias 
 
 ## Conecta tu primer dispositivo
 
-Abre `https://<tu-dominio>/admin`, inicia sesión y pulsa **Añadir dispositivo**:
+Abre `https://<tu-dominio>/console`, inicia sesión y pulsa **Añadir dispositivo**:
 muestra los pasos para cada sistema. En resumen:
 
 === "Linux"
