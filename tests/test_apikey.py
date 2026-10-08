@@ -26,9 +26,9 @@ import apikey  # noqa: E402
 import headscale as hs  # noqa: E402
 
 
-def make_key(prefix: str, secret: str = "s3cret") -> str:
+def make_key(prefix: str, tail: str = "abcdef") -> str:
     assert len(prefix) == 12
-    return f"hskey-api-{prefix}-{secret}"
+    return f"hskey-api-{prefix}-{tail}"
 
 
 def http_error(code: int, body: dict | None = None) -> urllib.error.HTTPError:
