@@ -154,6 +154,8 @@ def permissive_headscale() -> mock.MagicMock:
     hsm.user_for_sub.side_effect = lambda sub: BOB if sub == "b" else None
     hsm.host_details.return_value = {}
     hsm.dns_config.return_value = {}
+    # a MagicMock converts to the integer 1, so open(hsm.HEADSCALE_CONFIG) would open -- and close -- stdout
+    hsm.HEADSCALE_CONFIG = "/nonexistent/config.yaml"
     hsm.latest_tailscale_version.return_value = ""
     hsm.derp_regions.return_value = {}
     hsm.all_keys.return_value = []
