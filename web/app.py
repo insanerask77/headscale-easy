@@ -57,6 +57,7 @@ BACKUP_UPLOAD_MAX = backup_pages.UPLOAD_MAX_MB * 1024 * 1024  # bytes of a backu
 import headscale as hs  # noqa: E402
 import apikey  # noqa: E402
 import audit  # noqa: E402
+import audit_pages  # noqa: E402
 import naming  # noqa: E402
 import notify  # noqa: E402
 import pages  # noqa: E402
@@ -288,9 +289,9 @@ class Handler(AccessHandlers, DevicesHandlers, UsersHandlers, PolicyHandlers, Op
                 flash = "backup-restore-ok" if (hs.restore_result() or {}).get("ok") else "backup-restore-failed"
             return self.send(200, backup_pages.backups_page(session, sh.CTX, (hs.control_status() or {}).get("backup"), flash))
         if path == f"{BASE}/logs":
-            return self.send(200, audit.page(session, sh.CTX, params))
+            return self.send(200, audit_pages.page(session, sh.CTX, params))
         if path == f"{BASE}/logs.csv":
-            return self.send(200, audit.csv_export(params), "text/csv; charset=utf-8",
+            return self.send(200, audit_pages.csv_export(params), "text/csv; charset=utf-8",
                              [("Content-Disposition", 'attachment; filename="activity-log.csv"')])
         self.fail(404, _("Not found"), _("That page does not exist."))
 
@@ -459,6 +460,7 @@ def main():
     # Bootstrap first admin if no accounts exist
     bootstrap_admin()
 
+    audit.subscribe(notify.on_audit_event)
     apikey.start()
     audit.start()
     naming.start()

@@ -180,7 +180,7 @@ class RouteCase(Base):
             *(mock.patch.object(module, "hs", HS) for module in (app, sh, access, devices, operations, handlers_policy, users)),
             # data sources that read files or the supervisor: not part of the routing decision
             mock.patch.object(app.Handler, "derp_view", lambda *a, **k: "derp"),
-            mock.patch.object(app.audit, "csv_export", lambda params: "csv"),
+            mock.patch.object(app.audit_pages, "csv_export", lambda params: "csv"),
             mock.patch.object(app.server_status, "collect", lambda: {}),
             mock.patch.object(app.status_pages, "status_page", lambda *a, **k: "status"),
         ]

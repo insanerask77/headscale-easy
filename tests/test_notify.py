@@ -142,6 +142,8 @@ class Delivery(unittest.TestCase):
 
 class AuditHook(unittest.TestCase):
     def test_record_notifies_and_survives_a_broken_notifier(self):
+        audit.subscribe(notify.on_audit_event)
+        self.addCleanup(audit.unsubscribe, notify.on_audit_event)
         with tempfile.TemporaryDirectory() as tmp:
             audit.configure(os.path.join(tmp, "audit.db"))
             with mock.patch.object(notify, "event") as ev:
