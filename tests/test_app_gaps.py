@@ -528,7 +528,7 @@ class AccountSettings(WithAccounts):
         status, headers, _b = self.post("/settings/account/totp/confirm", code=lac.compute_totp(secret))
         self.assertEqual(location(headers), f"{B}/settings/account?m=totp-enabled")
         self.assertEqual(app.audit.request_event.call_args.args[2], "account.totp_enabled")
-        # QUIRK (bug): pages.recovery_codes_page() asks ui.icon() for 'alert-triangle', which does not exist, so
+        # QUIRK (bug): settings_pages.recovery_codes_page() asks ui.icon() for 'alert-triangle', which does not exist, so
         # it raises KeyError. The catch-all in do_POST turns that into "machines?m=failed" AFTER the new codes were
         # stored: the old codes stop working and the new ones are never shown.
         old_hash = lac.get_account(id=self.acc)["recovery_codes"]

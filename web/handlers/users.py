@@ -15,6 +15,7 @@ import local_accounts as lac
 import mailer
 import sessions
 import signup
+import signup_pages
 from handlers import shared as sh
 from i18n import _
 from ui import BASE
@@ -45,8 +46,8 @@ class UsersHandlers:
                    result: dict | None = None, new_key: tuple | None = None):
         users = hs.all_users()
         signins = {a["headscale_user"]: a for a in lac.list_accounts() if a["headscale_user"]}
-        extra = (signup.key_result_box(*new_key) if new_key else "") + \
-            signup.keys_section(session, lac.list_signup_keys(), signup.mode())
+        extra = (signup_pages.key_result_box(*new_key) if new_key else "") + \
+            signup_pages.keys_section(session, lac.list_signup_keys(), signup.mode())
         return self.send(status, admin_pages.users_page(session, sh.CTX, users, hs.all_nodes(), flash, error=error,
                                                         result=result, signins=signins, extra=extra,
                                                         invites=lac.list_active_invitations(),
@@ -170,7 +171,7 @@ class UsersHandlers:
         if mode == "off":
             return self.send(404, "Not found", "text/plain")
         token = secrets.token_urlsafe(24)
-        return self.send(200, signup.signup_page(mode, token),
+        return self.send(200, signup_pages.signup_page(mode, token),
                          headers=[self.set_cookie("hse_signup", token, 3600)])
 
     def signup_submit(self, form: dict):
@@ -191,7 +192,7 @@ class UsersHandlers:
         values = {"username": username, "email": email}
 
         def again(message: str, status: int = 400):
-            return self.send(status, signup.signup_page(mode, token, message, values))
+            return self.send(status, signup_pages.signup_page(mode, token, message, values))
 
         if not signup.USERNAME_RE.fullmatch(username):
             return again(_("The user name has 3-32 characters: lowercase letters, numbers, - and _"))

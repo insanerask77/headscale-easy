@@ -18,7 +18,7 @@ import backup_pages
 import headscale as hs
 import live
 import local_accounts as lac
-import pages
+import machines_pages
 import signing
 import signup
 from config import Settings, csv_set
@@ -122,12 +122,12 @@ def discovery() -> dict:
 # Data for the pages
 # -----------------------------------------------------------------------------
 
-def to_machines(nodes: list[dict]) -> list[pages.Machine]:
+def to_machines(nodes: list[dict]) -> list[machines_pages.Machine]:
     details = hs.host_details([str(n["id"]) for n in nodes])
     dns = hs.dns_config()
     latest = hs.latest_tailscale_version()
     regions = hs.derp_regions()
-    machines = [pages.Machine(n, details.get(str(n["id"])), dns, latest, regions) for n in nodes]
+    machines = [machines_pages.Machine(n, details.get(str(n["id"])), dns, latest, regions) for n in nodes]
     return sorted(machines, key=lambda m: (not m.online, m.name))
 
 

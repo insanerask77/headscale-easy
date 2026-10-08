@@ -14,16 +14,16 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB = os.path.join(ROOT, "web")
 
 # Modules that render HTML: nothing that stores, fetches or decides may depend on them.
-RENDERING = {"ui", "pages", "admin_pages", "acl_pages", "audit_pages", "backup_pages", "derp_pages",
+RENDERING = {"ui", "machines_pages", "dns_pages", "settings_pages", "keys_pages", "auth_pages", "admin_pages",
+             "acl_pages", "audit_pages", "backup_pages", "derp_pages", "expiry_pages", "signup_pages",
              "status_pages", "docker_tab", "qr"}
 LOWER_LAYER = {"audit", "headscale", "pgwire", "sessions", "local_accounts", "notify", "naming", "apikey",
                "mailer", "expiry", "derp", "policy", "status", "signup", "live", "multipart", "signing",
-               "config", "version", "http_base"}
+               "config", "version", "http_base", "timeparse"}
 
 
-# Feature modules that still hold both logic and HTML. They may only shrink this set: splitting them into
-# <name> and <name>_pages is planned, and no new module may be added here.
-KNOWN_MIXED = {"expiry", "signup"}
+# Feature modules that still hold both logic and HTML. They may only shrink this set; no module may be added.
+KNOWN_MIXED: set[str] = set()
 
 
 def modules() -> dict[str, str]:

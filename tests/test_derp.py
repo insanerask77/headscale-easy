@@ -30,7 +30,7 @@ import headscale as hs  # noqa: E402
 import sessions  # noqa: E402
 
 sessions.configure(":memory:")
-import pages  # noqa: E402
+import machines_pages  # noqa: E402
 
 B = app.BASE
 ADMIN = {"kind": "oidc", "sub": "a", "username": "root", "name": "Root", "email": "", "groups": [],
@@ -110,7 +110,7 @@ class NetInfo(unittest.TestCase):
     def test_machine_view(self):
         node = {"id": 1, "givenName": "pc", "online": True}
         details = {"hostinfo": {"NetInfo": {"PreferredDERP": 999, "DERPLatency": {"999-v4": 0.0124, "1-v4": 0.1}}}}
-        m = pages.Machine(node, details, {}, "", {999: "Embedded", 1: "NYC"})
+        m = machines_pages.Machine(node, details, {}, "", {999: "Embedded", 1: "NYC"})
         self.assertEqual(m.derp, "Embedded")
         self.assertEqual(m.derp_ms, 12.4)
         self.assertEqual([(n, used) for n, _ms, used in m.derp_latency], [("Embedded", True), ("NYC", False)])

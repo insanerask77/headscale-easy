@@ -11,7 +11,8 @@ import docker_tab
 import expiry
 import headscale as hs
 import live
-import pages
+import keys_pages
+import machines_pages
 import sessions
 from handlers import shared as sh
 from i18n import _
@@ -72,12 +73,12 @@ class DevicesHandlers:
     def keys_view(self, session: dict, flash: str, new_key: dict | None = None, new_apikey: str = "",
                   preselect: str = ""):
         if session.get("admin"):
-            page = pages.keys_page(session, sh.CTX, hs.all_keys(), flash, new_key, users=hs.all_users(),
+            page = keys_pages.keys_page(session, sh.CTX, hs.all_keys(), flash, new_key, users=hs.all_users(),
                                    apikeys=hs.api_keys(), own_prefix=hs.own_api_key_prefix(),
                                    new_apikey=new_apikey, preselect=preselect)
         else:
             user = sh.my_user(session)
-            page = pages.keys_page(session, sh.CTX, hs.user_keys(user) if user else None, flash, new_key)
+            page = keys_pages.keys_page(session, sh.CTX, hs.user_keys(user) if user else None, flash, new_key)
         self.send(200, page)
 
     def machine_action(self, session: dict, node_id: str, action: str, form: dict):
@@ -155,7 +156,7 @@ class DevicesHandlers:
             sh.log.warning("headscale rejected '%s' on %s: %s", action, node_id, msg)
             if action == "tags":
                 # The reason (e.g. a tag without an owner in tagOwners) is useful
-                return self.send(400, pages.machine_page(session, sh.CTX, sh.to_machines([node])[0], "",
+                return self.send(400, machines_pages.machine_page(session, sh.CTX, sh.to_machines([node])[0], "",
                                                          error=_("Could not save the tags: {reason}", reason=msg)))
             return self.redirect(f"{dest}?m=failed")
 
@@ -168,7 +169,7 @@ class DevicesHandlers:
         try:
             self.register_auth_id(session, user, auth_id)
         except urllib.error.HTTPError as exc:
-            return self.send(400, pages.machines_page(session, sh.CTX, sh.to_machines(sh.visible_nodes(session)), True, "",
+            return self.send(400, machines_pages.machines_page(session, sh.CTX, sh.to_machines(sh.visible_nodes(session)), True, "",
                                                       hs.all_users(), error=_("Could not register: {reason}",
                                                                               reason=hs.api_error(exc))))
         return self.redirect(f"{BASE}/machines?m=registered")
@@ -194,7 +195,7 @@ class DevicesHandlers:
         if sh.is_auditor(session):
             return self.fail(403, _("No permission"), _("Auditors cannot add devices."))
         users, owner = self.register_owner(session)
-        self.send(200, pages.register_page(session, sh.CTX, auth_id, users, owner))
+        self.send(200, machines_pages.register_page(session, sh.CTX, auth_id, users, owner))
 
     def register_device(self, session: dict, auth_id: str, form: dict):
         if sh.is_auditor(session):
@@ -211,7 +212,7 @@ class DevicesHandlers:
         try:
             node = self.register_auth_id(session, user, auth_id)
         except urllib.error.HTTPError as exc:
-            return self.send(400, pages.register_page(session, sh.CTX, auth_id, users, owner,
+            return self.send(400, machines_pages.register_page(session, sh.CTX, auth_id, users, owner,
                                                       error=_("Could not register: {reason}", reason=hs.api_error(exc))))
         dest = f"{BASE}/machines/{node['id']}" if str(node.get("id", "")).isdigit() else f"{BASE}/machines"
         return self.redirect(f"{dest}?m=registered")
@@ -326,7 +327,7 @@ class DevicesHandlers:
                 audit.request_event(self, session, "authkey.create", user["name"],
                                     {"reusable": False, "ephemeral": False, "days": int(values["days"]), "source": "docker"},
                                     f"user:{user['id']}")
-        page = pages.add_page(session, sh.CTX, docker={"values": values, "key": key, "error": error, "users": users,
+        page = machines_pages.add_page(session, sh.CTX, docker={"values": values, "key": key, "error": error, "users": users,
                                                        "exit_nodes": exit_nodes})
         return self.send(400 if error else 200, page)
 

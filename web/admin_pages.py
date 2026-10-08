@@ -6,7 +6,7 @@ from __future__ import annotations
 import acl_pages
 import policy
 from i18n import _, ngettext
-from pages import dialog
+from ui import dialog
 from ui import (BASE, LOGO, badge, bare_page, copy_btn, csrf_input, esc, flash_html, icon, initials, layout, notice,
                 page_head, time_tag, user_label)
 

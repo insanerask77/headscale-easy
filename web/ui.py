@@ -12,6 +12,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from timeparse import parse_time  # noqa: F401 - also reached as ui.parse_time
 from i18n import LANGUAGES, _, get_lang, ngettext
 from version import DOCS_URL, PROJECT_URL, SPONSOR_URL, VERSION
 
@@ -87,15 +88,6 @@ LOGO = """<svg class="logo" viewBox="0 0 48 48" aria-hidden="true">
 # -----------------------------------------------------------------------------
 # Formatting
 # -----------------------------------------------------------------------------
-
-def parse_time(value: str | None) -> datetime | None:
-    if not isinstance(value, str) or not value or value.startswith("0001-"):
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
 
 def relative(dt: datetime | None, future: bool = False) -> str:
     if dt is None:
@@ -418,3 +410,22 @@ def message_page(title: str, text: str) -> str:
       <p class="muted">{esc(text)}</p>
       <a class="btn primary" href="{BASE}/">{esc(_("Back"))}</a>
     </section>""")
+
+
+def dialog(dialog_id: str, title: str, text: str, form_action: str, session: dict, fields: str = "",
+           submit: str = "", danger: bool = False, back: str = "") -> str:
+    back_input = f'<input type="hidden" name="back" value="{esc(back)}">' if back else ""
+    return f"""
+    <dialog id="{dialog_id}">
+      <form method="post" action="{form_action}">{csrf_input(session)}{back_input}
+        <h3>{esc(title)}</h3>
+        {f'<p class="muted">{text}</p>' if text else ""}
+        {fields}
+        <div class="dialog-actions"><button type="button" class="btn" data-close>{esc(_("Cancel"))}</button>
+          <button class="btn {"danger-solid" if danger else "primary"}" type="submit">{esc(submit)}</button></div>
+      </form>
+    </dialog>"""
+
+
+def kv(label: str, value: str, copy: str | None = None) -> str:
+    return f'<div class="kv"><dt>{esc(label)}</dt><dd>{value}{copy_btn(copy) if copy else ""}</dd></div>'

@@ -31,7 +31,7 @@ required_files=(
     .gitignore README.md LICENSE
     templates/headscale-config.yaml.tmpl templates/Caddyfile.tmpl templates/headscale-pg-readonly.sql
     advanced/oidc/authentik/blueprints/headscale.yaml advanced/oidc/authentik/branding/custom.css
-    web/app.py web/headscale.py web/pgwire.py web/pages.py web/admin_pages.py
+    web/app.py web/headscale.py web/pgwire.py web/machines_pages.py web/admin_pages.py
     VERSION web/ui.py web/i18n.py web/version.py web/locales/es.json
     web/static/style.css web/static/app.js web/static/theme.js
     scripts/check_i18n.py scripts/gen_env_reference.py scripts/release_info.py
