@@ -1,0 +1,9 @@
+version: 2
+
+secret:
+  ignored_paths:
+    # throwaway passwords used as test inputs, not credentials
+    - tests/test_app_gaps.py
+    # fake hskey-api-* values used as sign-in/audit fixtures
+    - tests/test_audit.py
+    - tests/test_sessions.py
