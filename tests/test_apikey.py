@@ -86,9 +86,9 @@ class ApiKeyTestCase(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    def write_saved(self, key: str):
+    def write_saved(self, content: str):
         with open(self.key_file, "w", encoding="utf-8") as fh:
-            fh.write(key + "\n")
+            fh.write(content + "\n")
 
     def entry(self, key: str, days: float | None, entry_id: str = "1") -> dict:
         e = {"id": entry_id, "prefix": apikey._prefix(key)}

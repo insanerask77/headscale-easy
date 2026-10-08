@@ -454,7 +454,7 @@ _ADMIN_POST_ROUTES = [
 def main():
     port = int(os.environ.get("PORT", "8000"))
     sh.log.info("Headscale Easy %s listening on :%d (public: %s%s, SSO=%s, API key sign-in=%s%s)",
-             VERSION, port, sh.PUBLIC_URL, BASE, sh.SSO, sh.API_KEY_LOGIN, ", DEMO MODE" if sh.DEMO else "")
+             VERSION, port, sh.PUBLIC_URL, BASE, sh.SSO, "on" if sh.API_KEY_LOGIN else "off", ", DEMO MODE" if sh.DEMO else "")
 
     # Initialize local accounts database
     accounts_db.configure(os.environ.get("ACCOUNTS_DB", "/data/console/accounts.db"))
