@@ -18,7 +18,7 @@ Lee en los logs el token de configuración de un solo uso y abre el asistente:
 docker logs headscale-easy
 ```
 
-Abre `http://<tu-servidor>/admin/setup`, introduce el token y sigue los pasos.
+Abre `http://<tu-servidor>/console/setup`, introduce el token y sigue los pasos.
 
 ## El asistente de primer arranque { #the-first-run-wizard }
 
@@ -246,7 +246,7 @@ usa 71 MB de RAM, también mientras corre una copia. CI falla por encima de 250 
   contraseña en su primer inicio de sesión (la tuya es temporal).
 - **Usuarios → ⋯ → Establecer contraseña**: para personas con cuenta. Cierra sus
   sesiones abiertas.
-- **Registro** (Ajustes → General): `off` oculta el enlace y `/admin/signup`
+- **Registro** (Ajustes → General): `off` oculta el enlace y `/console/signup`
   responde 404. Con `invite` el formulario pide una clave de invitación; con
   `open`, no. Quien se registra es siempre **Miembro**, nunca administrador.
 - **Claves de invitación** (página Usuarios): de uno o varios usos, con caducidad
@@ -280,7 +280,7 @@ aprobarlas en la consola. Los auditores no pueden generar claves.
 La página Máquinas (y la de cada dispositivo) se actualiza sola: un dispositivo
 que se conecta, se desconecta, se añade, se elimina o se renombra aparece en
 pocos segundos, sin recargar. La consola mantiene abierto un flujo de eventos
-(`/admin/events`, Server-Sent Events); los miembros solo reciben eventos de sus
+(`/console/events`, Server-Sent Events); los miembros solo reciben eventos de sus
 propios dispositivos. Un pequeño indicador **En vivo** muestra la conexión; si
 se corta, la página vuelve a refrescarse cada pocos segundos. Si hay un proxy
 inverso delante del contenedor, asegúrate de que no almacena en búfer las

@@ -2,7 +2,7 @@
 # Run `make` to list the targets.
 
 .DEFAULT_GOAL := help
-.PHONY: help up down validate lint test i18n
+.PHONY: help up down validate lint typecheck test i18n
 
 help: ## Show this help
 	@echo "Headscale Easy — make targets"
@@ -22,13 +22,17 @@ down: ## Stop it (keeps the data)
 validate: ## Check the project structure and configuration
 	@./scripts/validate.sh
 
-lint: ## shellcheck + Python syntax + i18n coverage
+lint: ## shellcheck + ruff + Python syntax + i18n coverage
+	@uvx ruff check .
 	@shellcheck -S warning scripts/*.sh backup/*.sh
-	@python3 -m py_compile web/*.py aio/*.py
+	@python3 -m py_compile web/*.py web/*/*.py aio/*.py
 	@python3 scripts/check_i18n.py
 
 test: ## Unit tests (Python standard library only)
 	@python3 -m unittest discover -s tests
+
+typecheck: ## pyright, no more errors than the recorded ceiling
+	@PYRIGHT="uvx pyright" python3 scripts/check_types.py
 
 i18n: ## Report untranslated UI strings
 	@python3 scripts/check_i18n.py

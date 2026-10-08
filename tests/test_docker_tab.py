@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_security import ADMIN, B, Base, MEMBER, app, audit, hs, location, request  # noqa: E402
 
 import docker_tab  # noqa: E402
+from i18n import set_lang  # noqa: E402
 
 URL = "https://vpn.example.com"
 AUDITOR = dict(MEMBER, role="auditor", sub="c", username="carol")
@@ -25,11 +26,16 @@ def parsed(**form):
 
 
 class Snippets(unittest.TestCase):
+    def setUp(self):
+        set_lang("en")  # these tests read the English messages; another test file may leave another language set
+
     def test_defaults(self):
         v, err = parsed(dns="1")
         self.assertEqual(err, "")
         run = docker_tab.docker_run(URL, v, "")
-        self.assertIn("tailscale/tailscale:latest", run)
+        self.assertIn("tailscale/tailscale:v1.102.5", run)
+        self.assertNotIn(":latest", run)
+        self.assertIn("image: tailscale/tailscale:v1.102.5", docker_tab.compose(URL, v, ""))
         self.assertIn("--login-server=https://vpn.example.com", run)
         self.assertIn("TS_AUTHKEY=<auth-key>", run)
         self.assertIn("--device /dev/net/tun", run)
@@ -44,23 +50,80 @@ class Snippets(unittest.TestCase):
         self.assertIn("/dev/net/tun", yml)
         self.assertIn("tailscale-state:/var/lib/tailscale", yml)
 
+    def test_version_can_be_chosen_and_unknown_ones_fall_back_to_the_tested_tag(self):
+        v, _e = parsed(version="latest")
+        self.assertTrue(docker_tab.docker_run(URL, v, "").endswith("tailscale/tailscale:latest"))
+        self.assertIn("image: tailscale/tailscale:latest", docker_tab.compose(URL, v, ""))
+        v, _e = parsed(version="evil; rm -rf /")
+        self.assertEqual(v["version"], docker_tab.TS_VERSIONS[0])
+        self.assertNotIn("evil", docker_tab.docker_run(URL, v, ""))
+
     def test_options_change_the_snippet(self):
         v, err = parsed(hostname="Edge-1", exit="1", routes="192.168.1.0/24, 10.0.0.0/8", dns="")
         self.assertEqual(err, "")
         run = docker_tab.docker_run(URL, v, "fake-authkey-one")
-        for part in ("--advertise-exit-node", "TS_ROUTES=192.168.1.0/24,10.0.0.0/8", "TS_ACCEPT_DNS=false",
+        for part in ("TS_ROUTES=0.0.0.0/0,::/0,192.168.1.0/24,10.0.0.0/8", "TS_ACCEPT_DNS=false",
                      "TS_AUTHKEY=fake-authkey-one", "TS_HOSTNAME=edge-1", "net.ipv4.ip_forward=1"):
             self.assertIn(part, run)
         self.assertIn("sysctls:", docker_tab.compose(URL, v, ""))
 
-    def test_kernel_exit_node_gets_the_troubleshooting_tips_from_the_docs(self):
+    def test_exit_node_goes_in_ts_routes_never_in_extra_args(self):
         v, _e = parsed(exit="1")
+        for snippet in (docker_tab.docker_run(URL, v, ""), docker_tab.compose(URL, v, "")):
+            self.assertIn("TS_ROUTES=0.0.0.0/0,::/0", snippet)
+            self.assertNotIn("--advertise-exit-node", snippet)
+    def test_client_options_go_to_the_extra_args_and_the_set_command(self):
+        v, err = parsed(hostname="edge-1", accept_routes="1", use_exit="100.64.0.7", dns="1")
+        self.assertEqual(err, "")
+        run = docker_tab.docker_run(URL, v, "")
+        self.assertIn("--accept-routes", run)
+        self.assertIn("--exit-node=100.64.0.7 --exit-node-allow-lan-access", run)
+        self.assertNotIn("--advertise-exit-node", run)
+        self.assertIn("tailscale set --accept-routes=true --exit-node=100.64.0.7", docker_tab.set_cmd(v))
+        self.assertIn("tailscale-edge-1", docker_tab.set_cmd(v))
+        self.assertIn("resolve it", docker_tab._client_tips(v))
+        plain, _e = parsed(hostname="edge-1")
+        self.assertNotIn("--accept-routes", docker_tab.docker_run(URL, plain, ""))
+        self.assertEqual(docker_tab._client_tips(plain), "")
+
+    def test_client_option_validation(self):
+        self.assertEqual(parsed(use_exit="1.2.3.4; rm -rf /")[1], "Invalid exit node.")
+        self.assertIn("at the same time", parsed(exit="1", use_exit="100.64.0.7")[1])
+
+    def test_troubleshooting_is_a_yellow_dropdown_with_commands_for_this_container(self):
+        v, _e = parsed(hostname="edge-1", exit="1")
         html = docker_tab.panel({"csrf": "tok"}, URL, v)
-        self.assertIn("net.ipv4.ip_forward = 1", html)
-        self.assertIn("net.ipv6.conf.all.forwarding = 1", html)
-        self.assertIn("sysctl -p /etc/sysctl.d/99-tailscale.conf", html)
-        for plain in (parsed(), parsed(userspace="1", exit="1")):  # nothing to forward: no tips
-            self.assertNotIn("ip_forward", docker_tab.panel({"csrf": "tok"}, URL, plain[0]))
+        self.assertIn('<details class="tips">', html)
+        self.assertGreaterEqual(html.count('<details class="tip">'), 10)
+        for part in ("net.ipv4.ip_forward = 1", "net.ipv6.conf.all.forwarding = 1",
+                     "sysctl -p /etc/sysctl.d/99-tailscale.conf", "docker logs tailscale-edge-1",
+                     "tailscale set --advertise-routes= --advertise-exit-node=false", "tailscale set --accept-routes",
+                     "tailscale debug prefs | grep -A3 AdvertiseRoutes", "docker compose down -v"):
+            self.assertIn(part, html)
+        # also for a container that does not forward: no-Internet and sign-in problems are not about routes
+        self.assertIn('<details class="tips">', docker_tab.panel({"csrf": "tok"}, URL, parsed()[0]))
+
+    def test_tips_commands_cannot_carry_form_text(self):
+        v, err = parsed(hostname="x; rm -rf /")
+        self.assertNotEqual(err, "")
+        self.assertNotIn("<details", docker_tab.panel({"csrf": "tok"}, URL, v, error=err))
+
+    def test_kernel_mode_sets_firewall_mode_auto_for_nftables_hosts(self):
+        v, _e = parsed(exit="1")
+        self.assertIn("TS_DEBUG_FIREWALL_MODE=auto", docker_tab.docker_run(URL, v, ""))
+        self.assertIn("TS_DEBUG_FIREWALL_MODE=auto", docker_tab.compose(URL, v, ""))
+        u, _e = parsed(userspace="1", exit="1")  # userspace mode has no firewall
+        self.assertNotIn("FIREWALL_MODE", docker_tab.docker_run(URL, u, ""))
+        self.assertNotIn("FIREWALL_MODE", docker_tab.compose(URL, u, ""))
+    def test_reconfigure_command_for_a_running_container(self):
+        v, _e = parsed(hostname="edge-1", exit="1", routes="192.168.1.0/24 10.0.0.0/8", dns="1")
+        self.assertEqual(docker_tab.reconfigure_cmd(v), "docker exec tailscale-edge-1 tailscale set "
+                         "--advertise-routes=192.168.1.0/24,10.0.0.0/8 --advertise-exit-node=true --accept-dns=true")
+        # unticked options and an empty route list withdraw what was advertised
+        v, _e = parsed(hostname="edge-1")
+        self.assertEqual(docker_tab.reconfigure_cmd(v), "docker exec tailscale-edge-1 tailscale set "
+                         "--advertise-routes='' --advertise-exit-node=false --accept-dns=false")
+        self.assertIn("docker exec tailscale-edge-1 tailscale set", docker_tab.panel({"csrf": "tok"}, URL, v))
 
     def test_userspace_needs_no_device_or_capabilities(self):
         v, _e = parsed(userspace="1", exit="1")
@@ -80,7 +143,11 @@ class Snippets(unittest.TestCase):
     def test_compose_is_valid_json_quoted_yaml(self):
         v, _e = parsed(hostname="edge-1")
         yml = docker_tab.compose(URL, v, 'k"ey: x')
-        self.assertIn(json.dumps('TS_AUTHKEY=k"ey: x'), yml)  # quoted, so the colon and quote cannot break the YAML
+        self.assertNotIn('k"ey', yml)  # the key never sits in the compose file
+        self.assertIn(json.dumps("TS_AUTHKEY=${TS_AUTHKEY}"), yml)  # it is read from .env
+        self.assertEqual(docker_tab.env_file("fake-authkey-one"), "TS_AUTHKEY=fake-authkey-one\n")
+        self.assertEqual(docker_tab.env_file(""), "TS_AUTHKEY=<auth-key>\n")
+        self.assertEqual(docker_tab.env_file("a b"), "TS_AUTHKEY='a b'\n")
 
     def test_validation(self):
         for form in ({"hostname": "bad name"}, {"hostname": "a;rm -rf /"}, {"hostname": "-x"}, {"hostname": "x" * 64},
@@ -137,8 +204,18 @@ class Page(Base):
     def test_options_without_a_key(self):
         status, _h, body = self.post(MEMBER, exit="1")
         self.assertEqual(status, 200)
-        self.assertIn("--advertise-exit-node", body)
+        self.assertIn("TS_ROUTES=0.0.0.0/0,::/0", body)
         self.assertEqual(self.api.call_count, 0)  # no key unless asked
+
+    def test_exit_node_must_be_one_the_person_may_see(self):
+        node = {"givenName": "gw", "ipAddresses": ["100.64.0.7", "fd7a::7"], "approvedRoutes": ["0.0.0.0/0", "::/0"],
+                "user": {"id": "9"}}
+        with mock.patch.object(hs, "all_nodes", lambda: [node]):
+            status, _h, body = self.post(ADMIN, use_exit="100.64.0.7", accept_routes="1")
+            self.assertEqual(status, 200)
+            self.assertIn("--exit-node=100.64.0.7", body)
+            self.assertEqual(self.post(ADMIN, use_exit="100.64.0.8")[0], 400)
+            self.assertEqual(self.post(MEMBER, use_exit="100.64.0.7")[0], 400)  # not their device
 
     def test_invalid_input_is_rejected_and_makes_no_key(self):
         status, _h, body = self.post(MEMBER, hostname="a b", generate="1")
@@ -149,7 +226,8 @@ class Page(Base):
     def test_member_key_is_single_use_short_and_theirs(self):
         status, _h, body = self.post(MEMBER, generate="1", days="7", user_id="9")  # a member cannot pick another owner
         self.assertEqual(status, 200)
-        self.assertIn("TS_AUTHKEY=fake-authkey-two", body)
+        self.assertIn("TS_AUTHKEY=fake-authkey-two", body)  # docker run and the .env block
+        self.assertIn("TS_AUTHKEY=${TS_AUTHKEY}", body)  # the compose file only references it
         method, path, payload = self.api.call_args.args[:3]
         self.assertEqual((method, path), ("POST", "/preauthkey"))
         self.assertEqual((payload["user"], payload["reusable"], payload["ephemeral"]), ("2", False, False))

@@ -1,0 +1,7 @@
+{
+  "Approve routes": "Approuver les routes",
+  "{n} machine has routes waiting for approval.": "{n} machine a des routes en attente d'approbation.",
+  "{n} machines have routes waiting for approval.": "{n} machines ont des routes en attente d'approbation.",
+  "Subnets - pending approval": "Sous-réseaux - en attente d'approbation",
+  "Exit Node - pending approval": "Nœud de sortie - en attente d'approbation"
+}

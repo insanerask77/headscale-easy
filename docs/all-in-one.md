@@ -18,7 +18,7 @@ Then read the one-time setup token from the logs and open the wizard:
 docker logs headscale-easy
 ```
 
-Open `http://<your-server>/admin/setup`, enter the token and follow the steps.
+Open `http://<your-server>/console/setup`, enter the token and follow the steps.
 
 ## The first-run wizard
 
@@ -240,7 +240,7 @@ uses 71 MB of RAM, also while a backup runs. CI fails above 250 MB and 100 MB
   password at their first sign-in (a temporary one).
 - **Users → ⋯ → Set password**: for people with an account. It signs out their
   open sessions.
-- **Sign-up** (Settings → General): `off` hides the link and `/admin/signup`
+- **Sign-up** (Settings → General): `off` hides the link and `/console/signup`
   answers 404. With `invite` the form asks for an invitation key; `open` needs
   none. Self-registered people are always **Members**, never admins.
 - **Invitation keys** (Users page): single or multi use, optional expiry, and
@@ -272,7 +272,7 @@ approved in the console. Auditors cannot generate keys.
 The Machines page (and a device's page) updates on its own: a device that
 connects, disconnects, is added, removed or renamed shows up within a few
 seconds, without reloading. The console keeps a Server-Sent Events stream open
-(`/admin/events`); members only receive events about their own devices. A small
+(`/console/events`); members only receive events about their own devices. A small
 **Live** indicator shows the connection; if it drops the page falls back to
 refreshing every few seconds. When a reverse proxy sits in front of the
 container, make sure it does not buffer `text/event-stream` responses (the

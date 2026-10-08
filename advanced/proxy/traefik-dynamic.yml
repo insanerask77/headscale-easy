@@ -13,7 +13,7 @@
 #       watch: true
 #
 # Behind it the Headscale Easy image already routes by path (/ -> Headscale,
-# /admin -> web UI), so there is ONE service: the whole domain is forwarded.
+# /console -> web UI), so there is ONE service: the whole domain is forwarded.
 #
 # Replace: vpn.example.com, AIO_HOST:8080 (the host and the HSE_HTTP_PORT you
 # published). In the image's .env:

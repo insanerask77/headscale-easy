@@ -19,9 +19,14 @@ from ui import BASE, copy_btn, csrf_input, esc, notice
 HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 MAX_ROUTES = 20
 KEY_DAYS = ("1", "7")  # short on purpose: the container keeps its own state after the first start
+EXIT_ROUTES = ["0.0.0.0/0", "::/0"]
 DEFAULTS = {"hostname": "tailscale-docker", "exit": False, "routes": "", "userspace": False, "dns": True,
-            "generate": False, "days": "1", "user_id": ""}
+            "generate": False, "days": "1", "user_id": "", "accept_routes": False, "use_exit": ""}
 PLACEHOLDER = "<auth-key>"
+# Image tags the snippets can pin; the first is the tested one (the exit node and firewall behaviour was
+# verified on it) and the default. "latest" is offered last, on purpose: it changes under the person's feet.
+TS_VERSIONS = ("v1.102.5", "latest")
+DEFAULTS["version"] = TS_VERSIONS[0]
 
 
 def parse(form: dict) -> tuple[dict, str]:
@@ -32,13 +37,24 @@ def parse(form: dict) -> tuple[dict, str]:
     values["userspace"] = form.get("userspace") == "1"
     values["dns"] = form.get("dns") == "1"
     values["generate"] = form.get("generate") == "1"
+    values["accept_routes"] = form.get("accept_routes") == "1"
+    values["use_exit"] = str(form.get("use_exit", "")).strip()[:45]
     values["days"] = str(form.get("days", "1")) if str(form.get("days", "1")) in KEY_DAYS else "1"
     values["user_id"] = str(form.get("user_id", ""))
+    values["version"] = str(form.get("version", "")) if str(form.get("version", "")) in TS_VERSIONS else TS_VERSIONS[0]
     raw = str(form.get("routes", ""))
     values["routes"] = raw[:400]
     error = ""
     if not HOSTNAME_RE.fullmatch(values["hostname"]):
         error = _("Invalid host name: lowercase letters, digits and dashes only (max. 63).")
+    if not error and values["use_exit"]:
+        try:
+            values["use_exit"] = str(ipaddress.ip_address(values["use_exit"]))
+        except ValueError:
+            error = _("Invalid exit node.")
+        else:
+            if values["exit"]:
+                error = _("A device cannot offer to be an exit node and use one at the same time.")
     routes, bad = [], ""
     for part in re.split(r"[\s,]+", raw.strip()):
         if not part:
@@ -59,21 +75,31 @@ def parse(form: dict) -> tuple[dict, str]:
 
 
 def _ts_args(url: str, v: dict) -> str:
+    """Only for `tailscale up`, which TS_AUTH_ONCE runs once. The exit node is not here: it goes in TS_ROUTES,
+    which is applied on every start. The client options (accept routes, use an exit node) have no such variable,
+    so they only count on the first start; set_cmd() changes them afterwards."""
     args = [f"--login-server={url}"]
-    if v["exit"]:
-        args.append("--advertise-exit-node")
+    if v["accept_routes"]:
+        args.append("--accept-routes")
+    if v["use_exit"]:
+        args += [f"--exit-node={v['use_exit']}", "--exit-node-allow-lan-access"]
     return " ".join(args)
 
 
-def _env(url: str, v: dict, key: str) -> list[str]:
-    """KEY=value pairs for the official image's own variables (TS_ROUTES, TS_ACCEPT_DNS, TS_AUTH_ONCE...)."""
-    env = [f"TS_AUTHKEY={key or PLACEHOLDER}", f"TS_HOSTNAME={v['hostname']}",
+def _env(url: str, v: dict, key: str, ref: bool = False) -> list[str]:
+    """KEY=value pairs for the official image's own variables (TS_ROUTES, TS_ACCEPT_DNS, TS_AUTH_ONCE...).
+    With ref, the auth key is a ${TS_AUTHKEY} reference to a .env file instead of the key itself."""
+    env = ["TS_AUTHKEY=${TS_AUTHKEY}" if ref else f"TS_AUTHKEY={key or PLACEHOLDER}", f"TS_HOSTNAME={v['hostname']}",
            "TS_STATE_DIR=/var/lib/tailscale",
            "TS_AUTH_ONCE=true",  # a restart keeps the saved identity instead of logging in again with a spent key
            f"TS_USERSPACE={'true' if v['userspace'] else 'false'}",
            f"TS_ACCEPT_DNS={'true' if v['dns'] else 'false'}"]
-    if v["route_list"]:
-        env.append("TS_ROUTES=" + ",".join(v["route_list"]))
+    # TS_ROUTES is applied with `tailscale set` on every start, so an exit node (0.0.0.0/0,::/0) added later still lands.
+    routes = (EXIT_ROUTES if v["exit"] else []) + v["route_list"]
+    if routes:
+        env.append("TS_ROUTES=" + ",".join(routes))
+    if not v["userspace"]:
+        env.append("TS_DEBUG_FIREWALL_MODE=auto")  # nftables-only hosts (no iptables tables): tailscaled picks the backend that works
     env.append("TS_EXTRA_ARGS=" + _ts_args(url, v))
     return env
 
@@ -92,17 +118,24 @@ def docker_run(url: str, v: dict, key: str) -> str:
         lines += ["  --sysctl net.ipv4.ip_forward=1", "  --sysctl net.ipv6.conf.all.forwarding=1"]
     lines += [f"  -v {q(name)}:/var/lib/tailscale"]
     lines += [f"  -e {q(e) if not e.endswith(PLACEHOLDER) else e}" for e in _env(url, v, key)]
-    lines += ["  tailscale/tailscale:latest"]
+    lines += [f"  tailscale/tailscale:{v['version']}"]
     return " \\\n".join(lines)
 
 
+def env_file(key: str) -> str:
+    """The .env file that sits next to docker-compose.yml and holds the only secret."""
+    value = key or PLACEHOLDER
+    return f"TS_AUTHKEY={value if re.fullmatch(r'[A-Za-z0-9_.<>-]+', value) else shlex.quote(value)}\n"
+
+
 def compose(url: str, v: dict, key: str) -> str:
+    """The compose file never holds the key (it gets pasted into tickets and repos): see env_file()."""
     name = "tailscale-" + v["hostname"]
     j = json.dumps  # a JSON string is a valid, safely quoted YAML scalar
-    out = ["services:", "  tailscale:", "    image: tailscale/tailscale:latest",
+    out = ["services:", "  tailscale:", f"    image: tailscale/tailscale:{v['version']}",
            f"    container_name: {j(name)}", f"    hostname: {j(v['hostname'])}", "    restart: unless-stopped",
            "    environment:"]
-    out += [f"      - {j(e)}" for e in _env(url, v, key)]
+    out += [f"      - {j(e)}" for e in _env(url, v, key, ref=True)]
     out += ["    volumes:", "      - tailscale-state:/var/lib/tailscale"]
     if not v["userspace"]:
         out += ["    devices:", "      - /dev/net/tun:/dev/net/tun", "    cap_add:", "      - NET_ADMIN", "      - NET_RAW"]
@@ -118,21 +151,125 @@ FORWARDING_CMDS = ("echo 'net.ipv4.ip_forward = 1' | sudo tee -a /etc/sysctl.d/9
                    "sudo sysctl -p /etc/sysctl.d/99-tailscale.conf")
 
 
+def reconfigure_cmd(v: dict) -> str:
+    """`docker exec ... tailscale set` that applies the form's options to a container that already runs.
+    An empty --advertise-routes= and --advertise-exit-node=false withdraw what was advertised before."""
+    name = "tailscale-" + v["hostname"]
+    return (f"docker exec {shlex.quote(name)} tailscale set"
+            f" --advertise-routes={shlex.quote(','.join(v['route_list']))}"
+            f" --advertise-exit-node={'true' if v['exit'] else 'false'}"
+            f" --accept-dns={'true' if v['dns'] else 'false'}")
+
+
 def _code(text: str) -> str:
     return f'<div class="code"><code class="pre">{esc(text)}</code>{copy_btn(text)}</div>'
 
 
-def _tips(v: dict) -> str:
-    """What to try when an exit node or a subnet router does not route (kernel networking only)."""
-    if not _forwarding(v):
+def set_cmd(v: dict) -> str:
+    """`tailscale set` for the client options. TS_EXTRA_ARGS only counts on the first start (the saved
+    identity is kept afterwards), so this is what changes them on a container that already runs."""
+    args = ["--accept-routes=" + ("true" if v["accept_routes"] else "false"),
+            f"--exit-node={v['use_exit']}" if v["use_exit"] else "--exit-node=",
+            "--exit-node-allow-lan-access=" + ("true" if v["use_exit"] else "false")]
+    return f"docker exec tailscale-{v['hostname']} tailscale set " + " ".join(args)
+
+
+def _client_tips(v: dict) -> str:
+    if not (v["accept_routes"] or v["use_exit"]):
         return ""
+    dns = (f"<li>{esc(_('With an exit node, all traffic goes through it, including the lookup of this server’s name: the tailnet’s DNS must be able to resolve it, or the container cannot reach the server again.'))}</li>"
+           if v["use_exit"] else "")
     return f"""
-    <details class="stack"><summary>{esc(_("If the exit node or the routes do not work"))}</summary>
+    <details class="stack"><summary>{esc(_("Changing these options later"))}</summary>
       <ol class="steps">
-        <li>{esc(_("Approve it: open the machine in Machines and enable the exit node or the routes, unless the policy approves them automatically."))}</li>
-        <li>{esc(_("Enable IP forwarding, IPv4 and IPv6, on the host too, then restart the container:"))}{_code(FORWARDING_CMDS)}</li>
-        <li>{esc(_("If the host cannot give the container /dev/net/tun, tick “Userspace networking” above: it works everywhere, with lower performance."))}</li>
+        <li>{esc(_("The environment is only read on the first start. On a container that already runs, apply a change with:"))}{_code(set_cmd(v))}</li>
+        {dns}
       </ol>
+    </details>"""
+
+
+def _tip(question: str, *body: str) -> str:
+    return f'<details class="tip"><summary>{esc(question)}</summary><div class="tip-body">{"".join(body)}</div></details>'
+
+
+def _p(text: str) -> str:
+    return f"<p>{esc(text)}</p>"
+
+
+def _tips(url: str, v: dict) -> str:
+    """The yellow troubleshooting list under the snippets. Every entry comes from a case reproduced on a real
+    tailnet; the commands are built here, from the validated host name, never from the form text."""
+    name = "tailscale-" + v["hostname"]
+    q = shlex.quote(name)
+    logs = _code(f"docker logs {q} --tail 50")
+    items = [
+        _tip(_("The container does not connect or stays offline"),
+             _p(_("Read what the container says: a sign-in or network error is almost always listed there.")), logs,
+             _p(_("The server's address has to be reachable from inside the container, not only from your browser. "
+                  "Check it from the same machine:")), _code(f"curl -I {shlex.quote(url)}"),
+             _p(_("Use the scheme the server really answers on: https:// when it has a certificate, http:// only on a trusted network.")),
+             _p(_("If the server's name only resolves on your local network, the tailnet's DNS cannot find it once the container uses it: "
+                  "untick “Use this tailnet's DNS settings” or use a public name or an IP."))),
+        _tip(_("“authkey already used”, “invalid key” or the container restarts in a loop"),
+             _p(_("A key made here is single-use and expires in days. After the first start the container keeps its own identity "
+                  "in its volume and never needs the key again, but a new volume needs a new key.")),
+             _p(_("To start over: delete the old machine in Machines, generate a new key above and run the new snippets on a clean volume:")),
+             _code(f"docker compose down -v\n# or, with docker run:\ndocker rm -f {q} && docker volume rm {q}")),
+        _tip(_("The container has no Internet"),
+             _p(_("Test the host first. If this fails, the problem is the machine's network, not Tailscale:")),
+             _code("docker run --rm alpine ping -c 3 1.1.1.1\ndocker run --rm alpine nslookup example.com"),
+             _p(_("If only the name lookup fails, give Docker DNS servers in /etc/docker/daemon.json, for example "
+                  "{\"dns\": [\"1.1.1.1\"]}, and restart Docker. Behind a proxy or a firewall, allow outgoing HTTPS and UDP.")),
+             _p(_("Untick “Use this tailnet's DNS settings” to keep the host's DNS inside the container."))),
+        _tip(_("I cannot reach the Internet through the exit node"),
+             '<ol class="steps">'
+             f'<li>{esc(_("Approve it: open the machine in Machines and enable the exit node, unless the policy approves it automatically. Until then no device can even choose it."))}</li>'
+             f'<li>{esc(_("Look for firewall errors. “Table does not exist” or “iptables” means the host kernel has no iptables-legacy. The snippets set TS_DEBUG_FIREWALL_MODE=auto so the container uses nftables when that is what the host has; if it still fails, set it to nftables or to iptables."))}'
+             + _code(f"docker logs {q} 2>&1 | grep -iE 'iptables|nftables|router'") + "</li>"
+             f'<li>{esc(_("Enable IP forwarding, IPv4 and IPv6, on the host too, then restart the container:"))}{_code(FORWARDING_CMDS)}</li>'
+             f'<li>{esc(_("On the device that uses it, choose this machine as the exit node and give it a few seconds: the first connection can take that long. On Linux, keep your local network reachable with:"))}'
+             + _code(f"tailscale set --exit-node={v['hostname']} --exit-node-allow-lan-access") + "</li>"
+             f'<li>{esc(_("A custom policy has to allow the devices that use the exit node to reach autogroup:internet."))}</li>'
+             f'<li>{esc(_("As a last resort tick “Userspace networking” above: it needs no kernel firewall, with lower performance."))}</li>'
+             "</ol>"),
+        _tip(_("The exit node does not appear in the device's list"),
+             _p(_("A device only lists an exit node once it is advertised and approved. See what the container advertises:")),
+             _code(f"docker exec {q} tailscale debug prefs | grep -A3 AdvertiseRoutes"),
+             _p(_("It has to list 0.0.0.0/0 and ::/0. If it shows null, read the next entry."))),
+        _tip(_("I changed the options and the machine did not change"),
+             _p(_("The image only reads TS_EXTRA_ARGS the first time the container signs in (TS_AUTH_ONCE keeps a restart from spending the key again), "
+                  "so editing it later does nothing. The exit node and the subnet routes live in TS_ROUTES, which is applied on every start: edit it and recreate the container.")),
+             _code("docker compose up -d --force-recreate"),
+             _p(_("Removing a route from TS_ROUTES does not withdraw it. To withdraw every route and the exit node:")),
+             _code(f"docker exec {q} tailscale set --advertise-routes= --advertise-exit-node=false"),
+             _p(_("A container made before this was fixed can get the exit node without losing its identity:")),
+             _code(f"docker exec {q} tailscale set --advertise-exit-node")),
+        _tip(_("I do not see the subnets I advertised"),
+             _p(_("Approve them in Machines, on the machine's page. Until then no device uses them.")),
+             _p(_("Linux devices ignore advertised subnets unless told to accept them (the other apps have a “Use Tailscale subnets” switch):")),
+             _code("sudo tailscale set --accept-routes"),
+             _p(_("A subnet that overlaps the network the device is already on does not work: the local network wins."))),
+        _tip(_("The container restarts saying it cannot enable IP forwarding"),
+             _p(_("It advertises routes or an exit node but was created without the sysctls. Add them, as the snippets above do, or run the container as privileged:")),
+             _code("sysctls:\n  - net.ipv4.ip_forward=1\n  - net.ipv6.conf.all.forwarding=1")),
+        _tip(_("“operation not permitted” or no /dev/net/tun"),
+             _p(_("The container needs the NET_ADMIN and NET_RAW capabilities and, on some hosts, the /dev/net/tun device. "
+                  "Rootless Podman, LXC, some NAS systems and shared hosts do not allow them: tick “Userspace networking” and use the new snippets, which need none of that."))),
+        _tip(_("Names do not resolve, or resolve late"),
+             _p(_("Right after a device starts using an exit node, name lookups can fail for a few seconds while the tunnel comes up. Try again.")),
+             _p(_("See which servers the container uses; they come from the DNS settings of this server, which should list at least one global nameserver:")),
+             _code(f"docker exec {q} tailscale dns status")),
+        _tip(_("The connection is slow or goes through a relay"),
+             _p(_("“relay” in this output means the traffic goes through a relay server instead of directly:")),
+             _code(f"docker exec {q} tailscale status"),
+             _p(_("Allow outgoing UDP on the host, and forward UDP port 41641 on the router if it is behind one."))),
+    ]
+    return f"""
+    <details class="tips"><summary>{esc(_("Troubleshooting and tips"))}</summary>
+      <div class="tips-body">
+        <p class="small">{esc(_("Open the one that looks like your problem. The commands already use this container's name."))}</p>
+        {"".join(items)}
+      </div>
     </details>"""
 
 
@@ -149,7 +286,7 @@ def loopback(url: str) -> bool:
 
 
 def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: str = "",
-          users: list[dict] | None = None) -> str:
+          users: list[dict] | None = None, exit_nodes: list[dict] | None = None) -> str:
     v = v or dict(DEFAULTS, route_list=[])
     chk = lambda on: " checked" if on else ""  # noqa: E731
     who = ""
@@ -159,6 +296,10 @@ def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: 
         who = f'<label class="field">{esc(_("Owner of the device"))}<select name="user_id">{options}</select></label>'
     days = "".join(f'<option value="{d}"{" selected" if d == v["days"] else ""}>{esc(_("{n} days", n=d) if d != "1" else _("1 day"))}</option>'
                    for d in KEY_DAYS)
+    versions = "".join(f'<option value="{t}"{" selected" if t == v["version"] else ""}>'
+                       f'{esc(t if t != "latest" else _("latest (not pinned)"))}</option>' for t in TS_VERSIONS)
+    nodes = "".join(f'<option value="{esc(n["ip"])}"{" selected" if n["ip"] == v["use_exit"] else ""}>'
+                    f'{esc(n["name"])} ({esc(n["ip"])})</option>' for n in exit_nodes or [])
     form = f"""
     <form method="post" action="{BASE}/add/docker" class="stack">{csrf_input(session)}
       <label class="field">{esc(_("Host name"))}<input name="hostname" value="{esc(v['hostname'])}" maxlength="63"
@@ -167,11 +308,15 @@ def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: 
         <span>{esc(_("Offer to be an exit node"))}</span></label>
       <label class="field">{esc(_("Subnet routes to advertise (optional)"))}<input name="routes" value="{esc(v['routes'])}"
         placeholder="192.168.1.0/24, 10.0.0.0/8" autocomplete="off" spellcheck="false"></label>
+      <label class="check"><input type="checkbox" name="accept_routes" value="1"{chk(v['accept_routes'])}>
+        <span>{esc(_("Accept subnet routes from other devices"))}</span></label>
+      <label class="field">{esc(_("Use exit node"))}<select name="use_exit"><option value="">{esc(_("None"))}</option>{nodes}</select></label>
       <label class="check"><input type="checkbox" name="userspace" value="1"{chk(v['userspace'])}>
         <span>{esc(_("Userspace networking (no /dev/net/tun, no extra permissions)"))}</span></label>
       <label class="check"><input type="checkbox" name="dns" value="1"{chk(v['dns'])}>
         <span>{esc(_("Use this tailnet's DNS settings"))}</span></label>
       {who}
+      <label class="field">{esc(_("Tailscale version"))}<select name="version">{versions}</select></label>
       <label class="check"><input type="checkbox" name="generate" value="1"{chk(v['generate'])}>
         <span>{esc(_("Generate a single-use auth key"))}</span></label>
       <label class="field">{esc(_("The key is valid for"))}<select name="days">{days}</select></label>
@@ -197,8 +342,14 @@ def panel(session: dict, url: str, v: dict | None = None, key: str = "", error: 
     <ol class="steps">
       <li>{esc(_("Set it up:"))}{form}</li>
       <li>{esc(_("Start it with Docker:"))}{_code(docker_run(url, v, key))}</li>
-      <li>{esc(_("Or save this as docker-compose.yml and run docker compose up -d:"))}{_code(compose(url, v, key))}</li>
+      <li>{esc(_("Or save this as docker-compose.yml and run docker compose up -d:"))}{_code(compose(url, v, key))}
+        {esc(_("The auth key is not in that file. Save it next to it as .env:"))}{_code(env_file(key))}</li>
       <li>{_("Without an auth key, leave TS_AUTHKEY out and run {cmd}: it prints a link to sign in.", cmd=f"<code>docker logs {esc(name)}</code>")}</li>
     </ol>
-    {_tips(v)}
+    <p class="muted small">{esc(_("After the first successful start, delete the TS_AUTHKEY line from .env: the container keeps its own identity. Revoke keys you did not use in Settings → Keys."))}</p>
+    <details class="stack"><summary>{esc(_("Already running? Apply a changed option without recreating the container"))}</summary>
+      <p class="muted small">{esc(_("Recreating the container does not withdraw a route or an exit node it already advertised: the saved state wins. This command sets exactly what the form says, and an empty route list or an unticked exit node withdraws it. A restart goes back to what TS_ROUTES in the file says, so change the file too:"))}</p>
+      {_code(reconfigure_cmd(v))}
+    </details>
+    {_tips(url, v)}{_client_tips(v)}
     {key_note}"""

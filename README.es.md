@@ -75,7 +75,7 @@ consola. Mira la [comparativa detallada](https://insanerask77.github.io/headscal
 
 ## ✨ Funcionalidades
 
-- 🖥️ **Consola web estilo Tailscale** en `/admin`: máquinas, usuarios, DNS,
+- 🖥️ **Consola web estilo Tailscale** en `/console`: máquinas, usuarios, DNS,
   control de acceso y claves. Tema oscuro y claro, funciona en el móvil.
 - 👤 **Cuentas de usuario reales** integradas: contraseña, **doble factor (TOTP)**
   opcional, invitaciones, enlaces de restablecimiento y registro; o tu propio
@@ -85,6 +85,13 @@ consola. Mira la [comparativa detallada](https://insanerask77.github.io/headscal
 - 📱 **Máquinas**: estado, direcciones, sistema y versión del cliente con aviso de
   actualización, renombrar, expirar, eliminar, caducidad de clave, etiquetas,
   **rutas de subred y exit nodes**, filtros, búsqueda y exportación CSV.
+- 🐳 **Pestaña Docker en Añadir dispositivo**: genera el `docker run` y el
+  `docker-compose.yml` de un contenedor Tailscale (exit node, rutas de subred,
+  modo userspace, versión de Tailscale fijada), deja la clave en un `.env`
+  aparte, da el comando para aplicar un cambio a un contenedor que ya corre y
+  incluye un desplegable de ayuda con once problemas habituales.
+- ✅ **Rutas pendientes de aprobar**: la insignia de la máquina lo indica, se
+  aprueban con un clic y los administradores ven un aviso que las cuenta.
 - 🔑 **Claves de autenticación** (de un uso, reutilizables, efímeras) y API keys;
   registro de dispositivos por Auth ID.
 - 🌐 **DNS**: MagicDNS, dominio de la tailnet, nameservers, split DNS, dominios de
@@ -112,6 +119,10 @@ consola. Mira la [comparativa detallada](https://insanerask77.github.io/headscal
 | ![Controles de acceso](docs/images/access-controls.png) | ![Claves](docs/images/keys.png) |
 | **Inicio de sesión** | **Añadir dispositivo** |
 | ![Inicio de sesión](docs/images/sign-in.png) | ![Añadir dispositivo](docs/images/add-device.png) |
+| **Añadir dispositivo, pestaña Docker** | **Ayuda de Docker** |
+| ![Pestaña Docker](docs/images/add-device-docker.png) | ![Ayuda de Docker](docs/images/docker-troubleshooting.png) |
+| **Rutas pendientes de aprobar (claro)** | **Máquinas (oscuro)** |
+| ![Rutas pendientes](docs/images/machine-pending-routes.png) | ![Máquinas, tema oscuro](docs/images/machines-dark.png) |
 
 ## 🚀 Inicio rápido
 
@@ -127,12 +138,12 @@ docker compose up -d
 Esa es toda la instalación: un contenedor, con la versión 2.0 fijada en `compose.yaml`.
 Después:
 
-1. **Abre el asistente** en `http://<tu-servidor>/admin/setup` y escribe el token de
+1. **Abre el asistente** en `http://<tu-servidor>/console/setup` y escribe el token de
    un solo uso (`docker compose logs`). Crea el administrador, pon nombre a la
    tailnet, indica la dirección pública y el HTTPS (Let's Encrypt necesita un
    dominio y los puertos 80/443 abiertos) y elige el relay (DERP), el modo de
    registro y las copias.
-2. **Entra** en `https://tu-dominio/admin`.
+2. **Entra** en `https://tu-dominio/console`.
 3. **Conecta tu primer dispositivo** con la app oficial de Tailscale.
 
 ¿Prefieres responder de antemano? Copia [`.env.example`](.env.example) a `.env`
@@ -178,7 +189,7 @@ lista las variables para un arranque sin asistente.
 ```
                ┌──────────────── headscale-easy (un contenedor) ────────────────┐
 :80/:443 ────▶ │ caddy ──┬─ /       ──▶ headscale (binario oficial, proceso hijo) │
-:3478/udp ───▶ │         └─ /admin  ──▶ consola (Python)                         │
+:3478/udp ───▶ │         └─ /console  ──▶ consola (Python)                         │
                │ supervisor: arranca y reinicia los tres, configtest, copias     │
                │ /data: headscale/ caddy/ console/ config/ backups/              │
                └─────────────────────────────────────────────────────────────────┘

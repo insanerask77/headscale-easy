@@ -13,6 +13,9 @@ WEB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
 sys.path.insert(0, WEB)
 
 import local_accounts as la  # noqa: E402
+import account_tokens  # noqa: E402
+import accounts_db  # noqa: E402
+import totp  # noqa: E402
 
 
 class SchemaTests(unittest.TestCase):
@@ -20,18 +23,18 @@ class SchemaTests(unittest.TestCase):
 
     def setUp(self):
         """Create a fresh in-memory database for each test."""
-        la.configure(":memory:")
+        accounts_db.configure(":memory:")
 
     def test_configure_creates_database(self):
         """configure() creates the database."""
         # Already called in setUp, just verify it doesn't raise
-        la.configure(":memory:")
+        accounts_db.configure(":memory:")
 
     def test_configure_creates_file_with_mode_600(self):
         """configure() creates the database file with mode 600."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
-            la.configure(db_path)
+            accounts_db.configure(db_path)
             self.assertTrue(os.path.exists(db_path))
             # Check file permissions (mode 600 = 0o600)
             mode = os.stat(db_path).st_mode & 0o777
@@ -39,7 +42,7 @@ class SchemaTests(unittest.TestCase):
 
     def test_accounts_table_exists(self):
         """accounts table is created with all required columns."""
-        with la._db() as db:
+        with accounts_db._db() as db:
             cursor = db.execute("SELECT * FROM accounts LIMIT 0")
             columns = [desc[0] for desc in cursor.description]
             expected = ['id', 'username', 'email', 'headscale_user', 'role', 'pw_hash',
@@ -49,7 +52,7 @@ class SchemaTests(unittest.TestCase):
 
     def test_tokens_table_exists(self):
         """tokens table is created with all required columns."""
-        with la._db() as db:
+        with accounts_db._db() as db:
             cursor = db.execute("SELECT * FROM tokens LIMIT 0")
             columns = [desc[0] for desc in cursor.description]
             expected = ['id', 'kind', 'token_hash', 'account_id', 'role', 'email',
@@ -58,14 +61,14 @@ class SchemaTests(unittest.TestCase):
 
     def test_schema_version_table_exists(self):
         """schema_version table is created and has the current version."""
-        with la._db() as db:
+        with accounts_db._db() as db:
             version = db.execute("SELECT version FROM schema_version").fetchone()
             self.assertIsNotNone(version)
-            self.assertEqual(version[0], la.SCHEMA_VERSION)
+            self.assertEqual(version[0], accounts_db.SCHEMA_VERSION)
 
     def test_indices_exist(self):
         """All required indices are created."""
-        with la._db() as db:
+        with accounts_db._db() as db:
             indices = db.execute(
                 "SELECT name FROM sqlite_master WHERE type='index' AND sql IS NOT NULL"
             ).fetchall()
@@ -80,7 +83,7 @@ class SchemaTests(unittest.TestCase):
 
     def test_username_unique_constraint(self):
         """username column has a unique constraint."""
-        with la._db() as db:
+        with accounts_db._db() as db:
             # Get the CREATE TABLE statement
             schema = db.execute(
                 "SELECT sql FROM sqlite_master WHERE type='table' AND name='accounts'"
@@ -89,7 +92,7 @@ class SchemaTests(unittest.TestCase):
 
     def test_email_unique_constraint(self):
         """email column has a unique constraint."""
-        with la._db() as db:
+        with accounts_db._db() as db:
             schema = db.execute(
                 "SELECT sql FROM sqlite_master WHERE type='table' AND name='accounts'"
             ).fetchone()[0]
@@ -97,7 +100,7 @@ class SchemaTests(unittest.TestCase):
 
     def test_token_hash_unique_constraint(self):
         """token_hash column has a unique constraint."""
-        with la._db() as db:
+        with accounts_db._db() as db:
             schema = db.execute(
                 "SELECT sql FROM sqlite_master WHERE type='table' AND name='tokens'"
             ).fetchone()[0]
@@ -105,7 +108,7 @@ class SchemaTests(unittest.TestCase):
 
     def test_foreign_key_constraint(self):
         """tokens.account_id has a foreign key to accounts.id."""
-        with la._db() as db:
+        with accounts_db._db() as db:
             schema = db.execute(
                 "SELECT sql FROM sqlite_master WHERE type='table' AND name='tokens'"
             ).fetchone()[0]
@@ -113,7 +116,7 @@ class SchemaTests(unittest.TestCase):
 
     def test_foreign_keys_enabled(self):
         """Foreign key constraints are enabled."""
-        with la._db() as db:
+        with accounts_db._db() as db:
             enabled = db.execute("PRAGMA foreign_keys").fetchone()[0]
             self.assertEqual(enabled, 1)
 
@@ -122,7 +125,7 @@ class PasswordHashingTests(unittest.TestCase):
     """Test password hashing and verification."""
 
     def setUp(self):
-        la.configure(":memory:")
+        accounts_db.configure(":memory:")
 
     def test_hash_password_produces_different_salts(self):
         """Hashing the same password twice produces different hashes (random salt)."""
@@ -175,7 +178,7 @@ class AccountCRUDTests(unittest.TestCase):
     """Test account CRUD operations."""
 
     def setUp(self):
-        la.configure(":memory:")
+        accounts_db.configure(":memory:")
 
     def test_create_account(self):
         """create_account creates a new account and returns its ID."""
@@ -306,11 +309,11 @@ class TOTPCoreTests(unittest.TestCase):
 
     def setUp(self):
         """Create a fresh in-memory database for each test."""
-        la.configure(":memory:")
+        accounts_db.configure(":memory:")
 
     def test_generate_totp_secret(self):
         """generate_totp_secret() returns a base32-encoded 160-bit secret."""
-        secret = la.generate_totp_secret()
+        secret = totp.generate_totp_secret()
         self.assertIsInstance(secret, str)
         # 160 bits = 20 bytes = 32 base32 characters (no padding)
         self.assertEqual(len(secret), 32)
@@ -319,8 +322,8 @@ class TOTPCoreTests(unittest.TestCase):
 
     def test_generate_totp_secret_different_each_time(self):
         """generate_totp_secret() produces different secrets."""
-        secret1 = la.generate_totp_secret()
-        secret2 = la.generate_totp_secret()
+        secret1 = totp.generate_totp_secret()
+        secret2 = totp.generate_totp_secret()
         self.assertNotEqual(secret1, secret2)
 
     def test_compute_totp_rfc6238_test_vectors(self):
@@ -346,7 +349,7 @@ class TOTPCoreTests(unittest.TestCase):
         ]
 
         for timestamp, expected_8digit in test_cases:
-            code = la.compute_totp(secret, timestamp)
+            code = totp.compute_totp(secret, timestamp)
             # Our implementation uses 6 digits, RFC uses 8
             # Take the last 6 digits of the expected value
             expected_6digit = expected_8digit[-6:]
@@ -355,83 +358,83 @@ class TOTPCoreTests(unittest.TestCase):
 
     def test_verify_totp_current_step(self):
         """verify_totp() accepts a code for the current time step."""
-        secret = la.generate_totp_secret()
+        secret = totp.generate_totp_secret()
         import time
         current_time = int(time.time())
-        code = la.compute_totp(secret, current_time)
+        code = totp.compute_totp(secret, current_time)
 
-        valid, new_step = la.verify_totp(secret, code, last_step=None)
+        valid, new_step = totp.verify_totp(secret, code, last_step=None)
         self.assertTrue(valid)
         self.assertGreater(new_step, 0)
 
     def test_verify_totp_previous_step(self):
         """verify_totp() accepts a code from the previous time step (window ±1)."""
-        secret = la.generate_totp_secret()
+        secret = totp.generate_totp_secret()
         import time
         current_time = int(time.time())
-        previous_time = current_time - la.TOTP_PERIOD  # 30 seconds ago
-        code = la.compute_totp(secret, previous_time)
+        previous_time = current_time - totp.TOTP_PERIOD  # 30 seconds ago
+        code = totp.compute_totp(secret, previous_time)
 
-        valid, new_step = la.verify_totp(secret, code, last_step=None)
+        valid, new_step = totp.verify_totp(secret, code, last_step=None)
         self.assertTrue(valid)
 
     def test_verify_totp_next_step(self):
         """verify_totp() accepts a code from the next time step (window ±1)."""
-        secret = la.generate_totp_secret()
+        secret = totp.generate_totp_secret()
         import time
         current_time = int(time.time())
-        next_time = current_time + la.TOTP_PERIOD  # 30 seconds from now
-        code = la.compute_totp(secret, next_time)
+        next_time = current_time + totp.TOTP_PERIOD  # 30 seconds from now
+        code = totp.compute_totp(secret, next_time)
 
-        valid, new_step = la.verify_totp(secret, code, last_step=None)
+        valid, new_step = totp.verify_totp(secret, code, last_step=None)
         self.assertTrue(valid)
 
     def test_verify_totp_replay_protection(self):
         """verify_totp() rejects a code that was already used (replay attack)."""
-        secret = la.generate_totp_secret()
+        secret = totp.generate_totp_secret()
         import time
         current_time = int(time.time())
-        code = la.compute_totp(secret, current_time)
+        code = totp.compute_totp(secret, current_time)
 
         # First use: should succeed
-        valid, new_step = la.verify_totp(secret, code, last_step=None)
+        valid, new_step = totp.verify_totp(secret, code, last_step=None)
         self.assertTrue(valid)
 
         # Second use with the same code and last_step: should fail (replay)
-        valid2, _ = la.verify_totp(secret, code, last_step=new_step)
+        valid2, _ = totp.verify_totp(secret, code, last_step=new_step)
         self.assertFalse(valid2)
 
     def test_verify_totp_outside_window_fails(self):
         """verify_totp() rejects a code from outside the ±1 step window."""
-        secret = la.generate_totp_secret()
+        secret = totp.generate_totp_secret()
         import time
         current_time = int(time.time())
         # Code from 2 steps ago (outside ±1 window)
-        old_time = current_time - (2 * la.TOTP_PERIOD)
-        code = la.compute_totp(secret, old_time)
+        old_time = current_time - (2 * totp.TOTP_PERIOD)
+        code = totp.compute_totp(secret, old_time)
 
-        valid, _ = la.verify_totp(secret, code, last_step=None)
+        valid, _ = totp.verify_totp(secret, code, last_step=None)
         self.assertFalse(valid)
 
     def test_verify_totp_invalid_code(self):
         """verify_totp() rejects invalid codes (wrong length, non-digits)."""
-        secret = la.generate_totp_secret()
+        secret = totp.generate_totp_secret()
 
         # Wrong length
-        valid, _ = la.verify_totp(secret, "12345", last_step=None)
+        valid, _ = totp.verify_totp(secret, "12345", last_step=None)
         self.assertFalse(valid)
 
         # Non-digits
-        valid, _ = la.verify_totp(secret, "abcdef", last_step=None)
+        valid, _ = totp.verify_totp(secret, "abcdef", last_step=None)
         self.assertFalse(valid)
 
         # Empty
-        valid, _ = la.verify_totp(secret, "", last_step=None)
+        valid, _ = totp.verify_totp(secret, "", last_step=None)
         self.assertFalse(valid)
 
     def test_generate_recovery_codes(self):
         """generate_recovery_codes() returns n unique codes."""
-        codes = la.generate_recovery_codes(8)
+        codes = totp.generate_recovery_codes(8)
         self.assertEqual(len(codes), 8)
         # All codes should be 8 characters
         for code in codes:
@@ -444,7 +447,7 @@ class TOTPCoreTests(unittest.TestCase):
     def test_hash_recovery_codes(self):
         """hash_recovery_codes() returns newline-separated hashes."""
         codes = ["ABCD1234", "EFGH5678"]
-        hashed = la.hash_recovery_codes(codes)
+        hashed = totp.hash_recovery_codes(codes)
         lines = hashed.split('\n')
         self.assertEqual(len(lines), 2)
         # Each line should be a SHA-256 hex hash (64 characters)
@@ -454,11 +457,11 @@ class TOTPCoreTests(unittest.TestCase):
 
     def test_verify_recovery_code_valid(self):
         """verify_recovery_code() verifies a valid code and removes it."""
-        codes = la.generate_recovery_codes(3)
-        hashed = la.hash_recovery_codes(codes)
+        codes = totp.generate_recovery_codes(3)
+        hashed = totp.hash_recovery_codes(codes)
 
         # Verify the first code
-        valid, remaining = la.verify_recovery_code(hashed, codes[0])
+        valid, remaining = totp.verify_recovery_code(hashed, codes[0])
         self.assertTrue(valid)
 
         # The hash should be removed
@@ -467,34 +470,34 @@ class TOTPCoreTests(unittest.TestCase):
 
     def test_verify_recovery_code_invalid(self):
         """verify_recovery_code() rejects an invalid code."""
-        codes = la.generate_recovery_codes(3)
-        hashed = la.hash_recovery_codes(codes)
+        codes = totp.generate_recovery_codes(3)
+        hashed = totp.hash_recovery_codes(codes)
 
-        valid, remaining = la.verify_recovery_code(hashed, "WRONGCODE")
+        valid, remaining = totp.verify_recovery_code(hashed, "WRONGCODE")
         self.assertFalse(valid)
         # Hashed should be unchanged
         self.assertEqual(remaining, hashed)
 
     def test_verify_recovery_code_single_use(self):
         """verify_recovery_code() marks a code as used (single-use)."""
-        codes = la.generate_recovery_codes(2)
-        hashed = la.hash_recovery_codes(codes)
+        codes = totp.generate_recovery_codes(2)
+        hashed = totp.hash_recovery_codes(codes)
 
         # Use the first code
-        valid, remaining = la.verify_recovery_code(hashed, codes[0])
+        valid, remaining = totp.verify_recovery_code(hashed, codes[0])
         self.assertTrue(valid)
 
         # Try to use it again
-        valid2, _ = la.verify_recovery_code(remaining, codes[0])
+        valid2, _ = totp.verify_recovery_code(remaining, codes[0])
         self.assertFalse(valid2)
 
     def test_verify_recovery_code_case_insensitive(self):
         """verify_recovery_code() is case-insensitive."""
         codes = ["ABCD1234"]
-        hashed = la.hash_recovery_codes(codes)
+        hashed = totp.hash_recovery_codes(codes)
 
         # Verify with lowercase
-        valid, _ = la.verify_recovery_code(hashed, "abcd1234")
+        valid, _ = totp.verify_recovery_code(hashed, "abcd1234")
         self.assertTrue(valid)
 
 
@@ -503,7 +506,7 @@ class TOTPEnrollmentTests(unittest.TestCase):
 
     def setUp(self):
         """Create a fresh in-memory database and an account for each test."""
-        la.configure(":memory:")
+        accounts_db.configure(":memory:")
         self.account_id = la.create_account("alice", "alice@example.com", "password123")
 
     def test_enroll_totp(self):
@@ -530,7 +533,7 @@ class TOTPEnrollmentTests(unittest.TestCase):
 
         # Generate a valid code
         import time
-        code = la.compute_totp(secret, int(time.time()))
+        code = totp.compute_totp(secret, int(time.time()))
 
         # Confirm
         result = la.confirm_totp(self.account_id, code)
@@ -570,7 +573,7 @@ class TOTPEnrollmentTests(unittest.TestCase):
         """disable_totp() removes TOTP secret and recovery codes."""
         secret, _ = la.enroll_totp(self.account_id)
         import time
-        code = la.compute_totp(secret, int(time.time()))
+        code = totp.compute_totp(secret, int(time.time()))
         la.confirm_totp(self.account_id, code)
 
         # Disable
@@ -586,7 +589,7 @@ class TOTPEnrollmentTests(unittest.TestCase):
         """reset_recovery_codes() generates new codes for active TOTP."""
         secret, _ = la.enroll_totp(self.account_id)
         import time
-        code = la.compute_totp(secret, int(time.time()))
+        code = totp.compute_totp(secret, int(time.time()))
         la.confirm_totp(self.account_id, code)
 
         # Get old recovery codes
@@ -603,7 +606,7 @@ class TOTPEnrollmentTests(unittest.TestCase):
         self.assertNotEqual(new_hashed, old_codes)
 
         # Verify one of the new codes works
-        valid, _ = la.verify_recovery_code(new_hashed, new_codes[0])
+        valid, _ = totp.verify_recovery_code(new_hashed, new_codes[0])
         self.assertTrue(valid)
 
     def test_reset_recovery_codes_not_active(self):
@@ -618,29 +621,29 @@ class TokenTests(unittest.TestCase):
 
     def setUp(self):
         """Create a fresh in-memory database with a test account."""
-        la.configure(":memory:")
+        accounts_db.configure(":memory:")
         self.account_id = la.create_account("testuser", "test@example.com", "password123")
 
     def test_create_invitation(self):
         """create_invitation() generates a token and stores it hashed."""
-        token = la.create_invitation("newuser@example.com", role='member', expires_hours=168)
+        token = account_tokens.create_invitation("newuser@example.com", role='member', expires_hours=168)
 
         # Token should be a non-empty string
         self.assertIsInstance(token, str)
         self.assertGreater(len(token), 32)  # urlsafe_b64(32 bytes) ≈ 43 chars
 
         # Token should be stored (hashed) in database
-        invitations = la.list_active_invitations()
+        invitations = account_tokens.list_active_invitations()
         self.assertEqual(len(invitations), 1)
         self.assertEqual(invitations[0]['email'], 'newuser@example.com')
         self.assertEqual(invitations[0]['role'], 'member')
 
     def test_verify_invitation_token(self):
         """verify_token() returns invitation data for valid tokens."""
-        token = la.create_invitation("bob@example.com", role='admin', expires_hours=24)
+        token = account_tokens.create_invitation("bob@example.com", role='admin', expires_hours=24)
 
         # Verify the token
-        data = la.verify_token(token, kind='invite')
+        data = account_tokens.verify_token(token, kind='invite')
 
         self.assertIsNotNone(data)
         self.assertEqual(data['email'], 'bob@example.com')
@@ -649,14 +652,14 @@ class TokenTests(unittest.TestCase):
 
     def test_invitation_single_use(self):
         """Invitation tokens can only be used once."""
-        token = la.create_invitation("alice@example.com", role='member')
+        token = account_tokens.create_invitation("alice@example.com", role='member')
 
         # First use: should succeed
-        data1 = la.verify_token(token, kind='invite')
+        data1 = account_tokens.verify_token(token, kind='invite')
         self.assertIsNotNone(data1)
 
         # Second use: should fail (already used)
-        data2 = la.verify_token(token, kind='invite')
+        data2 = account_tokens.verify_token(token, kind='invite')
         self.assertIsNone(data2)
 
     def test_invitation_expires(self):
@@ -665,29 +668,29 @@ class TokenTests(unittest.TestCase):
         from datetime import datetime, timezone, timedelta
 
         # Create an invitation that expires in 0.1 seconds
-        token = la.create_invitation("expiry@example.com", expires_hours=0.1/3600)
+        token = account_tokens.create_invitation("expiry@example.com", expires_hours=0.1/3600)
 
         # Should work immediately
-        data1 = la.verify_token(token, kind='invite')
+        data1 = account_tokens.verify_token(token, kind='invite')
         self.assertIsNotNone(data1)
 
         # Create another token and manually set it to expired
-        token2 = la.create_invitation("expiry2@example.com", expires_hours=24)
-        token_hash = la._hash_token(token2)
+        token2 = account_tokens.create_invitation("expiry2@example.com", expires_hours=24)
+        token_hash = account_tokens._hash_token(token2)
 
         # Manually set expiration to the past
         past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
-        with la._db() as db:
+        with accounts_db._db() as db:
             db.execute("UPDATE tokens SET expires = ?, used_at = NULL WHERE token_hash = ?",
                       (past, token_hash))
 
         # Should now be rejected as expired
-        data2 = la.verify_token(token2, kind='invite')
+        data2 = account_tokens.verify_token(token2, kind='invite')
         self.assertIsNone(data2)
 
     def test_create_reset_token(self):
         """create_reset_token() generates a token for an existing account."""
-        token = la.create_reset_token(self.account_id, expires_hours=24)
+        token = account_tokens.create_reset_token(self.account_id, expires_hours=24)
 
         # Token should be a non-empty string
         self.assertIsInstance(token, str)
@@ -695,10 +698,10 @@ class TokenTests(unittest.TestCase):
 
     def test_verify_reset_token(self):
         """verify_token() returns account data for valid reset tokens."""
-        token = la.create_reset_token(self.account_id, expires_hours=24)
+        token = account_tokens.create_reset_token(self.account_id, expires_hours=24)
 
         # Verify the token
-        data = la.verify_token(token, kind='reset')
+        data = account_tokens.verify_token(token, kind='reset')
 
         self.assertIsNotNone(data)
         self.assertEqual(data['account_id'], self.account_id)
@@ -707,25 +710,25 @@ class TokenTests(unittest.TestCase):
 
     def test_reset_token_single_use(self):
         """Password reset tokens can only be used once."""
-        token = la.create_reset_token(self.account_id)
+        token = account_tokens.create_reset_token(self.account_id)
 
         # First use: should succeed
-        data1 = la.verify_token(token, kind='reset')
+        data1 = account_tokens.verify_token(token, kind='reset')
         self.assertIsNotNone(data1)
 
         # Second use: should fail (already used)
-        data2 = la.verify_token(token, kind='reset')
+        data2 = account_tokens.verify_token(token, kind='reset')
         self.assertIsNone(data2)
 
     def test_revoke_token(self):
         """revoke_token() marks a token as used."""
-        token = la.create_invitation("revoke@example.com")
+        token = account_tokens.create_invitation("revoke@example.com")
 
         # Revoke it
-        la.revoke_token(token)
+        account_tokens.revoke_token(token)
 
         # Should now be invalid
-        data = la.verify_token(token, kind='invite')
+        data = account_tokens.verify_token(token, kind='invite')
         self.assertIsNone(data)
 
     def test_list_active_invitations(self):
@@ -733,37 +736,37 @@ class TokenTests(unittest.TestCase):
         from datetime import datetime, timezone, timedelta
 
         # Create 3 invitations
-        token1 = la.create_invitation("active@example.com", role='member')
-        token2 = la.create_invitation("used@example.com", role='admin')
-        token3 = la.create_invitation("expired@example.com", role='member')
+        token1 = account_tokens.create_invitation("active@example.com", role='member')
+        token2 = account_tokens.create_invitation("used@example.com", role='admin')
+        token3 = account_tokens.create_invitation("expired@example.com", role='member')
 
         # Use token2
-        la.verify_token(token2, kind='invite')
+        account_tokens.verify_token(token2, kind='invite')
 
         # Expire token3 manually
-        token_hash3 = la._hash_token(token3)
+        token_hash3 = account_tokens._hash_token(token3)
         past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
-        with la._db() as db:
+        with accounts_db._db() as db:
             db.execute("UPDATE tokens SET expires = ? WHERE token_hash = ?",
                       (past, token_hash3))
 
         # Only token1 should be active
-        active = la.list_active_invitations()
+        active = account_tokens.list_active_invitations()
         self.assertEqual(len(active), 1)
         self.assertEqual(active[0]['email'], 'active@example.com')
 
     def test_create_reset_token_nonexistent_account(self):
         """create_reset_token() raises for nonexistent accounts."""
         with self.assertRaises(ValueError):
-            la.create_reset_token(99999)
+            account_tokens.create_reset_token(99999)
 
     def test_verify_token_wrong_kind(self):
         """verify_token() with wrong kind returns None."""
         # Create an invitation
-        token = la.create_invitation("test@example.com")
+        token = account_tokens.create_invitation("test@example.com")
 
         # Try to verify as reset token
-        data = la.verify_token(token, kind='reset')
+        data = account_tokens.verify_token(token, kind='reset')
         self.assertIsNone(data)
 
 
@@ -772,7 +775,7 @@ class RoleTests(unittest.TestCase):
 
     def setUp(self):
         """Create a fresh in-memory database for each test."""
-        la.configure(":memory:")
+        accounts_db.configure(":memory:")
 
     def test_get_account_role_admin(self):
         """get_account_role() returns 'admin' for admin accounts."""
@@ -853,7 +856,7 @@ class RoleTests(unittest.TestCase):
 
 class MustChangeAndSignupKeys(unittest.TestCase):
     def setUp(self):
-        la.configure(":memory:")
+        accounts_db.configure(":memory:")
 
     def test_must_change_flag(self):
         a = la.create_account("tmp1", "t@example.com", "password123", must_change=True)
@@ -876,7 +879,7 @@ class MustChangeAndSignupKeys(unittest.TestCase):
             con.execute("INSERT INTO accounts (username, email, pw_hash, created, updated) VALUES ('old','o@x.com','x','t','t')")
             con.commit()
             con.close()
-            la.configure(path)
+            accounts_db.configure(path)
             self.assertEqual(la.get_account(username="old")["must_change"], 0)
 
     def test_lookup_by_headscale_user(self):
@@ -885,40 +888,40 @@ class MustChangeAndSignupKeys(unittest.TestCase):
         self.assertIsNone(la.get_account_by_headscale_user("nobody"))
 
     def test_signup_key_single_use_and_stored_hashed(self):
-        key = la.create_signup_key("friends")
+        key = account_tokens.create_signup_key("friends")
         self.assertTrue(key.startswith("hse-"))
-        with la._db() as db:
+        with accounts_db._db() as db:
             stored = [tuple(r) for r in db.execute("SELECT * FROM signup_keys")]
         self.assertNotIn(key, repr(stored))
-        self.assertIsNotNone(la.use_signup_key(key))
-        self.assertIsNone(la.use_signup_key(key))  # used up
-        self.assertIsNone(la.use_signup_key("hse-wrong"))
-        self.assertIsNone(la.use_signup_key(""))
+        self.assertIsNotNone(account_tokens.use_signup_key(key))
+        self.assertIsNone(account_tokens.use_signup_key(key))  # used up
+        self.assertIsNone(account_tokens.use_signup_key("hse-wrong"))
+        self.assertIsNone(account_tokens.use_signup_key(""))
 
     def test_signup_key_multi_use_unlimited_expiry_revoke(self):
-        key = la.create_signup_key(max_uses=3)
-        self.assertEqual([la.use_signup_key(key) is not None for _ in range(4)], [True, True, True, False])
-        free = la.create_signup_key(max_uses=0)
-        self.assertTrue(all(la.use_signup_key(free) for _ in range(20)))
-        old = la.create_signup_key(expires_hours=1)
-        with la._db() as db:
+        key = account_tokens.create_signup_key(max_uses=3)
+        self.assertEqual([account_tokens.use_signup_key(key) is not None for _ in range(4)], [True, True, True, False])
+        free = account_tokens.create_signup_key(max_uses=0)
+        self.assertTrue(all(account_tokens.use_signup_key(free) for _ in range(20)))
+        old = account_tokens.create_signup_key(expires_hours=1)
+        with accounts_db._db() as db:
             db.execute("UPDATE signup_keys SET expires = '2000-01-01T00:00:00+00:00' WHERE key_hash = ?",
-                       (la._hash_token(old),))
-        self.assertIsNone(la.use_signup_key(old))
-        gone = la.create_signup_key(max_uses=5)
-        key_id = [k for k in la.list_signup_keys() if k["active"]][0]["id"]
-        self.assertTrue(la.revoke_signup_key(key_id))
-        self.assertFalse(la.revoke_signup_key(key_id))
-        self.assertIsNone(la.use_signup_key(gone))
+                       (account_tokens._hash_token(old),))
+        self.assertIsNone(account_tokens.use_signup_key(old))
+        gone = account_tokens.create_signup_key(max_uses=5)
+        key_id = [k for k in account_tokens.list_signup_keys() if k["active"]][0]["id"]
+        self.assertTrue(account_tokens.revoke_signup_key(key_id))
+        self.assertFalse(account_tokens.revoke_signup_key(key_id))
+        self.assertIsNone(account_tokens.use_signup_key(gone))
         with self.assertRaises(ValueError):
-            la.create_signup_key(max_uses=-1)
+            account_tokens.create_signup_key(max_uses=-1)
 
     def test_release_gives_a_use_back(self):
-        key = la.create_signup_key()
-        key_id = la.use_signup_key(key)
-        la.release_signup_key(key_id)
-        self.assertIsNotNone(la.use_signup_key(key))
-        self.assertNotIn("key_hash", la.list_signup_keys()[0])
+        key = account_tokens.create_signup_key()
+        key_id = account_tokens.use_signup_key(key)
+        account_tokens.release_signup_key(key_id)
+        self.assertIsNotNone(account_tokens.use_signup_key(key))
+        self.assertNotIn("key_hash", account_tokens.list_signup_keys()[0])
 
 
 if __name__ == "__main__":

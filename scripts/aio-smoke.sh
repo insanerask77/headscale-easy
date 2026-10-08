@@ -5,16 +5,16 @@
 #  Usage: ./scripts/aio-smoke.sh [image]        (default: hse-aio:ci)
 #  Needs Docker and python3. Starts the image twice and fails when:
 #    - headless mode (HSE_PUBLIC_URL + admin env) is not healthy, /healthz or
-#      /admin/healthz do not answer, or a pre-auth key cannot be created;
+#      /console/healthz do not answer, or a pre-auth key cannot be created;
 #    - the rendered config does not use the embedded DERP by default, the
 #      container does not answer STUN on 3478/udp, sign-up is not off
-#      (/admin/signup must be 404) or the event stream does not require a session;
+#      (/console/signup must be 404) or the event stream does not require a session;
 #    - built-in backups break: `hse backup` does not write a private,
 #      verifiable archive, an offline or an online `hse restore` does not bring
 #      back what was deleted after the backup, a container started with
 #      BACKUP_SCHEDULE="* * * * *" writes no archive within SCHED_WAIT seconds,
 #      or (HSE_SMOKE_PERF=1 only) RAM goes above MAX_RAM_MB while a backup runs;
-#    - setup mode (no env) does not print a token or serve /admin/setup;
+#    - setup mode (no env) does not print a token or serve /console/setup;
 #    - the image is above MAX_IMAGE_MB (250);
 #    - with HSE_SMOKE_PERF=1 (CI sets it on release tags only: it adds IDLE_SECONDS of waiting), idle RAM is
 #      above MAX_RAM_MB (100).
@@ -114,7 +114,7 @@ docker run -d --name "$NAME" -p "$PORT:80" -v "$NAME-data:/data" \
 wait_for 90 "container did not become healthy" \
     bash -c "[ \"\$(docker inspect -f '{{.State.Health.Status}}' $NAME)\" = healthy ]"
 [ "$(http_code /healthz)" = 200 ] || fail "/healthz did not answer 200"
-[ "$(http_code /admin/healthz)" = 200 ] || fail "/admin/healthz did not answer 200"
+[ "$(http_code /console/healthz)" = 200 ] || fail "/console/healthz did not answer 200"
 docker exec "$NAME" hse health || fail "hse health"
 # the admin's Headscale user is user 1: create a pre-auth key for it
 key=$(docker exec "$NAME" headscale preauthkeys create --user 1 --expiration 1h -c /data/config/config.yaml 2>&1 | tail -1)
@@ -140,8 +140,8 @@ s.sendto(msg, ("127.0.0.1", 3478))
 assert s.recv(512)[:2] == b"\x01\x01"
 PY
 echo "embedded DERP, STUN and base domain: ok"
-[ "$(http_code /admin/signup)" = 404 ] || fail "sign-up is not off by default (/admin/signup should answer 404)"
-[ "$(http_code /admin/events)" = 401 ] || fail "/admin/events answered without a session"
+[ "$(http_code /console/signup)" = 404 ] || fail "sign-up is not off by default (/console/signup should answer 404)"
+[ "$(http_code /console/events)" = 401 ] || fail "/console/events answered without a session"
 echo "sign-up off, event stream needs a session: ok"
 
 if [ "${HSE_SMOKE_PERF:-0}" = 1 ]; then
@@ -221,7 +221,7 @@ docker run --rm -v "$NAME-data:/data" --entrypoint hse "$IMAGE" restore "$archiv
 docker start "$NAME" >/dev/null || fail "could not start the container after the restore"
 wait_for 90 "container did not become healthy after the offline restore" is_healthy "$NAME"
 [ -n "$(hs_user_id smoke-restore)" ] || fail "offline restore did not bring the marker user back"
-[ "$(http_code /admin/healthz)" = 200 ] || fail "/admin/healthz did not answer 200 after the offline restore"
+[ "$(http_code /console/healthz)" = 200 ] || fail "/console/healthz did not answer 200 after the offline restore"
 echo "offline restore: ok"
 
 # 4. online restore: the same, through the running container
@@ -231,11 +231,11 @@ docker exec "$NAME" headscale users destroy --identifier "$(hs_user_id smoke-res
 [ -z "$(hs_user_id smoke-restore)" ] || fail "the marker user is still there (online round)"
 docker exec "$NAME" hse restore "$archive" --yes || fail "online hse restore failed"
 # docker's health status is still the pre-restore "healthy" for up to one interval: wait for the console itself
-healthz_ok() { [ "$(http_code /admin/healthz)" = 200 ]; }
-wait_for 90 "/admin/healthz did not answer 200 after the online restore" healthz_ok
+healthz_ok() { [ "$(http_code /console/healthz)" = 200 ]; }
+wait_for 90 "/console/healthz did not answer 200 after the online restore" healthz_ok
 wait_for 90 "container is not healthy after the online restore" is_healthy "$NAME"
 [ -n "$(hs_user_id smoke-restore)" ] || fail "online restore did not bring the marker user back"
-[ "$(http_code /admin/healthz)" = 200 ] || fail "/admin/healthz did not answer 200 after the online restore"
+[ "$(http_code /console/healthz)" = 200 ] || fail "/console/healthz did not answer 200 after the online restore"
 echo "online restore: ok"
 cleanup
 
@@ -305,7 +305,7 @@ pg_round() {
         || fail "could not delete the marker user"
     [ -z "$(hs_user_id smoke-pg)" ] || fail "the marker user is still there"
     docker exec "$NAME" hse restore "$arch" --yes --with-postgres || fail "hse restore --with-postgres failed on PostgreSQL $ver"
-    healthz_ok() { [ "$(http_code /admin/healthz)" = 200 ]; }
+    healthz_ok() { [ "$(http_code /console/healthz)" = 200 ]; }
     wait_for 90 "the console did not come back after the restore on PostgreSQL $ver" healthz_ok
     wait_for 60 "the marker user did not come back (PostgreSQL $ver)" bash -c "[ -n \"\$(docker exec $NAME headscale users list -o json -c /data/config/config.yaml | grep -o smoke-pg)\" ]"
     echo "PostgreSQL $ver: ok"
@@ -327,8 +327,8 @@ wait_for 60 "setup mode did not become healthy" \
     bash -c "[ \"\$(docker inspect -f '{{.State.Health.Status}}' $NAME)\" = healthy ]"
 token=$(docker exec "$NAME" cat /data/config/setup-token)
 [ -n "$token" ] || fail "no setup token"
-docker logs "$NAME" 2>&1 | grep -qF -e "$token" || fail "the setup token is not in the logs"
-[ "$(http_code /admin/setup)" = 200 ] || fail "/admin/setup did not answer 200"
-[ "$(http_code /admin/setup/language)" = 403 ] || fail "a wizard step answered without the token"
-[ "$(http_code /admin/machines)" = 302 ] || fail "the console is reachable in setup mode"
+logs=$(docker logs "$NAME" 2>&1); grep -qF -e "$token" <<<"$logs" || fail "the setup token is not in the logs"
+[ "$(http_code /console/setup)" = 200 ] || fail "/console/setup did not answer 200"
+[ "$(http_code /console/setup/language)" = 403 ] || fail "a wizard step answered without the token"
+[ "$(http_code /console/machines)" = 302 ] || fail "the console is reachable in setup mode"
 echo "OK"

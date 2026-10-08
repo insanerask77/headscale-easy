@@ -1,0 +1,39 @@
+# Tooling configuration only. The project is not packaged yet (modules are imported through sys.path);
+# this file centralises lint, type-check and test settings.
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+extend-exclude = ["tests/fixtures"]
+
+[tool.ruff.lint]
+# Baseline: real errors only (pyflakes, syntax, undefined names). Stricter rule sets are
+# switched on later, once the code they flag has been refactored.
+select = ["E4", "E7", "E9", "F", "B"]
+# B023, B904 and B905 are left off: acting on them (closures, exception chaining, zip lengths) can change
+# behaviour, so they are for a separate change, not for the refactor.
+ignore = ["B023", "B904", "B905"]
+
+[tool.ruff.lint.per-file-ignores]
+# The tests and the supervisor put web/ and aio/ on sys.path before importing, so imports follow code.
+"tests/*" = ["E402"]
+"aio/supervisor.py" = ["E402"]
+
+# Baseline debt in the tests only (unused imports/variables, `l` as a name). Application code is clean.
+# Remove these ignores when the tests are reorganised.
+"tests/test_*.py" = ["E741", "F401", "F811", "F841"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = ["web", "aio"]
+
+[tool.pyright]
+pythonVersion = "3.13"
+include = ["web", "aio"]
+typeCheckingMode = "basic"
+extraPaths = ["web", "aio"]
+
+[tool.coverage.run]
+source = ["web", "aio"]
+branch = true

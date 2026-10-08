@@ -77,7 +77,7 @@ includes its own console. See the [detailed comparison](https://insanerask77.git
 
 ## ✨ Features
 
-- 🖥️ **Tailscale-style web console** at `/admin`: machines, users, DNS, access
+- 🖥️ **Tailscale-style web console** at `/console`: machines, users, DNS, access
   controls, keys. Dark and light themes, works on phones.
 - 👤 **Real user accounts** built in: passwords, optional **two-factor (TOTP)**,
   invitations, password-reset links and sign-up — or plug in your own OIDC
@@ -87,6 +87,13 @@ includes its own console. See the [detailed comparison](https://insanerask77.git
 - 📱 **Machines**: status, addresses, OS and client version with update hints,
   rename, expire, remove, key expiry, tags, **subnet routes and exit nodes**,
   filters, search and CSV export.
+- 🐳 **Docker tab in Add device**: generates the `docker run` and `docker-compose.yml`
+  for a Tailscale container (exit node, subnet routes, userspace mode, a
+  pinned Tailscale version), keeps the auth key in a separate `.env`, gives the
+  command to apply a changed option to a running container, and has a
+  troubleshooting dropdown with eleven common problems.
+- ✅ **Routes waiting for approval** are flagged in the machine's badge, can be
+  approved in one click, and administrators see a banner counting them.
 - 🔑 **Auth keys** (one-off, reusable, ephemeral) and API keys; register
   devices by auth ID.
 - 🌐 **DNS**: MagicDNS, tailnet domain, nameservers, split DNS, search domains —
@@ -114,6 +121,10 @@ includes its own console. See the [detailed comparison](https://insanerask77.git
 | ![Access controls](docs/images/access-controls.png) | ![Keys](docs/images/keys.png) |
 | **Sign in** | **Add device** |
 | ![Sign in](docs/images/sign-in.png) | ![Add device](docs/images/add-device.png) |
+| **Add device, Docker tab** | **Docker troubleshooting and tips** |
+| ![Docker tab](docs/images/add-device-docker.png) | ![Docker troubleshooting](docs/images/docker-troubleshooting.png) |
+| **Routes pending approval (light)** | **Machines (dark)** |
+| ![Pending routes](docs/images/machine-pending-routes.png) | ![Machines, dark theme](docs/images/machines-dark.png) |
 
 ## 🚀 Quick start
 
@@ -129,11 +140,11 @@ docker compose up -d
 That is the whole install: one container, version 2.0 pinned in `compose.yaml`.
 Then:
 
-1. **Open the setup wizard** at `http://<your-server>/admin/setup` and enter the
+1. **Open the setup wizard** at `http://<your-server>/console/setup` and enter the
    one-time token (`docker compose logs`). Create the administrator, name the
    tailnet, set the public address and HTTPS (Let's Encrypt needs a domain and
    ports 80/443 open), choose the relay (DERP), sign-up mode and backups.
-2. **Sign in** at `https://your-domain/admin`.
+2. **Sign in** at `https://your-domain/console`.
 3. **Connect your first device** with the official Tailscale app.
 
 Prefer to answer in advance? Copy [`.env.example`](.env.example) to `.env` (public
@@ -179,7 +190,7 @@ the variables for a headless start.
 ```
                ┌──────────────── headscale-easy (one container) ────────────────┐
 :80/:443 ────▶ │ caddy ──┬─ /       ──▶ headscale (official binary, child proc)  │
-:3478/udp ───▶ │         └─ /admin  ──▶ console (Python)                         │
+:3478/udp ───▶ │         └─ /console  ──▶ console (Python)                         │
                │ supervisor: starts and restarts the three, configtest, backups  │
                │ /data: headscale/ caddy/ console/ config/ backups/              │
                └─────────────────────────────────────────────────────────────────┘

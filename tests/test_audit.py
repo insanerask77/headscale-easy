@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "web"))
 os.environ.setdefault("AUDIT_DB", os.path.join(tempfile.gettempdir(), "hse-audit-import.db"))
 
 import audit  # noqa: E402
+import audit_pages  # noqa: E402
 from i18n import set_lang  # noqa: E402
 
 NOW = datetime(2026, 9, 29, 12, 0, tzinfo=timezone.utc)
@@ -125,10 +126,10 @@ class FilterTest(Base):
         self.assertEqual(self.ids(target="node:1"), ["device.connected", "machine.rename"])
 
     def test_time_range(self):
-        f = audit.filters_from({"from": (NOW - timedelta(days=1)).date().isoformat(),
+        f = audit_pages.filters_from({"from": (NOW - timedelta(days=1)).date().isoformat(),
                                 "to": (NOW - timedelta(days=1)).date().isoformat()})
         self.assertEqual(self.ids(**f), ["dns.save"])
-        self.assertEqual(audit.filters_from({"from": "2026-13-45"}).get("since"), None)
+        self.assertEqual(audit_pages.filters_from({"from": "2026-13-45"}).get("since"), None)
 
     def test_text(self):
         self.assertEqual(self.ids(text="9.9.9.9"), ["dns.save"])      # details
@@ -160,7 +161,7 @@ class RetentionTest(Base):
 class CsvTest(Base):
     def test_csv(self):
         audit.record("ana", "machine.rename", "=HYPERLINK(\"x\")", {"to": "b"}, ip="198.51.100.1")
-        rows = list(csv.reader(io.StringIO(audit.csv_export({}))))
+        rows = list(csv.reader(io.StringIO(audit_pages.csv_export({}))))
         self.assertEqual(rows[0][:5], ["time_utc", "category", "action", "description", "actor"])
         self.assertEqual(rows[1][2:5], ["machine.rename", "Renamed machine", "ana"])
         self.assertTrue(rows[1][5].startswith("'="))  # no formula injection
@@ -169,7 +170,7 @@ class CsvTest(Base):
     def test_csv_filters(self):
         audit.record("ana", "machine.rename", "a")
         audit.record("leo", "dns.save", "DNS")
-        rows = list(csv.reader(io.StringIO(audit.csv_export({"actor": "leo"}))))
+        rows = list(csv.reader(io.StringIO(audit_pages.csv_export({"actor": "leo"}))))
         self.assertEqual([r[2] for r in rows[1:]], ["dns.save"])
 
 
@@ -244,13 +245,13 @@ class PageTest(Base):
         audit.record("ana", "acl.save", "Access control policy", audit.text_diff('{"a": 1}', '{"a": 2}'))
         audit.record("ana", "custom.unknown", "<script>x</script>")
         session = {"csrf": "t", "admin": True, "name": "Ana", "kind": "oidc"}
-        html = audit.page(session, {}, {})
+        html = audit_pages.page(session, {}, {})
         self.assertIn("Saved access control policy", html)
         self.assertIn("custom.unknown", html)
         self.assertNotIn("<script>x</script>", html)
         self.assertIn('data-live="rows"', html)
         self.assertIn('class="add"', html)
-        self.assertNotIn('data-live="rows"', audit.page(session, {}, {"page": "2"}))
+        self.assertNotIn('data-live="rows"', audit_pages.page(session, {}, {"page": "2"}))
 
 
 if __name__ == "__main__":

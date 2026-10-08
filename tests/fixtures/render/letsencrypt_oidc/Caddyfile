@@ -26,8 +26,8 @@ vpn.example.com {
 
     # /register/<id>: Headscale sends the device to the OIDC provider
 
-    # Headscale Easy web UI at /admin (the same path as Tailscale's console)
-    handle /admin* {
+    # Headscale Easy web UI at /console (the same path as Tailscale's console)
+    handle /console* {
         reverse_proxy 127.0.0.1:8000 {
             header_up X-Real-IP {remote_host}
         }

@@ -130,7 +130,7 @@ class AioTargetTest(unittest.TestCase):
 
     def test_register_route_without_oidc(self):
         _, caddy = self.conf()
-        self.assertIn("redir @register /admin/register/{re.register.1} 302", caddy)
+        self.assertIn("redir @register /console/register/{re.register.1} 302", caddy)
 
     def test_no_register_route_with_oidc(self):
         cfg, caddy = self.conf(oidc_issuer="https://idp.example.com", oidc_client_id="hs", oidc_client_secret="x")

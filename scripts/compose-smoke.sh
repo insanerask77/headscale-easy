@@ -7,7 +7,7 @@
 #  Needs Docker with the Compose plugin; publishes host ports HOST_PORT (18095), 18443 and 3478/udp
 #  (SMOKE_DERP_PORT=<port> publishes another UDP port when 3478 is taken).
 #  Fails when, with the files as shipped (no capability, no-new-privileges, named volumes):
-#    - the app is not healthy or /admin/healthz does not answer;
+#    - the app is not healthy or /console/healthz does not answer;
 #    - `hse backup` cannot write into the named backups volume;
 #    - `docker compose down && up -d` loses the data (the administrator can no longer sign in);
 #    - with advanced/backup-remote.yaml and a local-directory remote, the first backup is not
@@ -72,20 +72,20 @@ BACKUP_SYNC_INTERVAL=1
 ENV
 
 is_healthy() { [ "$(docker inspect -f '{{.State.Health.Status}}' headscale-easy 2>/dev/null)" = healthy ]; }
-healthz() { [ "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT/admin/healthz")" = 200 ]; }
+healthz() { [ "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT/console/healthz")" = 200 ]; }
 uploaded() { [ "$(find "$DEST" -name 'headscale-easy-*.tar.gz' | wc -l)" -ge 1 ]; }
 # the administrator the first start created can sign in (the data survived)
 signin_code() {
     curl -s -o /dev/null -w '%{http_code}' --data-urlencode "username=admin" \
-        --data-urlencode "password=$PASSWORD" "http://localhost:$PORT/admin/login/local"
+        --data-urlencode "password=$PASSWORD" "http://localhost:$PORT/console/login/local"
 }
 signs_in() { case "$(signin_code)" in 302|303) return 0 ;; *) return 1 ;; esac; }
 
 echo "== up: docker compose up -d (compose.yaml, no capability, named volumes)"
 "${COMPOSE[@]}" --env-file "$WORK/.env" up -d >/dev/null 2>&1 || fail "docker compose up failed"
 wait_for 120 "the app did not become healthy" is_healthy
-wait_for 30 "/admin/healthz did not answer 200" healthz
-echo "healthy, /admin/healthz ok"
+wait_for 30 "/console/healthz did not answer 200" healthz
+echo "healthy, /console/healthz ok"
 
 caps=$(docker inspect headscale-easy --format '{{.HostConfig.CapDrop}} {{.HostConfig.SecurityOpt}}')
 [[ "$caps" == *ALL* && "$caps" == *no-new-privileges* ]] || fail "the container is not hardened as the compose file says ($caps)"
@@ -104,7 +104,7 @@ echo "== down && up -d keeps the data"
 "${COMPOSE[@]}" --env-file "$WORK/.env" down >/dev/null 2>&1 || fail "docker compose down failed"
 "${COMPOSE[@]}" --env-file "$WORK/.env" up -d >/dev/null 2>&1 || fail "docker compose up failed after down"
 wait_for 120 "the app did not become healthy after down && up" is_healthy
-wait_for 30 "/admin/healthz did not answer after down && up" healthz
+wait_for 30 "/console/healthz did not answer after down && up" healthz
 [ "$(docker exec headscale-easy sh -c 'ls /data/backups/headscale-easy-*.tar.gz | wc -l')" -ge 1 ] || fail "the backup is gone after down && up"
 signs_in || fail "the administrator cannot sign in after down && up (the data was lost)"
 echo "the backup is there and the administrator signs in"

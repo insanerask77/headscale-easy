@@ -4,6 +4,52 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [2.1.0] - 2026-10-08
+
+### Changed
+- The web console moved from `/admin` to `/console`. The Caddy route, the setup wizard, the proxy and OIDC
+  examples, the docs and the smoke scripts use the new path. **Update the redirect URI of an OIDC client and
+  any reverse-proxy rule that pointed at `/admin`.** The bootstrap invitation URL no longer repeats the base path.
+- Internal refactor with no change in behaviour: the web console, the setup wizard, the supervisor, the
+  Headscale client and the local accounts are split by responsibility into smaller modules
+  (`web/handlers/`, `web/*_pages.py`, `aio/supervisor.py`, `web/accounts_db.py`, `web/totp.py`, ...), and the
+  page renderers are separated from the expiry and sign-up logic. See `CONTRIBUTING.md` for the new layout.
+- CI enforces a pyright error ceiling and ruff's bugbear rules; `web/handlers` is part of the syntax and
+  translation checks.
+
+### Fixed
+- The route characterization tests no longer close the test runner's standard output.
+
+## [2.0.2] - 2026-10-06
+
+### Fixed
+- Docker tab: the exit node of a container survives the first deploy (#83). It is generated as
+  `TS_ROUTES=0.0.0.0/0,::/0` (plus any subnet routes) instead of `--advertise-exit-node` in `TS_EXTRA_ARGS`.
+  With `TS_AUTH_ONCE=true` the image skips `tailscale up`, the only place `TS_EXTRA_ARGS` applies, so ticking
+  the exit node on a container that had already signed in was ignored.
+- Docker tab: a container on a host whose kernel has only nftables no longer registers as an exit node that
+  forwards nothing (#84). The snippets set `TS_DEBUG_FIREWALL_MODE=auto`; the image defaults to an iptables
+  backend that such a kernel lacks.
+
+### Added
+- Docker tab: a yellow "Troubleshooting and tips" dropdown with eleven entries (no connection, spent key,
+  no Internet, an exit node that does not route or does not appear, options that do not change, subnets that
+  do not show, IP forwarding, missing permissions, DNS, relays), in every language, with commands that use the
+  container's name. The same text is in the docs, under "Docker devices".
+- Docker tab: the command that applies the form's options to a container that already runs (#87), including
+  withdrawing a route or an exit node.
+- Docker tab: the auth key goes in a separate `.env` block, not in `docker-compose.yml` (#88).
+- Docker tab: the image is pinned to a tested Tailscale version; `latest` is an explicit choice (#89).
+- Docker tab: options for a container that uses another device as exit node or accepts subnet routes (#86).
+- Machines: an exit node or subnet routes waiting for approval say so in the badge, can be approved in one
+  click, and administrators see a banner counting them (#85).
+
+### Changed
+- CI runs the Docker tab end-to-end smoke test (#90): the snippets the tab generates are deployed and checked.
+  A `pipefail` SIGPIPE made its `nocap` case flaky; the container logs are now read fully before grepping.
+
 ## [2.0.1] - 2026-10-06
 
 ### Fixed

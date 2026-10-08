@@ -136,12 +136,12 @@ docker exec headscale-easy headscale -c /data/config/config.yaml --help
 ## Upgrading { #updating }
 
 Every release is a version of one image, and `compose.yaml` pins it
-(`HSE_VERSION`, `2.0.1` by default). An upgrade is three steps, and the data stays in
+(`HSE_VERSION`, `2.1.0` by default). An upgrade is three steps, and the data stays in
 the volumes:
 
 ```bash
 docker exec headscale-easy hse backup      # 1. a backup first (it lands in the backups volume)
-# 2. set HSE_VERSION=2.0.1 in .env (or change the tag in compose.yaml)
+# 2. set HSE_VERSION=2.1.0 in .env (or change the tag in compose.yaml)
 docker compose pull && docker compose up -d   # 3. fetch the new image and recreate the container
 ```
 
@@ -294,6 +294,12 @@ docker logs --tail 100 headscale-easy
 docker exec headscale-easy hse health
 ```
 
+**I changed the Docker tab options and the machine did not change.** The generated
+container keeps `TS_AUTH_ONCE=true`, so it does not run `tailscale up` again and
+`TS_EXTRA_ARGS` is not re-applied. The exit node and subnet routes travel in
+`TS_ROUTES`, which is applied on every start: regenerate the snippet, update the
+container's variables and recreate it (`docker compose up -d --force-recreate`).
+
 **The container is unhealthy or restarts.** `hse health` says which of the three
 processes is down; the log lines are prefixed `[supervisor]`, `[headscale]`,
 `[caddy]` and `[console]`. A crashed process is restarted with backoff (1 s up to
@@ -314,7 +320,7 @@ use a resolvable address.
 
 **`redirect_uri` errors after changing the domain.** Register the new redirect
 URIs in your provider: `https://<domain>/oidc/callback` and
-`https://<domain>/admin/callback`.
+`https://<domain>/console/callback`.
 
 **Clients say `x509: certificate signed by unknown authority`.** You are using
 `HSE_TLS=internal`: install Caddy's root certificate (`/data/caddy/pki/`) on the
@@ -334,7 +340,7 @@ means the browser came back without the cookie set when sign-in started: check
 that you open the console with the exact `HSE_PUBLIC_URL` (same host and scheme —
 `http` vs `https` matters) and that the browser accepts cookies. After more than
 10 failed sign-ins in 10 minutes the console answers `429` for a while. With an
-external provider, the redirect URI `https://<domain>/admin/callback` must be
+external provider, the redirect URI `https://<domain>/console/callback` must be
 registered, and admins need a verified e-mail in `PORTAL_ADMIN_EMAILS` or a group
 in `PORTAL_ADMIN_GROUPS`. If nobody can sign in, start the container with
 `HSE_ADMIN_EMAIL` and `HSE_ADMIN_PASSWORD` to create an administrator, or use the

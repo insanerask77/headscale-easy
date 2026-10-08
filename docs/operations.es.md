@@ -142,11 +142,11 @@ docker exec headscale-easy headscale -c /data/config/config.yaml --help
 ## Actualizar { #updating }
 
 Cada versión es una versión de una sola imagen, y `compose.yaml` la fija (`HSE_VERSION`,
-`2.0.1` por defecto). Actualizar son tres pasos, y los datos siguen en los volúmenes:
+`2.1.0` por defecto). Actualizar son tres pasos, y los datos siguen en los volúmenes:
 
 ```bash
 docker exec headscale-easy hse backup      # 1. antes, una copia (queda en el volumen de copias)
-# 2. pon HSE_VERSION=2.0.1 en .env (o cambia la etiqueta en compose.yaml)
+# 2. pon HSE_VERSION=2.1.0 en .env (o cambia la etiqueta en compose.yaml)
 docker compose pull && docker compose up -d   # 3. descarga la imagen nueva y recrea el contenedor
 ```
 
@@ -330,7 +330,7 @@ tiene NAT loopback o el nombre del proveedor no resuelve desde el contenedor: us
 dirección que resuelva.
 
 **Errores de `redirect_uri` tras cambiar el dominio.** Registra las nuevas redirect URI
-en tu proveedor: `https://<dominio>/oidc/callback` y `https://<dominio>/admin/callback`.
+en tu proveedor: `https://<dominio>/oidc/callback` y `https://<dominio>/console/callback`.
 
 **Los clientes dicen `x509: certificate signed by unknown authority`.** Estás usando
 `HSE_TLS=internal`: instala el certificado raíz de Caddy (`/data/caddy/pki/`) en el
@@ -350,7 +350,7 @@ válido" significa que el navegador volvió sin la cookie puesta al empezar: com
 que abres la consola con el `HSE_PUBLIC_URL` exacto (mismo host y esquema: importa
 `http` frente a `https`) y que el navegador acepta cookies. Tras más de 10 inicios
 fallidos en 10 minutos la consola responde `429` durante un rato. Con un proveedor
-externo, la redirect URI `https://<dominio>/admin/callback` debe estar registrada, y
+externo, la redirect URI `https://<dominio>/console/callback` debe estar registrada, y
 los admins necesitan un email verificado en `PORTAL_ADMIN_EMAILS` o un grupo en
 `PORTAL_ADMIN_GROUPS`. Si nadie puede entrar, arranca el contenedor con
 `HSE_ADMIN_EMAIL` y `HSE_ADMIN_PASSWORD` para crear un administrador, o usa el acceso

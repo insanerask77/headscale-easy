@@ -201,7 +201,7 @@ configured there. The emergency API key sign-in has no second factor.
 Register one client with **two** redirect URIs:
 
 - `https://<your-domain>/oidc/callback` (Headscale)
-- `https://<your-domain>/admin/callback` (console)
+- `https://<your-domain>/console/callback` (console)
 
 The console and Headscale share the client so a person's identity (`sub`)
 matches in both. Step-by-step examples for Authentik, Pocket ID, Keycloak and
