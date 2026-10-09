@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_security as ts  # noqa: E402  (sets the environment and imports app)
 
 import app  # noqa: E402
+from handlers import shared as sh  # noqa: E402
 import audit  # noqa: E402
 import notify  # noqa: E402
 from i18n import set_lang  # noqa: E402
@@ -141,6 +142,8 @@ class Delivery(unittest.TestCase):
 
 class AuditHook(unittest.TestCase):
     def test_record_notifies_and_survives_a_broken_notifier(self):
+        audit.subscribe(notify.on_audit_event)
+        self.addCleanup(audit.unsubscribe, notify.on_audit_event)
         with tempfile.TemporaryDirectory() as tmp:
             audit.configure(os.path.join(tmp, "audit.db"))
             with mock.patch.object(notify, "event") as ev:
@@ -249,7 +252,7 @@ class TestButton(ts.Base):
         self.assertIn("notify-none", ts.location(headers))
 
     def test_blocked_in_demo(self):
-        with mock.patch.object(app, "DEMO", True), mock.patch.object(notify, "send_test") as send:
+        with mock.patch.object(sh, "DEMO", True), mock.patch.object(notify, "send_test") as send:
             status, _h, _b = ts.request("POST", f"{B}/settings/notify-test", ts.ADMIN, {"csrf": "tok"})
         self.assertEqual(status, 403)
         send.assert_not_called()

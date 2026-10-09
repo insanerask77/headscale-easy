@@ -10,7 +10,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "web"))
 
 import expiry  # noqa: E402
-import pages  # noqa: E402
+import expiry_pages  # noqa: E402
+import machines_pages  # noqa: E402
 from i18n import set_lang  # noqa: E402
 
 
@@ -86,8 +87,8 @@ class Summary(EnglishCase):
         self.assertEqual([n["id"] for n in expiry.inactive_nodes(nodes, NOW)], ["3", "4"])
 
     def test_notice(self):
-        self.assertEqual(expiry.notice_html([node(1, expiry_in=100, online=True)], now=NOW), "")
-        html = expiry.notice_html([node(1, expiry_in=3, online=True), node(2, expiry_in=4, online=True),
+        self.assertEqual(expiry_pages.notice_html([node(1, expiry_in=100, online=True)], now=NOW), "")
+        html = expiry_pages.notice_html([node(1, expiry_in=3, online=True), node(2, expiry_in=4, online=True),
                                    node(3, expiry_in=-1)], now=NOW)
         self.assertIn("2 machines expire in the next", html)
         self.assertIn('data-f-apply="expiring"', html)
@@ -96,8 +97,8 @@ class Summary(EnglishCase):
 
     def test_notice_inactive_line_is_admin_only(self):
         nodes = [node(1, expiry_in=100, seen_ago=45)]
-        self.assertEqual(expiry.notice_html(nodes, admin=False, now=NOW), "")
-        html = expiry.notice_html(nodes, admin=True, now=NOW)
+        self.assertEqual(expiry_pages.notice_html(nodes, admin=False, now=NOW), "")
+        html = expiry_pages.notice_html(nodes, admin=True, now=NOW)
         self.assertIn("1 machine has been offline for more than", html)
         self.assertIn('data-open="remove-inactive"', html)
         self.assertIn('data-f-apply="inactive"', html)
@@ -112,11 +113,11 @@ class Form(EnglishCase):
         self.assertEqual(expiry.remove_result(3, 0), "inactive-removed-3")
         self.assertEqual(expiry.remove_result(0, 0), "inactive-none")
         self.assertEqual(expiry.remove_result(2, 1), "failed")
-        self.assertIn("3 inactive machines removed.", expiry.flash_html("inactive-removed-3"))
-        self.assertIn("1 inactive machine removed.", expiry.flash_html("inactive-removed-1"))
-        self.assertIn("notice error", expiry.flash_html("inactive-none"))
-        self.assertEqual(expiry.flash_html("inactive-removed-<script>"), "")
-        self.assertEqual(expiry.flash_html("renamed"), "")
+        self.assertIn("3 inactive machines removed.", expiry_pages.flash_html("inactive-removed-3"))
+        self.assertIn("1 inactive machine removed.", expiry_pages.flash_html("inactive-removed-1"))
+        self.assertIn("notice error", expiry_pages.flash_html("inactive-none"))
+        self.assertEqual(expiry_pages.flash_html("inactive-removed-<script>"), "")
+        self.assertEqual(expiry_pages.flash_html("renamed"), "")
 
 
 class MachineView(EnglishCase):
@@ -130,7 +131,7 @@ class MachineView(EnglishCase):
                 sign = 1 if key == "expiry" else -1
                 n[key] = iso(real_now + sign * timedelta(days=days))
         n["createdAt"] = iso(real_now - timedelta(days=kw.get("created_ago", 400)))
-        return pages.Machine(n, None, {}, "", {})
+        return machines_pages.Machine(n, None, {}, "", {})
 
     def test_badge_and_flags(self):
         m = self.machine(expiry_in=5, online=True)
@@ -154,13 +155,13 @@ class MachineView(EnglishCase):
     def test_dialog_lists_only_inactive(self):
         ms = [self.machine(node_id=1, seen_ago=40), self.machine(node_id=2, online=True),
               self.machine(node_id=3, seen_ago=2)]
-        html = expiry.remove_inactive_dialog(ms, {"csrf": "tok"})
+        html = expiry_pages.remove_inactive_dialog(ms, {"csrf": "tok"})
         self.assertIn('name="node-1"', html)
         self.assertNotIn('name="node-2"', html)
         self.assertNotIn('name="node-3"', html)
         self.assertIn("checked", html)
         self.assertIn('value="tok"', html)
-        self.assertEqual(expiry.remove_inactive_dialog(ms[1:], {"csrf": "tok"}), "")
+        self.assertEqual(expiry_pages.remove_inactive_dialog(ms[1:], {"csrf": "tok"}), "")
 
 
 if __name__ == "__main__":
