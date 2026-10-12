@@ -16,6 +16,7 @@ from test_signup import SignupBase  # noqa: E402
 from test_security import ADMIN, B, MEMBER, app, audit, hs, location, request  # noqa: E402
 
 import local_accounts as lac  # noqa: E402
+import account_tokens  # noqa: E402
 import mailer  # noqa: E402
 
 SMTP_PASS = "smtp-" + secrets.token_hex(8)  # random per run: nothing credential-shaped in the source
@@ -92,7 +93,7 @@ class InvitationScreen(LinkBase):
         _, _, body = self.invite()
         token = re.search(r"/accept/([A-Za-z0-9_-]+)</code>", body).group(1)
         self.assertEqual(request("GET", f"{B}/accept/{token}")[0], 200)
-        self.assertIsNotNone(lac.check_token(token, "invite"))
+        self.assertIsNotNone(account_tokens.check_token(token, "invite"))
 
     def test_without_smtp_there_is_no_mail_button(self):
         _, _, body = self.invite()
@@ -101,18 +102,18 @@ class InvitationScreen(LinkBase):
     def test_a_member_cannot_invite(self):
         status, _, _ = request("POST", f"{B}/invitations", MEMBER, {"csrf": "tok", "role": "member", "email": "x@example.com"})
         self.assertIn(status, (303, 403))
-        self.assertEqual(lac.list_active_invitations(), [])
+        self.assertEqual(account_tokens.list_active_invitations(), [])
 
     def test_bad_role_is_refused(self):
         self.assertEqual(self.invite(role="root")[0], 400)
-        self.assertEqual(lac.list_active_invitations(), [])
+        self.assertEqual(account_tokens.list_active_invitations(), [])
 
     def test_revoke_removes_it(self):
         self.invite()
-        token_hash = lac.list_active_invitations()[0]["token_hash"]
+        token_hash = account_tokens.list_active_invitations()[0]["token_hash"]
         _, headers, _ = request("POST", f"{B}/invitations/{token_hash}/revoke", ADMIN, {"csrf": "tok"})
         self.assertEqual(location(headers), f"{B}/users?m=invite-revoked")
-        self.assertEqual(lac.list_active_invitations(), [])
+        self.assertEqual(account_tokens.list_active_invitations(), [])
 
 
 class ResetLink(LinkBase):
@@ -126,7 +127,7 @@ class ResetLink(LinkBase):
         link = re.search(r"<code>(http[^<]*/reset/[A-Za-z0-9_-]+)</code>", body)
         self.assertTrue(link)
         token = link.group(1).rsplit("/", 1)[1]
-        self.assertIsNotNone(lac.check_token(token, "reset"))
+        self.assertIsNotNone(account_tokens.check_token(token, "reset"))
         _, _, again = request("GET", f"{B}/users", ADMIN)
         self.assertNotIn(token, again)
         self.assertNotIn(token, repr(audit.request_event.call_args_list))
@@ -139,7 +140,7 @@ class ResetLink(LinkBase):
     def test_a_member_cannot(self):
         status, headers, _ = request("POST", f"{B}/users/9/reset-link", MEMBER, {"csrf": "tok"})
         self.assertNotEqual(status, 200)
-        self.assertEqual(lac.list_active_invitations(), [])
+        self.assertEqual(account_tokens.list_active_invitations(), [])
 
 
 class MailByClick(LinkBase):

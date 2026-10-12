@@ -692,7 +692,7 @@ class SchedulerTest(SupervisorMixin, FakeCase):
         super().setUp()
         self.backup_py = os.path.join(self.fakes.bin, "backup.py")
         self.fakes.write(self.backup_py, FAKE_BACKUP % {"py": sys.executable}, 0o755)
-        patch = mock.patch.object(sup, "BACKUP_CMD", [sys.executable, self.backup_py])
+        patch = mock.patch.object(sup.backup_control, "BACKUP_CMD", [sys.executable, self.backup_py])
         patch.start()
         self.addCleanup(patch.stop)
         os.makedirs(os.path.join(self.fakes.data, "backups"), exist_ok=True)
@@ -1234,7 +1234,7 @@ class RestoreFromConsoleTest(SupervisorMixin, FakeCase):
         self.assertEqual(self.s.backup_summary()["files"], files)
 
     def test_backup_files_are_capped(self):
-        with mock.patch.object(sup, "BACKUP_LIST_MAX", 2):
+        with mock.patch.object(sup.backup_control, "BACKUP_LIST_MAX", 2):
             for i in range(4):
                 with open(os.path.join(self.backups, "headscale-easy-2026020%d-030000.tar.gz" % i), "wb") as fh:
                     fh.write(b"x")

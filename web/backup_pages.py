@@ -10,7 +10,7 @@ import re
 from datetime import datetime, timezone
 
 from i18n import _, ngettext
-from pages import dialog
+from ui import dialog
 from status_pages import _kv, _size
 from ui import (BASE, LOGO, badge, bare_page, csrf_input, esc, flash_html, layout, page_head, parse_time,
                 time_tag)

@@ -16,6 +16,7 @@ import logging
 import os
 import re
 
+import dns_block
 import headscale as hs
 from i18n import _
 
@@ -80,7 +81,7 @@ def _valid_ip(value: str, version: int) -> bool:
 
 
 def valid_host(value: str) -> bool:
-    return bool(hs._DOMAIN_RE.match(value.lower())) or _valid_ip(value, 4) or _valid_ip(value, 6)
+    return bool(dns_block.DOMAIN_RE.match(value.lower())) or _valid_ip(value, 4) or _valid_ip(value, 6)
 
 
 def validate(relays: list[dict]) -> str:

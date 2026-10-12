@@ -12,7 +12,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from test_security import ADMIN, MEMBER, B, Base, app, audit, hs, location, request, sessions  # noqa: E402
+from test_security import ADMIN, MEMBER, B, Base, app, audit, hs, location, request, sessions, sh  # noqa: E402
 
 
 def live(data: dict) -> dict:
@@ -174,7 +174,7 @@ class Requests(Base):
 
     def test_demo_blocks_session_actions(self):
         s = live(ADMIN)
-        with mock.patch.object(app, "DEMO", True):
+        with mock.patch.object(sh, "DEMO", True):
             status, _, _ = request("POST", f"{B}/settings/sessions/revoke-all", headers=cookie(s),
                                    form={"csrf": "tok"})
         self.assertEqual(status, 403)
@@ -189,7 +189,7 @@ class Requests(Base):
         self.assertFalse(sessions.validate(member))
 
     def test_sign_in_registers_a_session(self):
-        with mock.patch.object(app, "API_KEY_LOGIN", True), mock.patch.object(hs, "http_json", lambda *a, **k: {}):
+        with mock.patch.object(sh, "API_KEY_LOGIN", True), mock.patch.object(hs, "http_json", lambda *a, **k: {}):
             status, headers, _ = request("POST", f"{B}/login/apikey", form={"api_key": "hskey-api-abcdefghijkl-xyz"})
         self.assertEqual(status, 303)
         value = next(c for c in headers["set-cookie"] if c.startswith("hse_session=")).split(";")[0].split("=", 1)[1]
@@ -201,7 +201,7 @@ class SignInRateLimit(Base):
         super().setUp()
         sessions.configure(":memory:")
         sessions._hits.clear()
-        for p in (mock.patch.object(app, "API_KEY_LOGIN", True), mock.patch.object(app, "SSO", True),
+        for p in (mock.patch.object(sh, "API_KEY_LOGIN", True), mock.patch.object(sh, "SSO", True),
                   mock.patch.object(app.time, "sleep", lambda s: None),
                   mock.patch.object(hs, "http_json", mock.Mock(side_effect=OSError("denied")))):
             p.start()
@@ -232,7 +232,7 @@ class SignInRateLimit(Base):
             self.assertEqual(self.bad_login()[0], 401)
 
     def test_start_sso_is_limited(self):
-        with mock.patch.object(app, "discovery", lambda: {"authorization_endpoint": "https://idp/auth"}):
+        with mock.patch.object(sh, "discovery", lambda: {"authorization_endpoint": "https://idp/auth"}):
             for _ in range(sessions.LIMIT):
                 self.assertEqual(request("GET", f"{B}/login/sso")[0], 303)
             status, headers, _ = request("GET", f"{B}/login/sso")

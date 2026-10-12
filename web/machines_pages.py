@@ -1,0 +1,629 @@
+"""Machines pages: the list, one machine, the Add device page and device approval."""
+
+from __future__ import annotations
+
+import csv
+import io
+import ipaddress
+import re
+from datetime import datetime, timezone
+
+import derp as derp_info
+import docker_tab
+import expiry
+import expiry_pages
+from i18n import _, ngettext
+from qr import qr_figure
+from ui import (BASE, LOGO, badge, copy_btn, csrf_input, dialog, docs_url, esc, flash_html, icon, kv, layout, live_indicator, notice, page_head, parse_time, relative, time_tag, user_label)
+
+
+OS_NAMES = {"linux": "Linux", "windows": "Windows", "macos": "macOS", "ios": "iOS",
+            "android": "Android", "freebsd": "FreeBSD", "openbsd": "OpenBSD", "tvos": "tvOS"}
+EXIT_ROUTES = {"0.0.0.0/0", "::/0"}
+
+
+def version_tuple(v: str) -> tuple:
+    return tuple(int(p) for p in v.split(".") if p.isdigit())
+
+
+class Machine:
+    """View model of a node: the API data plus the Hostinfo from the database."""
+
+    def __init__(self, node: dict, details: dict | None, dns: dict, latest: str, regions: dict):
+        self.node = node
+        hi = (details or {}).get("hostinfo") or {}
+        self.hostinfo = hi
+        self.endpoints = (details or {}).get("endpoints") or []
+        self.id = str(node.get("id"))
+        self.name = node.get("givenName") or node.get("name") or ""
+        self.hostname = hi.get("Hostname") or node.get("name") or ""
+        self.online = bool(node.get("online"))
+        self.last_seen_raw = node.get("lastSeen")
+        self.last_seen = parse_time(self.last_seen_raw)
+        self.created = node.get("createdAt")
+        self.owner = node.get("user") or {}
+        self.owner_label = self.owner.get("email") or self.owner.get("displayName") or self.owner.get("name") or ""
+        self.tags = node.get("tags") or []
+
+        ips = node.get("ipAddresses") or []
+        self.ipv4 = next((ip for ip in ips if ":" not in ip), "")
+        self.ipv6 = next((ip for ip in ips if ":" in ip), "")
+        self.fqdn = f"{self.name}.{dns['base_domain']}" if dns.get("magic_dns") and dns.get("base_domain") else ""
+
+        self.expiry = parse_time(node.get("expiry"))
+        self.expiry_disabled = self.expiry is None
+        self.expired = self.expiry is not None and self.expiry < datetime.now(timezone.utc)
+        self.expiring_soon = expiry.expires_soon(node)
+        self.inactive = expiry.is_inactive(node)
+
+        os_raw = (hi.get("OS") or "").lower()
+        self.os = OS_NAMES.get(os_raw, hi.get("OS") or "")
+        if os_raw == "linux" and hi.get("Distro"):
+            self.os_detail = f"{hi['Distro'].capitalize()} {hi.get('DistroVersion', '')}".strip()
+        else:
+            self.os_detail = hi.get("OSVersion") or ""
+        self.version = (hi.get("IPNVersion") or "").split("-")[0]
+        self.latest = latest
+        self.update_available = bool(self.version and latest and version_tuple(self.version) < version_tuple(latest))
+
+        derp, latency = derp_info.net_info(hi)
+        self.derp = regions.get(derp, _("Region {n}", n=derp)) if derp else ""
+        # [(region name, ms, is the preferred one)], fastest first
+        self.derp_latency = sorted(((regions.get(r, _("Region {n}", n=r)), ms, r == derp)
+                                    for r, ms in latency.items()), key=lambda x: x[1])
+        self.derp_ms = latency.get(derp) if derp else None
+
+        available = set(node.get("availableRoutes") or [])
+        self.approved = set(node.get("approvedRoutes") or [])
+        self.exit_node = bool(available & EXIT_ROUTES)
+        self.exit_node_approved = bool(self.approved & EXIT_ROUTES)
+        self.subnets = sorted(available - EXIT_ROUTES)
+        self.subnets_pending = any(r not in self.approved for r in self.subnets)
+        self.exit_pending = self.exit_node and not self.exit_node_approved
+        self.routes_pending = self.subnets_pending or self.exit_pending
+        self.ephemeral = bool((node.get("preAuthKey") or {}).get("ephemeral"))
+        self.register = {"REGISTER_METHOD_OIDC": _("Browser sign-in"),
+                         "REGISTER_METHOD_AUTH_KEY": _("Auth key"),
+                         "REGISTER_METHOD_CLI": _("Command line")}.get(node.get("registerMethod"), "—")
+
+    def os_line(self) -> str:
+        return " ".join(x for x in (self.os, self.os_detail) if x)
+
+    def search_text(self) -> str:
+        return " ".join([self.name, self.hostname, self.ipv4, self.ipv6, self.os, self.os_detail,
+                         self.version, self.owner_label, self.owner.get("name", ""), *self.tags]).lower()
+
+    def badges(self) -> str:
+        out = []
+        if self.expired:
+            out.append(badge(_("Expired"), "red"))
+        elif self.expiring_soon:
+            out.append(badge(_("Expires soon"), "orange", expiry_pages.soon_badge_tip(self.node)))
+        elif self.expiry_disabled:
+            out.append(badge(_("Expiry disabled")))
+        if self.subnets:
+            out.append(badge(_("Subnets - pending approval"), "orange", _("This machine has unapproved routes."))
+                       if self.subnets_pending else badge(_("Subnets"), "blue"))
+        if self.exit_node:
+            out.append(badge(_("Exit Node"), "blue") if self.exit_node_approved
+                       else badge(_("Exit Node - pending approval"), "orange", _("This machine is not yet approved as an exit node.")))
+        if self.ephemeral:
+            out.append(badge(_("Ephemeral")))
+        out += [badge(t, "tag") for t in self.tags]
+        return "".join(out)
+
+
+# -----------------------------------------------------------------------------
+# Machines
+# -----------------------------------------------------------------------------
+
+def approve_routes_form(m: Machine, session: dict, detail: bool = False, css: str = "") -> str:
+    """One-click approval of every route the machine advertises."""
+    back = "machines/" + m.id if detail else "machines"
+    cls = f' class="{css}"' if css else ""
+    return (f'''<form method="post" action="{BASE}/machines/{m.id}/approve-routes">{csrf_input(session)}
+        <input type="hidden" name="back" value="{back}">
+        <button type="submit"{cls}>{esc(_("Approve routes"))}</button></form>''')
+
+
+def pending_routes_banner(machines: list[Machine]) -> str:
+    n = sum(1 for m in machines if m.routes_pending)
+    if not n:
+        return ""
+    return f'<div data-pending-routes="{n}">' + notice(
+        "warn", ngettext("{n} machine has routes waiting for approval.",
+                         "{n} machines have routes waiting for approval.", n)) + "</div>"
+
+
+def machine_menu(m: Machine, session: dict, detail: bool = False) -> str:
+    admin = session.get("admin")
+    read_only = session.get("role") == "auditor"
+    items = [] if detail else [f'<a href="{BASE}/machines/{m.id}">{esc(_("View details"))}</a>']
+    if m.ipv4:
+        items.append(f'<button type="button" data-copy="{esc(m.ipv4)}">{esc(_("Copy IPv4"))}</button>')
+    if not read_only:
+        items.append(f'<button type="button" data-open="rename-{m.id}">{esc(_("Edit machine name…"))}</button>')
+        if admin:
+            items.append(f'<button type="button" data-open="tags-{m.id}">{esc(_("Edit ACL tags…"))}</button>')
+            if m.routes_pending:
+                items.append(approve_routes_form(m, session, detail))
+            if m.exit_node or m.subnets:
+                items.append(f'<a href="{BASE}/machines/{m.id}#routes">{esc(_("Edit route settings…"))}</a>')
+        items.append(f'<button type="button" data-open="expire-{m.id}">{esc(_("Expire key…"))}</button>')
+        if admin:
+            label = _("Enable key expiry") if m.expiry_disabled else _("Disable key expiry")
+            items.append(f"""<form method="post" action="{BASE}/machines/{m.id}/expiry">{csrf_input(session)}
+                <input type="hidden" name="back" value="{'machines/' + m.id if detail else 'machines'}">
+                <input type="hidden" name="disable" value="{'0' if m.expiry_disabled else '1'}">
+                <button type="submit">{esc(label)}</button></form>""")
+        items.append("<hr>")
+        items.append(f'<button type="button" class="danger" data-open="remove-{m.id}">{esc(_("Remove…"))}</button>')
+    return f"""
+      <details class="dropdown">
+        <summary class="icon-btn" aria-label="{esc(_("Actions"))}">{icon("more")}</summary>
+        <div class="dropdown-body right">{"".join(items)}</div>
+      </details>"""
+
+
+def machine_dialogs(m: Machine, session: dict, back: str) -> str:
+    out = [
+        dialog(f"rename-{m.id}", _("Edit machine name"),
+               esc(_("The name used in the tailnet and in MagicDNS. Lowercase letters, digits and dashes.")),
+               f"{BASE}/machines/{m.id}/rename", session, back=back, submit=_("Save"),
+               fields=f'<label class="field">{esc(_("Machine name"))}<input name="name" value="{esc(m.name)}" '
+                      f'maxlength="63" required pattern="[a-z0-9]([a-z0-9\\-]*[a-z0-9])?" autocomplete="off" spellcheck="false"></label>'),
+        dialog(f"expire-{m.id}", _("Expire the key of {name}?", name=m.name),
+               esc(_("The device is disconnected until someone signs in on it again. Useful if it was lost "
+                     "or to force a new sign-in.")),
+               f"{BASE}/machines/{m.id}/expire", session, back=back, submit=_("Expire key"), danger=True),
+        dialog(f"remove-{m.id}", _("Remove {name}?", name=m.name),
+               esc(_("It is removed from the tailnet. To use it again it has to be connected again.")),
+               f"{BASE}/machines/{m.id}/delete", session, submit=_("Remove machine"), danger=True),
+    ]
+    if session.get("admin"):
+        out.append(dialog(
+            f"tags-{m.id}", _("Edit ACL tags for {name}", name=m.name),
+            esc(_("Comma separated, with the tag: prefix. Each tag needs an owner in tagOwners of the policy. "
+                  "A tagged machine no longer belongs to its user.")),
+            f"{BASE}/machines/{m.id}/tags", session, back=back, submit=_("Save"),
+            fields=f'<label class="field">{esc(_("Tags"))}<input name="tags" value="{esc(", ".join(m.tags))}" '
+                   f'placeholder="tag:server, tag:prod" autocomplete="off" spellcheck="false"></label>'))
+    return "".join(out)
+
+
+def status_html(m: Machine) -> str:
+    if m.online:
+        return f'<span class="status on"><i></i>{esc(_("Connected"))}</span>'
+    return f'<span class="status off"><i></i>{time_tag(m.last_seen_raw, _("Never"), "short")}</span>'
+
+
+def relay_html(m: Machine) -> str:
+    """Preferred DERP region and its latency, for the Machines table."""
+    if not m.derp:
+        return '<span class="muted">—</span>'
+    ms = f' <span class="muted">{esc(_("{ms} ms", ms=round(m.derp_ms)))}</span>' if m.derp_ms is not None else ""
+    return f"{esc(m.derp)}{ms}"
+
+
+def addresses_dropdown(m: Machine) -> str:
+    rows = [("IPv4", m.ipv4), ("IPv6", m.ipv6), ("MagicDNS", m.fqdn)]
+    items = "".join(f'<div class="addr-row"><span class="muted small">{k}</span><code>{esc(v)}</code>{copy_btn(v)}</div>'
+                    for k, v in rows if v)
+    return f"""
+      <details class="dropdown addr">
+        <summary><span>{esc(m.ipv4 or m.ipv6)}</span>{icon("chevron-down", "chev")}</summary>
+        <div class="dropdown-body wide">{items}</div>
+      </details>"""
+
+
+def version_html(m: Machine) -> str:
+    if not m.version:
+        return f'<span class="muted">{esc(m.os) or "—"}</span>'
+    tip = (_("Update available: {version}", version=m.latest) if m.update_available
+           else _("Up to date"))
+    return f"""<div class="version">
+      <span class="upd {"needs" if m.update_available else ""}" title="{esc(tip)}">{icon("update")}</span>
+      <div><div>{esc(m.version)}</div><div class="muted">{esc(m.os_line())}</div></div>
+    </div>"""
+
+
+def register_dialog(session: dict, users: list[dict]) -> str:
+    opts = "".join(f'<option value="{esc(u["name"])}">{esc(user_label(u))}</option>'
+                   for u in sorted(users, key=lambda u: user_label(u).lower()))
+    return dialog("register", _("Register a machine"),
+                  esc(_("For devices that ran 'tailscale up' without a key: paste the Auth ID "
+                        "(hskey-authreq-…) or the URL it printed, and choose the owner.")),
+                  f"{BASE}/machines/register", session, submit=_("Register"),
+                  fields=f'<label class="field">{esc(_("Auth ID or URL"))}<input name="auth_id" placeholder="hskey-authreq-…" '
+                         f'required autocomplete="off" spellcheck="false"></label>'
+                         f'<label class="field">{esc(_("Owner"))}<select name="user" required>{opts}</select></label>')
+
+
+def register_page(session: dict, ctx: dict, auth_id: str, users: list[dict] | None, owner: dict | None,
+                  error: str = "") -> str:
+    """Approve a device that ran 'tailscale up' without a key: Caddy sends the
+    /register/<id> link Headscale prints here (AUTH_PROVIDER=none). Admins
+    choose the owner (users); everyone else adds it to their own user (owner)."""
+    head = page_head(_("Add a device"), esc(_("A device is waiting to join the tailnet. Only approve it if you "
+                                               "just ran 'tailscale up' or signed in on that device yourself.")))
+    head += notice("error", error) if error else ""
+    if users is not None:
+        opts = "".join(f'<option value="{esc(u["name"])}"{" selected" if owner and u["name"] == owner["name"] else ""}>'
+                       f'{esc(user_label(u))}</option>' for u in sorted(users, key=lambda u: user_label(u).lower()))
+        who = f'<label class="field">{esc(_("Owner"))}<select name="user" required>{opts}</select></label>'
+    elif owner:
+        who = f'<p>{esc(_("It will be added to your account, {user}.", user=user_label(owner)))}</p>'
+    else:
+        body = head + f"""
+    <section class="card"><p>{esc(_("Your account has no Headscale user yet, so it cannot own devices. Ask an admin."))}</p>
+      <p><a class="btn" href="{BASE}/machines">{esc(_("Back to Machines"))}</a></p></section>"""
+        return layout(_("Add a device"), "machines", body, session, ctx)
+    body = head + f"""
+    <section class="card">
+      <form method="post" action="{BASE}/register/{esc(auth_id)}">{csrf_input(session)}
+        <dl class="kvs"><dt>{esc(_("Request"))}</dt><dd><code>{esc(auth_id)}</code></dd></dl>
+        {who}
+        <div class="dialog-actions"><a class="btn" href="{BASE}/machines">{esc(_("Cancel"))}</a>
+          <button class="btn primary" type="submit">{esc(_("Approve device"))}</button></div>
+      </form>
+    </section>"""
+    return layout(_("Add a device"), "machines", body, session, ctx)
+
+
+def machines_page(session: dict, ctx: dict, machines: list[Machine], has_user: bool, flash: str,
+                  users: list[dict] | None = None, error: str = "") -> str:
+    admin = session.get("admin")
+    add_items = [
+        f'<a href="{BASE}/add">{esc(_("Client device"))}<span>{esc(_("Laptop, phone or server"))}</span></a>',
+        f'<a href="{BASE}/settings/keys#new">{esc(_("Generate auth key"))}<span>{esc(_("For headless devices"))}</span></a>',
+    ]
+    if admin:
+        add_items.append(f'<button type="button" data-open="register">{esc(_("Register with Auth ID"))}'
+                         f'<span>{esc(_("Approve a pending sign-in"))}</span></button>')
+    add = f"""
+      <details class="dropdown">
+        <summary class="btn primary">{esc(_("Add device"))}{icon("chevron-down", "chev")}</summary>
+        <div class="dropdown-body right menu-rich">{"".join(add_items)}</div>
+      </details>"""
+    head = page_head(_("Machines"),
+                     esc(_("Manage the devices connected to your tailnet.") if admin
+                         else _("Manage your devices. Only you can see them, and they can only reach each other.")),
+                     add, (_("See how to manage devices"), docs_url("operations/#managing-machines")))
+    head += register_dialog(session, users or []) if admin else ""
+    head += notice("error", error) if error else ""
+    head += pending_routes_banner(machines) if admin else ""
+    head += flash_html(flash) or expiry_pages.flash_html(flash) or bulk_flash_html(flash)
+
+    if not machines:
+        text = (_("No machines are connected to the tailnet yet.") if admin else
+                _("Connect your first one: it shows up here as soon as you sign in from it.") if not has_user else
+                _("You have no machines in the tailnet right now."))
+        return layout(_("Machines"), "machines", head + f"""
+    <section class="empty">
+      <div class="big-logo">{LOGO}</div>
+      <h3>{esc(_("No machines yet"))}</h3>
+      <p class="muted">{esc(text)}</p>
+      <a class="btn primary" href="{BASE}/add">{esc(_("Add device"))}</a>
+    </section>""", session, ctx)
+
+    owner_filter = ""
+    if admin and users:
+        opts = "".join(f'<option value="{esc(u["id"])}">{esc(user_label(u))}</option>'
+                       for u in sorted(users, key=lambda u: user_label(u).lower()))
+        owner_filter = (f'<label class="field">{esc(_("Owner"))}<select data-f="owner">'
+                        f'<option value="">{esc(_("All users"))}</option>{opts}</select></label>')
+    filters = f"""
+      <details class="dropdown filters">
+        <summary class="btn">{icon("filter")}{esc(_("Filters"))}<span class="fcount" hidden></span>{icon("chevron-down", "chev")}</summary>
+        <div class="dropdown-body filter-body">
+          <label class="field">{esc(_("Status"))}<select data-f="status">
+            <option value="">{esc(_("All"))}</option>
+            <option value="on">{esc(_("Connected"))}</option>
+            <option value="off">{esc(_("Disconnected"))}</option></select></label>
+          {owner_filter}
+          <label class="check"><input type="checkbox" data-f="update"><span>{esc(_("Needs update"))}</span></label>
+          <label class="check"><input type="checkbox" data-f="routes"><span>{esc(_("Has routes (subnets or exit node)"))}</span></label>
+          <label class="check"><input type="checkbox" data-f="expired"><span>{esc(_("Key expired"))}</span></label>
+          {expiry_pages.filter_options()}
+          <button type="button" class="btn small" data-f-clear>{esc(_("Clear filters"))}</button>
+        </div>
+      </details>"""
+
+    bulk_col = f'<th class="bulk-col" hidden><input type="checkbox" data-bulk-all aria-label="{esc(_("Select all"))}"></th>' if admin else ""
+    rows, dialogs = [], []
+    for m in machines:
+        bulk_cell = (f'<td class="bulk-col" hidden><input type="checkbox" name="node-{esc(m.id)}" value="1" '
+                    f'data-bulk-item aria-label="{esc(_("Select {name}", name=m.name))}"></td>') if admin else ""
+        rows.append(f"""
+        <tr data-href="{BASE}/machines/{m.id}" data-search="{esc(m.search_text())}" data-status="{'on' if m.online else 'off'}"
+            data-owner="{esc(m.owner.get('id'))}" data-update="{int(m.update_available)}"
+            data-routes="{int(m.exit_node or bool(m.subnets))}" data-expired="{int(m.expired)}"
+            data-expiring="{int(m.expiring_soon)}" data-inactive="{int(m.inactive)}">
+          {bulk_cell}
+          <td><a class="name" href="{BASE}/machines/{m.id}">{esc(m.name)}</a>
+            <div class="owner">{esc(m.owner_label)}</div>
+            <div class="badges">{m.badges()}</div></td>
+          <td>{addresses_dropdown(m)}</td>
+          <td class="hide-sm">{version_html(m)}</td>
+          <td class="hide-sm">{relay_html(m)}</td>
+          <td>{status_html(m)}</td>
+          <td class="actions">{machine_menu(m, session)}</td>
+        </tr>""")
+        dialogs.append(machine_dialogs(m, session, "machines"))
+
+    table = f"""
+    <div class="table-wrap">
+      <table class="machines">
+        <thead><tr>{bulk_col}<th>{esc(_("Machine"))}</th>
+          <th><span title="{esc(_("The machine's Tailscale IP addresses and MagicDNS name"))}">{esc(_("Addresses"))} {icon("info", "i-xs")}</span></th>
+          <th class="hide-sm">{esc(_("Version"))}</th>
+          <th class="hide-sm"><span title="{esc(_("The DERP relay the machine prefers and its latency"))}">{esc(_("Relay"))} {icon("info", "i-xs")}</span></th>
+          <th>{esc(_("Last seen"))}</th><th></th></tr></thead>
+        <tbody data-live="rows" data-stream="{BASE}/events">{"".join(rows)}
+        </tbody>
+      </table>
+    </div>
+    <p class="no-results muted" hidden>{esc(_("No machines match the current filters."))}</p>"""
+    if admin:
+        table = f"""<form method="post" id="bulk-form">{csrf_input(session)}{table}
+    <div class="bulk-bar" data-bulk-bar hidden>
+      <span data-bulk-count data-one="{esc(_("1 machine selected"))}" data-many="{esc(_("{n} machines selected"))}"></span>
+      <button type="submit" formaction="{BASE}/machines/bulk/expire" class="btn small">{esc(_("Expire keys"))}</button>
+      <button type="button" class="btn small" data-open="bulk-tag">{esc(_("Add tag…"))}</button>
+      <button type="button" class="btn small danger-solid" data-open="bulk-remove">{esc(_("Remove…"))}</button>
+      <button type="button" class="btn small" data-bulk-clear>{esc(_("Clear selection"))}</button>
+    </div>
+    </form>
+    {dialog("bulk-remove", _("Remove selected machines?"),
+            esc(_("They are removed from the tailnet. To use one again it has to be connected again.")),
+            f"{BASE}/machines/bulk/remove", session, submit=_("Remove machines"), danger=True,
+            fields='<div data-bulk-mirror="bulk-remove"></div>')}
+    {dialog("bulk-tag", _("Add tag to selected machines"),
+            esc(_("Comma separated, with the tag: prefix. Added to each machine's existing tags. Each tag needs "
+                  "an owner in tagOwners of the policy.")),
+            f"{BASE}/machines/bulk/tags", session, submit=_("Add tag"),
+            fields='<div data-bulk-mirror="bulk-tag"></div>'
+                   f'<label class="field">{esc(_("Tags"))}<input name="tags" placeholder="tag:server, tag:prod" '
+                   f'required autocomplete="off" spellcheck="false"></label>')}"""
+
+    body = head + f"""
+    <div data-live="expiry-notice">{expiry_pages.notice_html([m.node for m in machines], admin)}</div>
+    <div class="toolbar">
+      <label class="search">{icon("search")}<input type="search" placeholder="{esc(_("Search by name, owner, tag, version…"))}" data-filter aria-label="{esc(_("Search machines"))}"></label>
+      {filters}
+      <a class="link hide-sm" href="{docs_url("operations/#managing-machines")}" target="_blank" rel="noopener">{esc(_("Learn more"))}</a>
+      <span class="spacer"></span>
+      <a class="icon-btn boxed" href="{BASE}/machines.csv" title="{esc(_("Export to CSV"))}" aria-label="{esc(_("Export to CSV"))}">{icon("download")}</a>
+    </div>
+    <span class="pill" data-count data-one="{esc(_("1 machine"))}" data-many="{esc(_("{n} machines"))}">{esc(ngettext("{n} machine", "{n} machines", len(machines)))}</span> {live_indicator()}
+    {table}
+    <div data-live="dialogs">{"".join(dialogs)}</div>
+    {f'<div data-live="inactive">{expiry_pages.remove_inactive_dialog(machines, session)}</div>' if admin else ""}"""
+    return layout(_("Machines"), "machines", body, session, ctx)
+
+
+def bulk_flash_html(code: str) -> str:
+    m = re.fullmatch(r"bulk-(expired|removed|tagged)-(\d+)", code or "")
+    if not m:
+        return ""
+    n = int(m.group(2))
+    texts = {
+        "expired": ngettext("{n} machine key expired.", "{n} machine keys expired.", n),
+        "removed": ngettext("{n} machine removed.", "{n} machines removed.", n),
+        "tagged": ngettext("Tag added to {n} machine.", "Tag added to {n} machines.", n),
+    }
+    return notice("ok", texts[m.group(1)])
+
+
+def machines_csv(machines: list[Machine]) -> str:
+    """Export like Tailscale's "Download": one row per machine."""
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["name", "owner", "ipv4", "ipv6", "magicdns", "os", "version", "online", "last_seen",
+                "expiry", "tags", "exit_node", "subnets"])
+    for m in machines:
+        w.writerow([m.name, m.owner_label, m.ipv4, m.ipv6, m.fqdn, m.os_line(), m.version,
+                    "yes" if m.online else "no", m.last_seen_raw or "", m.node.get("expiry") or "",
+                    " ".join(m.tags), "yes" if m.exit_node else "no", " ".join(m.subnets)])
+    return out.getvalue()
+
+
+def _endpoint_key(ep: str):
+    host = ep.rsplit(":", 1)[0].strip("[]")
+    try:
+        ip = ipaddress.ip_address(host)
+        return (0 if ip.is_global else 1, ip.version, ep)
+    except ValueError:
+        return (2, 0, ep)
+
+
+def routes_section(m: Machine, session: dict) -> str:
+    rows = []
+    if m.exit_node:
+        rows.append((_("Exit node"), "0.0.0.0/0, ::/0", m.exit_node_approved, "exit"))
+    rows += [(_("Subnet"), r, r in m.approved, r) for r in m.subnets]
+    if not rows:
+        return f"""<p class="muted">{esc(_("This machine does not advertise subnets or act as an exit node. To do it:"))}</p>
+          <div class="code"><code>tailscale set --advertise-routes=10.0.0.0/24</code>{copy_btn("tailscale set --advertise-routes=10.0.0.0/24")}</div>
+          <div class="code"><code>tailscale set --advertise-exit-node</code>{copy_btn("tailscale set --advertise-exit-node")}</div>"""
+    if session.get("admin"):
+        checks = "".join(
+            f'<label class="check route"><input type="checkbox" name="route" value="{esc(v)}" {"checked" if ok else ""}>'
+            f'<span><b>{esc(kind)}</b> <code>{esc(r)}</code></span></label>'
+            for kind, r, ok, v in rows)
+        approve = f"<div>{approve_routes_form(m, session, True, 'btn small')}</div>" if m.routes_pending else ""
+        return f"""{approve}
+        <form method="post" action="{BASE}/machines/{m.id}/routes" class="stack">{csrf_input(session)}
+          <input type="hidden" name="back" value="machines/{m.id}">
+          <p class="muted small">{esc(_("Tick the routes this machine may offer to the tailnet."))}</p>
+          {checks}
+          <div><button class="btn primary small" type="submit">{esc(_("Save routes"))}</button></div>
+        </form>"""
+    table = "".join(
+        f'<tr><td>{esc(kind)}</td><td><code>{esc(r)}</code></td>'
+        f'<td>{badge(_("Approved"), "blue") if ok else badge(_("Awaiting approval"), "orange")}</td></tr>'
+        for kind, r, ok, _v in rows)
+    return f"""<table class="simple"><thead><tr><th>{esc(_("Type"))}</th><th>{esc(_("Route"))}</th><th>{esc(_("Status"))}</th></tr></thead>
+      <tbody>{table}</tbody></table>
+      <p class="muted small">{esc(_("An admin approves advertised routes."))}</p>"""
+
+
+def machine_page(session: dict, ctx: dict, m: Machine, flash: str, error: str = "") -> str:
+    hi = m.hostinfo
+    if m.expiry_disabled:
+        expiry = esc(_("Disabled"))
+    elif m.expired:
+        expiry = f'{esc(_("Expired"))} · {time_tag(m.node.get("expiry"))}'
+    else:
+        expiry = f'{esc(_("Expires {when}", when=relative(m.expiry, future=True)))} · {time_tag(m.node.get("expiry"))}'
+    version = esc(m.version) or "—"
+    if m.update_available:
+        version += " " + badge(_("Update available: {version}", version=m.latest), "orange")
+    node_key = m.node.get("nodeKey") or ""
+    last_seen = (esc(_("Connected")) if m.online else
+                 f"{esc(relative(m.last_seen))} · {time_tag(m.last_seen_raw)}")
+
+    details = "".join([
+        kv(_("Owner"), esc(m.owner_label)),
+        kv(_("Machine name"), f"<code>{esc(m.name)}</code>", m.name),
+        kv(_("OS hostname"), esc(m.hostname) or "—"),
+        kv(_("OS"), esc(m.os_line()) or "—"),
+        kv(_("Tailscale version"), version),
+        kv(_("Architecture"), esc(hi.get("GoArch") or hi.get("Machine") or "—")),
+        kv(_("Registered with"), esc(m.register)),
+        kv(_("ID"), f"<code>{esc(m.id)}</code>"),
+        kv(_("Node key"), f'<code class="trunc">{esc(node_key)}</code>', node_key) if node_key else "",
+        kv(_("Created"), time_tag(m.created)),
+        kv(_("Last seen"), last_seen),
+        kv(_("Key expiry"), expiry),
+    ])
+    addresses = "".join([
+        kv(_("Tailscale IPv4"), f"<code>{esc(m.ipv4)}</code>", m.ipv4) if m.ipv4 else "",
+        kv(_("Tailscale IPv6"), f"<code>{esc(m.ipv6)}</code>", m.ipv6) if m.ipv6 else "",
+        kv(_("Short domain"), f"<code>{esc(m.name)}</code>", m.name),
+        kv(_("Full domain"), f"<code>{esc(m.fqdn)}</code>", m.fqdn) if m.fqdn else "",
+    ])
+    endpoints = "".join(f"<li><code>{esc(e)}</code></li>" for e in sorted(m.endpoints, key=_endpoint_key))
+    latency = "".join(
+        f"<li>{esc(name)}: {esc(_('{ms} ms', ms=round(ms)))}{' ' + badge(_('In use'), 'blue') if used else ''}</li>"
+        for name, ms, used in m.derp_latency)
+    connection = "".join([
+        kv(_("Preferred DERP relay"), esc(m.derp) + (f' <span class="muted">{esc(_("{ms} ms", ms=round(m.derp_ms)))}</span>'
+                                                      if m.derp_ms is not None else "") if m.derp else "—"),
+        kv(_("DERP latency"), f'<ul class="plain">{latency}</ul>') if latency else "",
+        kv(_("Endpoints"), f'<ul class="plain">{endpoints}</ul>' if endpoints else "—"),
+    ])
+
+    body = f"""
+    <nav class="crumbs"><a href="{BASE}/machines">{esc(_("Machines"))}</a><span>/</span>{esc(m.name)}</nav>
+    {notice("error", error) if error else ""}{flash_html(flash)}
+    <div class="page-head">
+      <div>
+        <h1 data-live="title">{esc(m.name)}</h1>
+        <div class="meta" data-live="meta" data-stream="{BASE}/events">{status_html(m)}<span class="muted">{esc(m.owner_label)}</span>{m.badges()}</div>
+      </div>
+      <div class="head-actions">
+        <button class="btn" type="button" data-open="rename-{m.id}">{esc(_("Edit machine name"))}</button>
+        {machine_menu(m, session, detail=True)}
+      </div>
+    </div>
+    <div class="grid-2">
+      <section class="card"><h2>{esc(_("Machine details"))}</h2><dl class="kvs" data-live="details">{details}</dl></section>
+      <div>
+        <section class="card"><h2>{esc(_("Addresses"))}</h2><dl class="kvs" data-live="addresses">{addresses}</dl></section>
+        <section class="card" id="routes"><h2>{esc(_("Routes"))}</h2>{routes_section(m, session)}</section>
+        <section class="card"><h2>{esc(_("Connection"))}</h2><dl class="kvs" data-live="connection">{connection}</dl>
+          <p class="muted small">{esc(_("Endpoints are the addresses the machine announces for direct connections. Without a direct connection, traffic goes through the DERP relay."))}</p></section>
+      </div>
+    </div>
+    {machine_dialogs(m, session, f"machines/{m.id}")}"""
+    return layout(m.name, "machines", body, session, ctx)
+
+
+# -----------------------------------------------------------------------------
+# Add device
+# -----------------------------------------------------------------------------
+
+def add_page(session: dict, ctx: dict, docker: dict | None = None, users: list[dict] | None = None,
+             exit_nodes: list[dict] | None = None) -> str:
+    """docker: what the Docker tab shows after its form was sent (values, key, error, users).
+    users: the Headscale users an administrator can choose as owner, also before the form was sent."""
+    url = ctx["public_url"]
+    login = f"tailscale up --login-server={url}"
+
+    def code(cmd: str) -> str:
+        return f'<div class="code"><code>{esc(cmd)}</code>{copy_btn(cmd)}</div>'
+
+    server_qr = qr_figure(url, _("server URL {url}", url=url), _(
+        "Scan it with the phone's camera to get the URL on the phone, then copy it into the app. "
+        "The Tailscale app cannot read QR codes itself."))
+    panels = {
+        "linux": ("Linux", f"""
+          <ol class="steps">
+            <li>{esc(_("Install Tailscale:"))}{code("curl -fsSL https://tailscale.com/install.sh | sh")}</li>
+            <li>{esc(_("Connect it to this tailnet. It prints a link to sign in with your account:"))}{code("sudo " + login)}</li>
+          </ol>"""),
+        "windows": ("Windows", f"""
+          <ol class="steps">
+            <li>{_("Download and install Tailscale from {link}.", link='<a class="link" href="https://tailscale.com/download/windows" target="_blank" rel="noopener">tailscale.com/download/windows</a>')}</li>
+            <li>{esc(_("Open PowerShell and run (the browser opens to sign in):"))}{code(login)}</li>
+          </ol>
+          <p class="muted small">{esc(_("Headscale's guide for Windows:"))} <a class="link" href="{esc(url)}/windows" target="_blank">{esc(url)}/windows</a></p>"""),
+        "macos": ("macOS", f"""
+          <ol class="steps">
+            <li>{_("Install Tailscale from {link}.", link='<a class="link" href="https://tailscale.com/download/mac" target="_blank" rel="noopener">tailscale.com/download/mac</a>')}</li>
+            <li>{esc(_("In Terminal (the browser opens to sign in):"))}{code("/Applications/Tailscale.app/Contents/MacOS/Tailscale up --login-server=" + url)}</li>
+          </ol>
+          <p class="muted small">{esc(_("Headscale's guide for Apple devices:"))} <a class="link" href="{esc(url)}/apple" target="_blank">{esc(url)}/apple</a></p>"""),
+        "ios": ("iOS", f"""
+          <div class="qr-row">
+            <ol class="steps">
+              <li>{esc(_("Install Tailscale from the App Store."))}</li>
+              <li>{esc(_("In the Tailscale app, tap the profile icon in the top-right corner, then Log in (or your account, if the app is already signed in to another tailnet)."))}</li>
+              <li>{esc(_("Tap the ⋯ menu in the top-right corner, choose Use a custom coordination server and enter this URL:"))}{code(url)}</li>
+              <li>{esc(_("Tap Log in and sign in with your account."))}</li>
+            </ol>
+            {server_qr}
+          </div>
+          <p class="muted small">{esc(_("Headscale's guide for Apple devices:"))} <a class="link" href="{esc(url)}/apple" target="_blank">{esc(url)}/apple</a></p>"""),
+        "android": ("Android", f"""
+          <div class="qr-row">
+            <ol class="steps">
+              <li>{esc(_("Install Tailscale from Google Play."))}</li>
+              <li>{esc(_("In the Tailscale app, tap the profile icon in the top-right corner, then Log in (or your account, if the app is already signed in to another tailnet)."))}</li>
+              <li>{esc(_("Tap the ⋮ menu in the top-right corner, choose Use an alternate server and enter this URL:"))}{code(url)}</li>
+              <li>{esc(_("Tap Log in and sign in with your account."))}</li>
+            </ol>
+            {server_qr}
+          </div>
+          <p class="muted small">{_("To connect without signing in, set the server first and then choose Use an auth key in the same ⋮ menu, with a key from {link}.", link=f'<a class="link" href="{BASE}/settings/keys">' + esc(_("Settings → Keys")) + "</a>")}</p>"""),
+    }
+    docker = docker or {}
+    panels["docker"] = ("Docker", docker_tab.panel(session, url, docker.get("values"), docker.get("key", ""),
+                                                   docker.get("error", ""), docker.get("users", users), docker.get("exit_nodes", exit_nodes)))
+    first = "docker" if docker else "linux"
+    tabs = "".join(f'<button type="button" role="tab" data-tab="{k}" class="{"active" if k == first else ""}">{label}</button>'
+                   for k, (label, _c) in panels.items())
+    bodies = "".join(f'<div class="tab-panel" data-panel="{k}" {"" if k == first else "hidden"}>{content}</div>'
+                     for k, (_l, content) in panels.items())
+    body = page_head(_("Add device"), esc(_("Install Tailscale and point it at this server instead of Tailscale's."))) + f"""
+    <section class="card"><div class="ostabs" role="tablist">{tabs}</div>{bodies}</section>
+    <section class="card">
+      <h2>{esc(_("Servers and headless devices"))}</h2>
+      <p class="muted">{_("Generate an auth key in {link} and use it like this:", link=f'<a class="link" href="{BASE}/settings/keys">' + esc(_("Settings → Keys")) + "</a>")}</p>
+      {code(login + " --authkey=<auth-key>")}
+    </section>"""
+    return layout(_("Add device"), "machines", body, session, ctx)
+
+
+# -----------------------------------------------------------------------------
+# DNS
+# -----------------------------------------------------------------------------
+
+# Laid out like the Tailscale console: Tailnet DNS name, MagicDNS, Nameservers
+# (the implicit MagicDNS entry, split DNS, global), Search domains and Custom
+# records. Admins edit lists as rows. Without JavaScript every list shows one
+# blank row to add an entry (repeated "name[]" fields, see Handler.form); with
+# it, the blank rows give way to "Add" buttons and each row gets a remove
+# button. Renaming the tailnet and turning MagicDNS off are separate actions
+# behind a confirmation, since both change how every machine is named.

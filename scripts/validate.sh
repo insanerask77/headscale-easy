@@ -31,7 +31,7 @@ required_files=(
     .gitignore README.md LICENSE
     templates/headscale-config.yaml.tmpl templates/Caddyfile.tmpl templates/headscale-pg-readonly.sql
     advanced/oidc/authentik/blueprints/headscale.yaml advanced/oidc/authentik/branding/custom.css
-    web/app.py web/headscale.py web/pgwire.py web/pages.py web/admin_pages.py
+    web/app.py web/headscale.py web/pgwire.py web/machines_pages.py web/admin_pages.py
     VERSION web/ui.py web/i18n.py web/version.py web/locales/es.json
     web/static/style.css web/static/app.js web/static/theme.js
     scripts/check_i18n.py scripts/gen_env_reference.py scripts/release_info.py
@@ -50,7 +50,7 @@ for f in scripts/validate.sh scripts/aio-smoke.sh scripts/compose-smoke.sh; do
 done
 
 if command -v python3 &>/dev/null; then
-    if python3 -m py_compile web/*.py aio/*.py scripts/*.py 2>/dev/null; then ok "Python syntax: web/*.py aio/*.py scripts/*.py"; else fail "Python syntax error in web/ or aio/"; fi
+    if python3 -m py_compile web/*.py web/*/*.py aio/*.py scripts/*.py 2>/dev/null; then ok "Python syntax: web/*.py aio/*.py scripts/*.py"; else fail "Python syntax error in web/ or aio/"; fi
     if python3 scripts/check_i18n.py >/dev/null; then ok "Translations complete"; else fail "Missing translations: python3 scripts/check_i18n.py"; fi
     if python3 scripts/gen_env_reference.py; then ok "Environment-variable reference documents every variable"; else fail "Undocumented variables: python3 scripts/gen_env_reference.py"; fi
     if python3 scripts/release_info.py check >/dev/null; then ok "VERSION, compose.yaml, aio/Dockerfile and CHANGELOG.md agree"; else fail "The version differs between files: python3 scripts/release_info.py check"; fi

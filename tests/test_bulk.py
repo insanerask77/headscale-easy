@@ -13,7 +13,8 @@ os.environ.update(HEADSCALE_API_KEY="x", PUBLIC_URL="https://vpn.example.com", S
 sys.path.insert(0, WEB)
 
 import app  # noqa: E402
-import pages  # noqa: E402
+import machines_pages  # noqa: E402
+import ui  # noqa: E402
 from i18n import set_lang  # noqa: E402
 
 SESSION_ADMIN = {"admin": True, "username": "root", "csrf": "tok"}
@@ -24,7 +25,7 @@ CTX = {"public_url": "https://vpn.example.com", "tailnet": "", "server_host": "v
 def machine(node_id, name, owner="alice"):
     node = {"id": node_id, "givenName": name, "name": name, "user": {"id": "1", "name": owner},
            "online": True, "ipAddresses": ["100.64.0.1"], "tags": []}
-    return pages.Machine(node, None, {}, "", {})
+    return machines_pages.Machine(node, None, {}, "", {})
 
 
 class BulkTagsFormTests(unittest.TestCase):
@@ -50,17 +51,17 @@ class BulkFlashTests(unittest.TestCase):
         set_lang("en")
 
     def test_singular_and_plural(self):
-        self.assertIn("1 machine key expired.", pages.bulk_flash_html("bulk-expired-1"))
-        self.assertIn("3 machine keys expired.", pages.bulk_flash_html("bulk-expired-3"))
-        self.assertIn("1 machine removed.", pages.bulk_flash_html("bulk-removed-1"))
-        self.assertIn("2 machines removed.", pages.bulk_flash_html("bulk-removed-2"))
-        self.assertIn("Tag added to 1 machine.", pages.bulk_flash_html("bulk-tagged-1"))
-        self.assertIn("Tag added to 5 machines.", pages.bulk_flash_html("bulk-tagged-5"))
+        self.assertIn("1 machine key expired.", machines_pages.bulk_flash_html("bulk-expired-1"))
+        self.assertIn("3 machine keys expired.", machines_pages.bulk_flash_html("bulk-expired-3"))
+        self.assertIn("1 machine removed.", machines_pages.bulk_flash_html("bulk-removed-1"))
+        self.assertIn("2 machines removed.", machines_pages.bulk_flash_html("bulk-removed-2"))
+        self.assertIn("Tag added to 1 machine.", machines_pages.bulk_flash_html("bulk-tagged-1"))
+        self.assertIn("Tag added to 5 machines.", machines_pages.bulk_flash_html("bulk-tagged-5"))
 
     def test_unknown_code_is_blank(self):
-        self.assertEqual(pages.bulk_flash_html("acl-saved"), "")
-        self.assertEqual(pages.bulk_flash_html(""), "")
-        self.assertEqual(pages.bulk_flash_html("bulk-expired-x"), "")
+        self.assertEqual(machines_pages.bulk_flash_html("acl-saved"), "")
+        self.assertEqual(machines_pages.bulk_flash_html(""), "")
+        self.assertEqual(machines_pages.bulk_flash_html("bulk-expired-x"), "")
 
 
 class RenderTests(unittest.TestCase):
@@ -69,17 +70,17 @@ class RenderTests(unittest.TestCase):
 
     def test_admin_sees_bulk_ui(self):
         machines = [machine("1", "alice-a"), machine("2", "alice-b")]
-        page = pages.machines_page(SESSION_ADMIN, CTX, machines, True, "")
+        page = machines_pages.machines_page(SESSION_ADMIN, CTX, machines, True, "")
         self.assertIn('data-bulk-all', page)
         self.assertIn('name="node-1"', page)
         self.assertIn('name="node-2"', page)
         self.assertIn('<dialog id="bulk-remove">', page)
         self.assertIn('<dialog id="bulk-tag">', page)
-        self.assertIn(f'formaction="{pages.BASE}/machines/bulk/expire"', page)
+        self.assertIn(f'formaction="{ui.BASE}/machines/bulk/expire"', page)
 
     def test_member_has_no_bulk_ui(self):
         machines = [machine("1", "alice-a")]
-        page = pages.machines_page(SESSION_MEMBER, CTX, machines, True, "")
+        page = machines_pages.machines_page(SESSION_MEMBER, CTX, machines, True, "")
         self.assertNotIn('data-bulk-all', page)
         self.assertNotIn('data-bulk-item', page)
         self.assertNotIn('id="bulk-remove"', page)
@@ -87,7 +88,7 @@ class RenderTests(unittest.TestCase):
 
     def test_bulk_checkboxes_and_dialogs_escape_names(self):
         machines = [machine("1", "<script>evil")]
-        page = pages.machines_page(SESSION_ADMIN, CTX, machines, True, "")
+        page = machines_pages.machines_page(SESSION_ADMIN, CTX, machines, True, "")
         self.assertNotIn("<script>evil", page)
 
 

@@ -57,6 +57,37 @@ Pocket ID, Google), an external PostgreSQL, a reverse proxy in front, and the
   processes share it, so a flaw in one reaches the others: the
   [hardening guide](hardening.md) covers what to put around it.
 
+## How the console is built
+
+The console is Python with only the standard library. A request goes through these layers, and each
+layer only knows the ones below it:
+
+```text
+ request ─▶ app.Handler ─▶ handlers/<area>.py ─▶ logic modules ─▶ headscale.py ─▶ Headscale / supervisor
+              (session,        (what the request     (accounts, audit,   (REST API,
+               CSRF, role,      does: validate,       notify, naming,     control socket,
+               dispatch)        act, answer)          expiry, policy…)    read-only DB)
+                                      │
+                                      └─▶ *_pages.py / ui.py  (HTML only, no I/O)
+```
+
+- **`app.py`** owns the HTTP server and the checks every request passes: session, CSRF, forced password
+  change, demo mode and role. Routes that need no session are matched first; the admin-only POST routes are a
+  table (`_ADMIN_POST_ROUTES`).
+- **`handlers/`** holds what each request does, one mixin of `Handler` per area (`access`, `devices`, `users`,
+  `policy`, `operations`). `handlers/shared.py` has the settings, the role rules and the lookups that depend on
+  them; handlers read them as `sh.NAME`, never by copying the value.
+- **Logic modules** (`local_accounts`, `audit`, `notify`, `expiry`, `signup`, …) contain no HTML. **`*_pages.py`**
+  build HTML and do no I/O.
+- **`config.py`** turns the environment into a `Settings` object; `ports.py` writes down what the console expects
+  from Headscale, and a test checks that `headscale.py` provides it.
+- **Rules kept by tests** (`tests/test_architecture.py`): no import cycles, no logic module importing a page
+  module, nothing importing `app`. The supervisor side (`aio/`) follows the same split: `supervisor.py` for the
+  lifecycle, `processes.py` and `backup_control.py` for what it delegates.
+
+Quality checks run in CI and locally: `make lint` (ruff, shellcheck, syntax, translations), `make typecheck`
+(pyright, with a ceiling on the number of errors that only goes down), `make test` and `make validate`.
+
 ## Resource usage
 
 Measured by `scripts/aio-smoke.sh` on 2026-10-06 (Headscale 0.29.4, Caddy 2.11.4,

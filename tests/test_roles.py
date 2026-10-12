@@ -13,6 +13,7 @@ os.environ.update(HEADSCALE_API_KEY="x", PUBLIC_URL="https://vpn.example.com", S
 sys.path.insert(0, WEB)
 
 import app  # noqa: E402
+from handlers import shared as sh  # noqa: E402
 import ui  # noqa: E402
 from i18n import set_lang  # noqa: E402
 
@@ -24,10 +25,10 @@ class RoleOfTests(unittest.TestCase):
     test_dns.py repoints hs.HEADSCALE_CONFIG in its own setUp."""
 
     def setUp(self):
-        app.ADMIN_GROUPS = {"vpn-admins"}
-        app.ADMIN_EMAILS = {"root@example.com"}
-        app.NETWORK_ADMIN_GROUPS = {"vpn-network-admins"}
-        app.AUDITOR_GROUPS = {"vpn-auditors"}
+        sh.ADMIN_GROUPS = {"vpn-admins"}
+        sh.ADMIN_EMAILS = {"root@example.com"}
+        sh.NETWORK_ADMIN_GROUPS = {"vpn-network-admins"}
+        sh.AUDITOR_GROUPS = {"vpn-auditors"}
 
     def test_admin_by_group(self):
         self.assertEqual(app.role_of(["vpn-admins"], "alice@example.com"), "admin")

@@ -1,7 +1,7 @@
-"""Local account authentication: users, passwords, TOTP, invitations.
+"""Local accounts: create, look up and update accounts, passwords (scrypt), TOTP enrollment, roles.
 
-Accounts are stored in /data/console/accounts.db (mode 600), passwords are hashed with
-scrypt, TOTP follows RFC 6238, and invitation/reset tokens are single-use.
+Storage is in accounts_db, the TOTP maths in totp, invitation/reset tokens and sign-up keys in
+account_tokens.
 
 Standard library only, no dependencies.
 """
@@ -11,190 +11,17 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
-import os
 import secrets
 import sqlite3
-import time
-from contextlib import contextmanager
-from datetime import datetime, timezone
-from typing import Any
+
+import totp
+from accounts_db import _db, _now, _row_to_dict
 
 log = logging.getLogger(__name__)
-
-# Database path and connection (set by configure())
-_db_path: str | None = None
-_memory_conn: sqlite3.Connection | None = None  # Shared connection for :memory:
-
-# Schema version for migrations
-SCHEMA_VERSION = 1
 
 # Password requirements
 MIN_PASSWORD_LENGTH = 8
 
-# TOTP settings (RFC 6238)
-TOTP_PERIOD = 30  # seconds
-TOTP_DIGITS = 6
-TOTP_WINDOW = 1  # accept ±1 step (±30s)
-
-# Token expiration defaults
-DEFAULT_INVITATION_HOURS = 168  # 7 days
-DEFAULT_RESET_HOURS = 24
-
-
-# -----------------------------------------------------------------------------
-# Database setup
-# -----------------------------------------------------------------------------
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS accounts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT NOT NULL UNIQUE,
-    email TEXT NOT NULL UNIQUE,
-    headscale_user TEXT,  -- links to Headscale user.name
-    role TEXT NOT NULL DEFAULT 'member',  -- admin, network_admin, auditor, member
-    pw_hash TEXT NOT NULL,
-    totp_secret TEXT,  -- base32-encoded secret, NULL = not enrolled
-    totp_confirmed INTEGER NOT NULL DEFAULT 0,  -- 0 = enrolled but not confirmed, 1 = active
-    totp_last_step INTEGER,  -- replay protection: last TOTP step used
-    recovery_codes TEXT,  -- newline-separated hashed codes
-    disabled INTEGER NOT NULL DEFAULT 0,
-    must_change INTEGER NOT NULL DEFAULT 0,  -- 1 = choose a new password at the next sign-in
-    created TEXT NOT NULL,  -- ISO8601 UTC
-    updated TEXT NOT NULL   -- ISO8601 UTC
-);
-
-CREATE INDEX IF NOT EXISTS idx_accounts_username ON accounts(username);
-CREATE INDEX IF NOT EXISTS idx_accounts_email ON accounts(email);
-CREATE INDEX IF NOT EXISTS idx_accounts_headscale_user ON accounts(headscale_user);
-
-CREATE TABLE IF NOT EXISTS tokens (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind TEXT NOT NULL,  -- 'invite' or 'reset'
-    token_hash TEXT NOT NULL UNIQUE,  -- SHA-256 hex
-    account_id INTEGER,  -- NULL for invitations (account not created yet)
-    role TEXT,  -- for invitations: the role the account will have
-    email TEXT,  -- for invitations: the email the account will have
-    expires TEXT NOT NULL,  -- ISO8601 UTC
-    used_at TEXT,  -- ISO8601 UTC, NULL = not used yet
-    created TEXT NOT NULL,
-    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_tokens_hash ON tokens(token_hash);
-CREATE INDEX IF NOT EXISTS idx_tokens_kind ON tokens(kind);
-CREATE INDEX IF NOT EXISTS idx_tokens_account_id ON tokens(account_id);
-
--- Keys that allow self-registration when the sign-up mode is "invite"
-CREATE TABLE IF NOT EXISTS signup_keys (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    key_hash TEXT NOT NULL UNIQUE,  -- SHA-256 hex; the key itself is shown once
-    label TEXT NOT NULL DEFAULT '',
-    max_uses INTEGER NOT NULL DEFAULT 1,  -- 0 = unlimited
-    uses INTEGER NOT NULL DEFAULT 0,
-    expires TEXT,  -- ISO8601 UTC, NULL = never
-    revoked INTEGER NOT NULL DEFAULT 0,
-    created TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS schema_version (
-    version INTEGER NOT NULL
-);
-"""
-
-
-def _migrate(conn) -> None:
-    """Columns added after the first release (CREATE IF NOT EXISTS skips them)."""
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(accounts)")}
-    if "must_change" not in cols:  # 1 = must choose a new password at the next sign-in
-        conn.execute("ALTER TABLE accounts ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0")
-
-
-def configure(path: str = "/data/console/accounts.db") -> None:
-    """Initialize the database at the given path. Creates the file with mode
-    600 if it does not exist. Call this once at startup."""
-    global _db_path, _memory_conn
-    _db_path = path
-
-    # For :memory:, create and keep a persistent connection
-    if path == ":memory:":
-        _memory_conn = sqlite3.connect(":memory:", check_same_thread=False)
-        _memory_conn.row_factory = sqlite3.Row
-        _memory_conn.execute("PRAGMA foreign_keys = ON")
-        _memory_conn.executescript(SCHEMA)
-        _migrate(_memory_conn)
-        version = _memory_conn.execute("SELECT version FROM schema_version").fetchone()
-        if version is None:
-            _memory_conn.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
-        _memory_conn.commit()
-        return
-
-    # Create parent directory if needed
-    parent = os.path.dirname(path)
-    if parent and not os.path.exists(parent):
-        os.makedirs(parent, mode=0o700, exist_ok=True)
-
-    # Create database file with restricted permissions if it doesn't exist
-    if not os.path.exists(path):
-        open(path, 'a').close()
-        os.chmod(path, 0o600)
-
-    # Create tables
-    with _db() as db:
-        db.executescript(SCHEMA)
-        _migrate(db)
-        # Schema version tracking
-        version = db.execute("SELECT version FROM schema_version").fetchone()
-        if version is None:
-            db.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
-        db.commit()
-
-
-@contextmanager
-def _db():
-    """Context manager for database connections. Commits on success, rolls back
-    on exception. For :memory:, reuses the persistent connection."""
-    if _db_path is None:
-        raise RuntimeError("local_accounts.configure() not called")
-
-    # For :memory:, use the persistent connection
-    if _db_path == ":memory:":
-        if _memory_conn is None:
-            raise RuntimeError("configure() not properly initialized for :memory:")
-        try:
-            yield _memory_conn
-            _memory_conn.commit()
-        except Exception:
-            _memory_conn.rollback()
-            raise
-        return
-
-    # For file-based databases, create a new connection
-    conn = sqlite3.connect(_db_path, timeout=10.0)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-
-def _now() -> str:
-    """Current timestamp in ISO8601 UTC format."""
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
-    """Convert a Row to a dict, or None."""
-    return dict(row) if row is not None else None
-
-
-# -----------------------------------------------------------------------------
-# Placeholder functions (implemented in later blocks)
-# -----------------------------------------------------------------------------
 
 def hash_password(plain: str) -> str:
     """Hash a password with scrypt. Returns the hash in a format that includes
@@ -361,158 +188,6 @@ def delete_account(account_id: int) -> None:
 
 
 # -----------------------------------------------------------------------------
-# TOTP functions (Block 3.1)
-# -----------------------------------------------------------------------------
-
-def generate_totp_secret() -> str:
-    """Generate a random TOTP secret (160 bits, base32-encoded)."""
-    import base64
-    # 160 bits = 20 bytes
-    random_bytes = secrets.token_bytes(20)
-    # base32 encode (no padding needed for 20 bytes)
-    return base64.b32encode(random_bytes).decode('ascii')
-
-
-def compute_totp(secret: str, timestamp: int | None = None) -> str:
-    """Compute a 6-digit TOTP code for the given secret and timestamp.
-
-    Implements RFC 6238 (TOTP: Time-Based One-Time Password Algorithm).
-
-    Args:
-        secret: base32-encoded secret key
-        timestamp: Unix timestamp (defaults to current time)
-
-    Returns:
-        6-digit TOTP code as a string
-    """
-    import base64
-    import struct
-
-    if timestamp is None:
-        timestamp = int(time.time())
-
-    # Step 1: Compute time step (T = floor(Unix_time / X))
-    step = timestamp // TOTP_PERIOD
-
-    # Step 2: Decode secret from base32
-    try:
-        key = base64.b32decode(secret, casefold=True)
-    except Exception:
-        raise ValueError("Invalid base32 secret")
-
-    # Step 3: Compute HOTP (HMAC-based One-Time Password)
-    # Counter is the time step, encoded as 8-byte big-endian integer
-    counter_bytes = struct.pack('>Q', step)
-
-    # HMAC-SHA1
-    hmac_digest = hmac.new(key, counter_bytes, hashlib.sha1).digest()
-
-    # Step 4: Dynamic truncation (extract 4 bytes)
-    offset = hmac_digest[-1] & 0x0f
-    code_bytes = hmac_digest[offset:offset + 4]
-    code_int = struct.unpack('>I', code_bytes)[0]
-
-    # Step 5: Strip the most significant bit and compute modulo 10^6
-    code_int &= 0x7fffffff
-    code = code_int % (10 ** TOTP_DIGITS)
-
-    # Step 6: Return as zero-padded string
-    return str(code).zfill(TOTP_DIGITS)
-
-
-def verify_totp(secret: str, code: str, last_step: int | None = None) -> tuple[bool, int]:
-    """Verify a TOTP code with ±1 step window and replay protection.
-
-    Args:
-        secret: base32-encoded secret key
-        code: 6-digit code to verify
-        last_step: the last time step that was used (for replay protection)
-
-    Returns:
-        (valid, new_step) where:
-            - valid: True if code is correct and not replayed
-            - new_step: the step that was used (save this to prevent replay)
-    """
-    if not code or not code.isdigit() or len(code) != TOTP_DIGITS:
-        return (False, last_step or 0)
-
-    current_time = int(time.time())
-    current_step = current_time // TOTP_PERIOD
-
-    # Try current step and ±TOTP_WINDOW steps
-    for offset in range(-TOTP_WINDOW, TOTP_WINDOW + 1):
-        test_step = current_step + offset
-
-        # Replay protection: don't accept a step we've already used
-        if last_step is not None and test_step <= last_step:
-            continue
-
-        # Compute TOTP for this step
-        test_timestamp = test_step * TOTP_PERIOD
-        expected_code = compute_totp(secret, test_timestamp)
-
-        # Constant-time comparison
-        if hmac.compare_digest(code, expected_code):
-            return (True, test_step)
-
-    return (False, last_step or current_step)
-
-
-def generate_recovery_codes(n: int = 8) -> list[str]:
-    """Generate n random recovery codes (8 characters each, alphanumeric)."""
-    codes = []
-    # Use alphanumeric characters (uppercase, easy to read)
-    # Avoid ambiguous characters: 0, O, 1, I, l
-    alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-
-    for _ in range(n):
-        # 8 characters from the alphabet
-        code = ''.join(secrets.choice(alphabet) for _ in range(8))
-        codes.append(code)
-
-    return codes
-
-
-def hash_recovery_codes(codes: list[str]) -> str:
-    """Hash a list of recovery codes. Returns newline-separated hashes."""
-    hashes = []
-    for code in codes:
-        # SHA-256 hash of each code
-        code_hash = hashlib.sha256(code.encode('utf-8')).hexdigest()
-        hashes.append(code_hash)
-
-    return '\n'.join(hashes)
-
-
-def verify_recovery_code(hashed: str, code: str) -> tuple[bool, str]:
-    """Verify a recovery code and remove it from the list (single-use).
-
-    Args:
-        hashed: newline-separated hashes of remaining codes
-        code: code to verify
-
-    Returns:
-        (valid, remaining) where:
-            - valid: True if code matched one of the hashes
-            - remaining: newline-separated hashes with the used code removed
-    """
-    if not hashed or not code:
-        return (False, hashed)
-
-    code_hash = hashlib.sha256(code.upper().encode('utf-8')).hexdigest()
-    hashes = hashed.split('\n')
-
-    # Check if the code hash exists
-    if code_hash in hashes:
-        # Remove the used hash
-        hashes.remove(code_hash)
-        remaining = '\n'.join(hashes)
-        return (True, remaining)
-
-    return (False, hashed)
-
-
-# -----------------------------------------------------------------------------
 # TOTP enrollment (Block 3.2)
 # -----------------------------------------------------------------------------
 
@@ -532,7 +207,7 @@ def enroll_totp(account_id: int) -> tuple[str, str]:
         raise ValueError(f"Account {account_id} not found")
 
     # Generate a new secret
-    secret = generate_totp_secret()
+    secret = totp.generate_totp_secret()
 
     # Store it in the account (not yet confirmed)
     now = _now()
@@ -555,8 +230,8 @@ def enroll_totp(account_id: int) -> tuple[str, str]:
         f"otpauth://totp/{urllib.parse.quote(label)}"
         f"?secret={secret}"
         f"&issuer={urllib.parse.quote(issuer)}"
-        f"&digits={TOTP_DIGITS}"
-        f"&period={TOTP_PERIOD}"
+        f"&digits={totp.TOTP_DIGITS}"
+        f"&period={totp.TOTP_PERIOD}"
     )
 
     return (secret, qr_data)
@@ -579,14 +254,14 @@ def confirm_totp(account_id: int, code: str) -> bool:
         raise ValueError("TOTP not enrolled for this account")
 
     # Verify the code (no replay protection needed during enrollment)
-    valid, new_step = verify_totp(secret, code, last_step=None)
+    valid, new_step = totp.verify_totp(secret, code, last_step=None)
 
     if not valid:
         return False
 
     # Mark as confirmed and generate recovery codes
-    recovery_codes = generate_recovery_codes(8)
-    recovery_hashed = hash_recovery_codes(recovery_codes)
+    recovery_codes = totp.generate_recovery_codes(8)
+    recovery_hashed = totp.hash_recovery_codes(recovery_codes)
 
     now = _now()
     with _db() as db:
@@ -629,8 +304,8 @@ def reset_recovery_codes(account_id: int) -> list[str]:
         raise ValueError("TOTP not active for this account")
 
     # Generate new codes
-    recovery_codes = generate_recovery_codes(8)
-    recovery_hashed = hash_recovery_codes(recovery_codes)
+    recovery_codes = totp.generate_recovery_codes(8)
+    recovery_hashed = totp.hash_recovery_codes(recovery_codes)
 
     now = _now()
     with _db() as db:
@@ -641,337 +316,6 @@ def reset_recovery_codes(account_id: int) -> list[str]:
 
     log.info(f"Recovery codes reset for account {account_id} ({account['username']})")
     return recovery_codes
-
-
-# -----------------------------------------------------------------------------
-# Token functions (Block 4.1)
-# -----------------------------------------------------------------------------
-
-def _hash_token(token: str) -> str:
-    """Hash a token with SHA-256. Returns hex digest."""
-    return hashlib.sha256(token.encode('utf-8')).hexdigest()
-
-
-def create_invitation(email: str, role: str = 'member', expires_hours: int = DEFAULT_INVITATION_HOURS) -> str:
-    """Create an invitation token for a new account.
-
-    Args:
-        email: Email address for the invitation
-        role: Role the account will have (default: 'member')
-        expires_hours: Hours until expiration (default: 168 = 7 days)
-
-    Returns:
-        Unhashed token (32 bytes urlsafe base64). Store this securely, as it
-        cannot be retrieved later (only the hash is stored).
-    """
-    # Validate inputs
-    email = email.strip().lower()
-    if not email:
-        raise ValueError("Email is required")
-
-    if role not in ('admin', 'network_admin', 'auditor', 'member'):
-        raise ValueError(f"Invalid role: {role}")
-
-    # Generate random token (32 bytes = 256 bits)
-    token = secrets.token_urlsafe(32)
-    token_hash = _hash_token(token)
-
-    # Calculate expiration
-    from datetime import timedelta
-    now = datetime.now(timezone.utc)
-    expires = now + timedelta(hours=expires_hours)
-
-    # Store in database
-    with _db() as db:
-        db.execute(
-            """INSERT INTO tokens (kind, token_hash, account_id, role, email, expires, created)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            ('invite', token_hash, None, role, email, expires.isoformat(), now.isoformat())
-        )
-
-    log.info(f"Created invitation for {email} (role={role}, expires in {expires_hours}h)")
-    return token
-
-
-def create_reset_token(account_id: int, expires_hours: int = DEFAULT_RESET_HOURS) -> str:
-    """Create a password reset token for an existing account.
-
-    Args:
-        account_id: Account ID to reset password for
-        expires_hours: Hours until expiration (default: 24)
-
-    Returns:
-        Unhashed token (32 bytes urlsafe base64)
-    """
-    # Verify account exists
-    account = get_account(id=account_id)
-    if not account:
-        raise ValueError(f"Account {account_id} not found")
-
-    # Generate random token
-    token = secrets.token_urlsafe(32)
-    token_hash = _hash_token(token)
-
-    # Calculate expiration
-    from datetime import timedelta
-    now = datetime.now(timezone.utc)
-    expires = now + timedelta(hours=expires_hours)
-
-    # Store in database
-    with _db() as db:
-        db.execute(
-            """INSERT INTO tokens (kind, token_hash, account_id, role, email, expires, created)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            ('reset', token_hash, account_id, None, account['email'], expires.isoformat(), now.isoformat())
-        )
-
-    log.info(f"Created reset token for account {account_id} ({account['username']})")
-    return token
-
-
-def check_token(token: str, kind: str) -> dict | None:
-    """Check if a token is valid WITHOUT consuming it.
-
-    Args:
-        token: Unhashed token string
-        kind: 'invite' or 'reset'
-
-    Returns:
-        Dict with token data if valid (same as verify_token), or None if invalid.
-        Does NOT mark the token as used.
-    """
-    if kind not in ('invite', 'reset'):
-        raise ValueError(f"Invalid token kind: {kind}")
-
-    token_hash = _hash_token(token)
-    now = datetime.now(timezone.utc)
-
-    with _db() as db:
-        # Find the token
-        row = db.execute(
-            """SELECT * FROM tokens
-               WHERE token_hash = ? AND kind = ?""",
-            (token_hash, kind)
-        ).fetchone()
-
-        if not row:
-            return None
-
-        token_data = dict(row)
-
-        # Check if already used
-        if token_data['used_at'] is not None:
-            return None
-
-        # Check if expired
-        expires = datetime.fromisoformat(token_data['expires'])
-        if now > expires:
-            return None
-
-        # Return relevant fields (without consuming)
-        if kind == 'invite':
-            return {
-                'email': token_data['email'],
-                'role': token_data['role'],
-                'token_hash': token_hash
-            }
-        else:  # reset
-            return {
-                'account_id': token_data['account_id'],
-                'email': token_data['email'],
-                'token_hash': token_hash
-            }
-
-
-def verify_token(token: str, kind: str) -> dict | None:
-    """Verify and consume a token (invitation or reset).
-
-    Args:
-        token: Unhashed token string
-        kind: 'invite' or 'reset'
-
-    Returns:
-        Dict with token data if valid:
-            - For 'invite': {email, role, token_hash}
-            - For 'reset': {account_id, email, token_hash}
-        None if token is invalid, expired, or already used.
-
-    Side effect: Marks the token as used (single-use).
-    """
-    if kind not in ('invite', 'reset'):
-        raise ValueError(f"Invalid token kind: {kind}")
-
-    token_hash = _hash_token(token)
-    now = datetime.now(timezone.utc)
-
-    with _db() as db:
-        # Find the token
-        row = db.execute(
-            """SELECT * FROM tokens
-               WHERE token_hash = ? AND kind = ?""",
-            (token_hash, kind)
-        ).fetchone()
-
-        if not row:
-            return None
-
-        token_data = dict(row)
-
-        # Check if already used
-        if token_data['used_at'] is not None:
-            log.warning(f"Token already used: {token_hash[:16]}...")
-            return None
-
-        # Check if expired
-        expires = datetime.fromisoformat(token_data['expires'])
-        if now > expires:
-            log.warning(f"Token expired: {token_hash[:16]}...")
-            return None
-
-        # Mark as used
-        db.execute(
-            "UPDATE tokens SET used_at = ? WHERE token_hash = ?",
-            (now.isoformat(), token_hash)
-        )
-
-        # Return relevant fields
-        if kind == 'invite':
-            return {
-                'email': token_data['email'],
-                'role': token_data['role'],
-                'token_hash': token_hash
-            }
-        else:  # reset
-            return {
-                'account_id': token_data['account_id'],
-                'email': token_data['email'],
-                'token_hash': token_hash
-            }
-
-
-def revoke_token(token: str) -> None:
-    """Revoke a token by marking it as used.
-
-    Args:
-        token: Unhashed token string
-    """
-    token_hash = _hash_token(token)
-    now = _now()
-
-    with _db() as db:
-        result = db.execute(
-            "UPDATE tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL",
-            (now, token_hash)
-        )
-
-        if result.rowcount > 0:
-            log.info(f"Revoked token: {token_hash[:16]}...")
-
-
-def revoke_token_by_hash(token_hash: str) -> bool:
-    """Revoke a token by its hash (for admin UI).
-
-    Args:
-        token_hash: SHA-256 hash of the token
-
-    Returns:
-        True if token was revoked, False if not found or already used
-    """
-    now = _now()
-
-    with _db() as db:
-        result = db.execute(
-            "UPDATE tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL",
-            (now, token_hash)
-        )
-
-        if result.rowcount > 0:
-            log.info(f"Revoked token: {token_hash[:16]}...")
-            return True
-        return False
-
-
-def list_active_invitations() -> list[dict]:
-    """List all active (not used, not expired) invitations.
-
-    Returns:
-        List of dicts with: {id, email, role, expires, created}
-    """
-    now = datetime.now(timezone.utc).isoformat()
-
-    with _db() as db:
-        rows = db.execute(
-            """SELECT id, email, role, expires, created, token_hash
-               FROM tokens
-               WHERE kind = 'invite' AND used_at IS NULL AND expires > ?
-               ORDER BY created DESC""",
-            (now,)
-        ).fetchall()
-
-        return [dict(row) for row in rows]
-
-
-# -----------------------------------------------------------------------------
-# Sign-up keys (self-registration in "invite" mode)
-# -----------------------------------------------------------------------------
-
-def create_signup_key(label: str = "", max_uses: int = 1, expires_hours: int | None = None) -> str:
-    """Create a sign-up key. max_uses 0 = unlimited; expires_hours None = never.
-    Returns the key; only its hash is stored, so it cannot be shown again."""
-    if max_uses < 0 or (expires_hours is not None and expires_hours <= 0):
-        raise ValueError("Invalid key limits")
-    from datetime import timedelta
-    key = "hse-" + secrets.token_urlsafe(24)
-    now = datetime.now(timezone.utc)
-    expires = (now + timedelta(hours=expires_hours)).isoformat() if expires_hours else None
-    with _db() as db:
-        db.execute(
-            "INSERT INTO signup_keys (key_hash, label, max_uses, expires, created) VALUES (?, ?, ?, ?, ?)",
-            (_hash_token(key), label.strip()[:60], max_uses, expires, now.isoformat()))
-    return key
-
-
-def use_signup_key(key: str) -> int | None:
-    """Spend one use of a key. Returns its id, or None if it is unknown,
-    revoked, expired or used up (the caller cannot tell which: one error)."""
-    now = _now()
-    with _db() as db:
-        # one statement: check and spend together, so two requests cannot both take the last use
-        cur = db.execute(
-            """UPDATE signup_keys SET uses = uses + 1
-               WHERE key_hash = ? AND revoked = 0 AND (expires IS NULL OR expires > ?)
-                 AND (max_uses = 0 OR uses < max_uses)""",
-            (_hash_token(key or ""), now))
-        if cur.rowcount != 1:
-            return None
-        row = db.execute("SELECT id FROM signup_keys WHERE key_hash = ?", (_hash_token(key),)).fetchone()
-        return row["id"]
-
-
-def release_signup_key(key_id: int) -> None:
-    """Give a use back (the account could not be created after all)."""
-    with _db() as db:
-        db.execute("UPDATE signup_keys SET uses = MAX(uses - 1, 0) WHERE id = ?", (key_id,))
-
-
-def list_signup_keys() -> list[dict]:
-    """All keys, newest first, with an `active` flag. Never includes the key."""
-    now = _now()
-    with _db() as db:
-        rows = db.execute(
-            "SELECT id, label, max_uses, uses, expires, revoked, created FROM signup_keys ORDER BY id DESC").fetchall()
-    out = []
-    for row in rows:
-        d = dict(row)
-        d["active"] = (not d["revoked"] and (d["expires"] is None or d["expires"] > now)
-                       and (d["max_uses"] == 0 or d["uses"] < d["max_uses"]))
-        out.append(d)
-    return out
-
-
-def revoke_signup_key(key_id: int) -> bool:
-    with _db() as db:
-        return db.execute("UPDATE signup_keys SET revoked = 1 WHERE id = ? AND revoked = 0", (key_id,)).rowcount > 0
 
 
 # -----------------------------------------------------------------------------

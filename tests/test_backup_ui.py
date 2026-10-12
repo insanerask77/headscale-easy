@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(ROOT, "tests"))
 
 from test_security import ADMIN, MEMBER, B, Base, location, request  # noqa: E402  (sets the environment app needs)
 import app  # noqa: E402
+from handlers import shared as sh  # noqa: E402
 import headscale as hs  # noqa: E402
 import status as server_status  # noqa: E402
 
@@ -282,12 +283,12 @@ class Upload(WithBackupDir):
         self.assertEqual(self.left(), [])
 
     def test_too_large_is_refused_and_leaves_nothing(self):
-        with mock.patch.object(app, "BACKUP_UPLOAD_MAX", 1000):
+        with mock.patch.object(sh, "BACKUP_UPLOAD_MAX", 1000):
             status, headers, _b, upload, _r = self.post([("csrf", "tok"), ("file", b"x" * 5000, "a.tar.gz")])
             self.assertEqual((status, location(headers)), (303, f"{B}/backups?m=backup-upload-toolarge"))
             self.assertEqual(self.left(), [])
             upload.assert_not_called()
-        with mock.patch.object(app, "BACKUP_UPLOAD_MAX", 10):  # refused from Content-Length, before reading
+        with mock.patch.object(sh, "BACKUP_UPLOAD_MAX", 10):  # refused from Content-Length, before reading
             raw, ctype = _mp(("csrf", "tok"), ("file", b"x" * (2 << 20), "a.tar.gz"))
             status, headers, _b = request("POST", self.URL, ADMIN, headers={"Content-Type": ctype}, raw=raw)
             self.assertEqual(location(headers), f"{B}/backups?m=backup-upload-toolarge")

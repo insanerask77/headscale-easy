@@ -33,6 +33,8 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
+import audit
+
 log = logging.getLogger("headscale-easy")
 
 ALL_EVENTS = ("device.registered", "device.key_expired", "device.expiring", "device.removed", "backup.failed")
@@ -217,8 +219,6 @@ def new_expiring(nodes: list[dict], notified: dict, now: datetime | None = None)
 def check_expiring(nodes: list[dict], now: datetime | None = None) -> int:
     """One pass: notify machines about to expire. Remembers what was sent in
     the activity log database so a restart does not repeat it."""
-    import audit
-
     saved = audit.get_state("notify.expiring")
     fresh, notified = new_expiring(nodes, saved or {}, now)
     audit.set_state("notify.expiring", notified)
@@ -246,8 +246,6 @@ def new_backup_failure(backup: dict | None, seen: str | None) -> tuple[dict | No
 def check_backup(backup: dict | None) -> bool:
     """One pass over the supervisor's backup summary (status page data). Remembers
     the last run seen in the activity log database so a restart does not repeat it."""
-    import audit
-
     failure, seen = new_backup_failure(backup, audit.get_state("notify.backup"))
     if seen is not None:
         audit.set_state("notify.backup", seen)
@@ -268,6 +266,11 @@ def _loop() -> None:
         except Exception as exc:  # noqa: BLE001 - keep the thread alive
             log.warning("notifications: expiry check failed: %s", exc)
         time.sleep(CHECK_INTERVAL)
+
+
+def on_audit_event(action: str, target: str, details: dict | None) -> None:
+    """Registered with audit.subscribe() at start-up: every stored event is offered to the notifier."""
+    event(action, target, details)
 
 
 def start() -> None:

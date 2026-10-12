@@ -8,7 +8,7 @@ os.environ.update(HEADSCALE_API_KEY="x", PUBLIC_URL="https://vpn.example.com", S
                   HEADSCALE_URL="http://headscale:8080")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "web"))
 
-import pages  # noqa: E402
+import machines_pages  # noqa: E402
 from i18n import set_lang  # noqa: E402
 
 ADMIN = {"admin": True, "username": "alice", "csrf": "tok"}
@@ -20,7 +20,7 @@ def machine(node_id, available=(), approved=()):
     node = {"id": node_id, "givenName": f"n{node_id}", "name": f"n{node_id}", "user": {"id": "1", "name": "alice"},
             "online": True, "ipAddresses": ["100.64.0.1"], "tags": [],
             "availableRoutes": list(available), "approvedRoutes": list(approved)}
-    return pages.Machine(node, None, {}, "", {})
+    return machines_pages.Machine(node, None, {}, "", {})
 
 
 class PendingRoutesTests(unittest.TestCase):
@@ -43,27 +43,27 @@ class PendingRoutesTests(unittest.TestCase):
 
     def test_list_menu_has_approve_for_admin_only_when_pending(self):
         pending, ok = machine("4", ["10.0.0.0/24"]), machine("5", ["10.0.0.0/24"], ["10.0.0.0/24"])
-        self.assertIn("/machines/4/approve-routes", pages.machine_menu(pending, ADMIN))
-        self.assertNotIn("approve-routes", pages.machine_menu(ok, ADMIN))
-        self.assertNotIn("approve-routes", pages.machine_menu(pending, MEMBER))
+        self.assertIn("/machines/4/approve-routes", machines_pages.machine_menu(pending, ADMIN))
+        self.assertNotIn("approve-routes", machines_pages.machine_menu(ok, ADMIN))
+        self.assertNotIn("approve-routes", machines_pages.machine_menu(pending, MEMBER))
 
     def test_detail_routes_section_has_approve_button(self):
-        html = pages.routes_section(machine("6", ["0.0.0.0/0"]), ADMIN)
+        html = machines_pages.routes_section(machine("6", ["0.0.0.0/0"]), ADMIN)
         self.assertIn("/machines/6/approve-routes", html)
         self.assertIn('value="machines/6"', html)
-        ok = pages.routes_section(machine("7", ["0.0.0.0/0"], ["0.0.0.0/0"]), ADMIN)
+        ok = machines_pages.routes_section(machine("7", ["0.0.0.0/0"], ["0.0.0.0/0"]), ADMIN)
         self.assertNotIn("approve-routes", ok)
 
     def test_banner_counts_machines(self):
         ms = [machine("8", ["0.0.0.0/0"]), machine("9", ["10.0.0.0/24"]), machine("10", ["10.0.0.0/24"], ["10.0.0.0/24"])]
-        self.assertIn("2 machines have routes waiting for approval.", pages.pending_routes_banner(ms))
-        self.assertIn("1 machine has routes waiting", pages.pending_routes_banner(ms[:1]))
-        self.assertEqual(pages.pending_routes_banner(ms[2:]), "")
+        self.assertIn("2 machines have routes waiting for approval.", machines_pages.pending_routes_banner(ms))
+        self.assertIn("1 machine has routes waiting", machines_pages.pending_routes_banner(ms[:1]))
+        self.assertEqual(machines_pages.pending_routes_banner(ms[2:]), "")
 
     def test_banner_only_on_admin_machines_page(self):
         ms = [machine("11", ["0.0.0.0/0"])]
-        self.assertIn("data-pending-routes", pages.machines_page(ADMIN, CTX, ms, True, ""))
-        self.assertNotIn("data-pending-routes", pages.machines_page(MEMBER, CTX, ms, True, ""))
+        self.assertIn("data-pending-routes", machines_pages.machines_page(ADMIN, CTX, ms, True, ""))
+        self.assertNotIn("data-pending-routes", machines_pages.machines_page(MEMBER, CTX, ms, True, ""))
 
 
 if __name__ == "__main__":

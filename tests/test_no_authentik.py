@@ -51,7 +51,7 @@ class NoAuthentik(unittest.TestCase):
 
     def test_aio_only_renders_the_route_and_the_provider_details(self):
         for rel, n, line in lines_with_authentik("aio/*.py"):
-            self.assertEqual(rel, "aio/render.py", "%s:%d: %s" % (rel, n, line))
+            self.assertIn(rel, ("aio/render.py", "aio/render_checks.py"), "%s:%d: %s" % (rel, n, line))
 
     def test_the_removed_settings_are_nowhere_in_the_code_or_the_overlays(self):
         paths = glob.glob(os.path.join(ROOT, "web", "*.py")) + glob.glob(os.path.join(ROOT, "aio", "*.py")) \

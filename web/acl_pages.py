@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import policy
 from i18n import _
-from pages import dialog
+from ui import dialog
 from ui import BASE, badge, csrf_input, esc, icon
 
 

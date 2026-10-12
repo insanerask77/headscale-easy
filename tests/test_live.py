@@ -13,7 +13,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from test_security import ADMIN, B, Base, MEMBER, app, hs, request, sessions  # noqa: E402
+from test_security import ADMIN, B, Base, MEMBER, app, hs, request, sessions, sh  # noqa: E402
 
 import live  # noqa: E402
 
@@ -131,7 +131,7 @@ class Endpoint(Base):
         super().setUp()
         sessions.configure(":memory:")
         self.hub = live.Hub(lambda: [], interval=0.02)
-        p = mock.patch.object(app, "HUB", self.hub)
+        p = mock.patch.object(sh, "HUB", self.hub)
         p.start()
         self.addCleanup(p.stop)
         self.addCleanup(self.hub.close_all)

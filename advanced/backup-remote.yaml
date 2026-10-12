@@ -5,7 +5,7 @@
 # Set BACKUP_REMOTE in .env; the rclone config or the SSH key goes in ./remote-config.
 services:
   backup-remote:
-    image: ghcr.io/insanerask77/headscale-easy-backup:${HSE_VERSION:-2.0.2}
+    image: ghcr.io/insanerask77/headscale-easy-backup:${HSE_VERSION:-2.1.0}
     container_name: headscale-easy-backup-remote
     restart: unless-stopped
     depends_on:

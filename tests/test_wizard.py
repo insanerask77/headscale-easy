@@ -21,6 +21,8 @@ os.environ.setdefault("HEADSCALE_API_KEY", "x")
 os.environ.setdefault("SESSION_SECRET", "x")
 
 import local_accounts as lac  # noqa: E402
+import account_tokens  # noqa: E402
+import accounts_db  # noqa: E402
 import render  # noqa: E402
 import wizard  # noqa: E402
 
@@ -114,7 +116,7 @@ class WizardTestBase(unittest.TestCase):
             old = getattr(wizard, name)
             setattr(wizard, name, value)
             self.addCleanup(setattr, wizard, name, old)
-        lac.configure(os.path.join(self.data, "console", "accounts.db"))
+        accounts_db.configure(os.path.join(self.data, "console", "accounts.db"))
         self.token = wizard.ensure_token(self.data)
         self.exited = threading.Event()
         self.wiz = wizard.Wizard(self.data, env={}, exit_callback=self.exited.set)
@@ -398,14 +400,14 @@ class FullFlowTest(WizardTestBase):
         saved = json.load(open(os.path.join(self.data, "config", "settings.json")))
         self.assertEqual(saved["signup_mode"], "invite")
         self.assertNotIn(key, json.dumps(saved))
-        self.assertIsNotNone(lac.use_signup_key(key))  # works once
-        self.assertIsNone(lac.use_signup_key(key))
+        self.assertIsNotNone(account_tokens.use_signup_key(key))  # works once
+        self.assertIsNone(account_tokens.use_signup_key(key))
 
     def test_invite_mode_without_a_first_key(self):
         c = self.go_to_network()
         c.post("/console/setup/signup", {"mode": "invite"})
         self.assertNotIn("hse-", self.finish_all(c)[2])
-        self.assertEqual(lac.list_signup_keys(), [])
+        self.assertEqual(account_tokens.list_signup_keys(), [])
 
     def test_existing_policy_is_not_replaced(self):
         with open(os.path.join(self.state, "policy"), "w") as fh:

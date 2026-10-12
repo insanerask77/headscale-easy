@@ -21,13 +21,15 @@ sys.path.insert(0, WEB)
 
 import local_accounts as la  # noqa: E402
 
+import accounts_db
+
 
 class BootstrapTests(unittest.TestCase):
     """Test bootstrap_admin() function."""
 
     def setUp(self):
         """Create a fresh in-memory database for each test."""
-        la.configure(":memory:")
+        accounts_db.configure(":memory:")
         # Clear any existing env vars
         for key in ('HSE_ADMIN_EMAIL', 'HSE_ADMIN_PASSWORD'):
             os.environ.pop(key, None)
@@ -37,8 +39,8 @@ class BootstrapTests(unittest.TestCase):
         for key in ('HSE_ADMIN_EMAIL', 'HSE_ADMIN_PASSWORD'):
             os.environ.pop(key, None)
 
-    @patch('app.hs')
-    @patch('app.log')
+    @patch('handlers.access.hs')
+    @patch('handlers.shared.log')
     def test_bootstrap_creates_admin_with_password(self, mock_log, mock_hs):
         """bootstrap_admin() creates an admin account when email and password are set."""
         # Import here to avoid issues with mocking
@@ -67,9 +69,10 @@ class BootstrapTests(unittest.TestCase):
         # Check log message
         mock_log.info.assert_any_call("✓ Bootstrap: Created admin account '%s' (%s)", 'admin', 'admin@example.com')
 
-    @patch('app.lac')
-    @patch('app.log')
-    def test_bootstrap_creates_invitation_without_password(self, mock_log, mock_lac):
+    @patch('handlers.access.account_tokens')
+    @patch('handlers.access.lac')
+    @patch('handlers.shared.log')
+    def test_bootstrap_creates_invitation_without_password(self, mock_log, mock_lac, mock_tokens):
         """bootstrap_admin() creates an invitation token when email is set but password is not."""
         # Import here to avoid issues with mocking
         import app
@@ -79,13 +82,13 @@ class BootstrapTests(unittest.TestCase):
 
         # Mock list_accounts to return empty list (no accounts)
         mock_lac.list_accounts.return_value = []
-        mock_lac.create_invitation.return_value = 'test-token-abc123'
+        mock_tokens.create_invitation.return_value = 'test-token-abc123'
 
         # Run bootstrap
         app.bootstrap_admin()
 
         # Check that invitation was created
-        mock_lac.create_invitation.assert_called_once_with(
+        mock_tokens.create_invitation.assert_called_once_with(
             email='admin@example.com',
             role='admin',
             expires_hours=168
@@ -96,7 +99,7 @@ class BootstrapTests(unittest.TestCase):
         self.assertTrue(any('Bootstrap invitation created' in str(call) for call in log_calls))
         self.assertTrue(any('test-token-abc123' in str(call) for call in log_calls))
 
-    @patch('app.log')
+    @patch('handlers.shared.log')
     def test_bootstrap_skips_when_accounts_exist(self, mock_log):
         """bootstrap_admin() does nothing if accounts already exist."""
         # Import here to avoid issues with mocking
@@ -116,7 +119,7 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(len(accounts), 1)
         self.assertEqual(accounts[0]['username'], 'existing')
 
-    @patch('app.log')
+    @patch('handlers.shared.log')
     def test_bootstrap_skips_when_no_email_set(self, mock_log):
         """bootstrap_admin() does nothing if HSE_ADMIN_EMAIL is not set."""
         # Import here to avoid issues with mocking
@@ -135,8 +138,8 @@ class BootstrapTests(unittest.TestCase):
         mock_log.info.assert_called_once()
         self.assertIn('Set HSE_ADMIN_EMAIL', str(mock_log.info.call_args))
 
-    @patch('app.hs')
-    @patch('app.log')
+    @patch('handlers.access.hs')
+    @patch('handlers.shared.log')
     def test_bootstrap_handles_headscale_user_creation_failure(self, mock_log, mock_hs):
         """bootstrap_admin() continues if Headscale user creation fails."""
         # Import here to avoid issues with mocking
@@ -159,7 +162,7 @@ class BootstrapTests(unittest.TestCase):
         mock_log.warning.assert_called_once()
         self.assertIn('Failed to create Headscale user', str(mock_log.warning.call_args))
 
-    @patch('app.log')
+    @patch('handlers.shared.log')
     def test_bootstrap_handles_account_creation_failure(self, mock_log):
         """bootstrap_admin() handles account creation failures gracefully."""
         # Import here to avoid issues with mocking
